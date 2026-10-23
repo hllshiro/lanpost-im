@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type Api } from '../shared/ipc'
+import { IPC, type Api, type NotifyPayload } from '../shared/ipc'
 import type { AppEvent } from '../shared/domain'
 import type { Settings, SettingsPatch } from '../shared/settings'
 
@@ -25,6 +25,19 @@ const api: Api & {
       const handler = (): void => listener()
       ipcRenderer.on(IPC.uiOpenSettings, handler)
       return () => ipcRenderer.removeListener(IPC.uiOpenSettings, handler)
+    },
+    onNotify: (listener) => {
+      const handler = (_event: unknown, payload: NotifyPayload): void => listener(payload)
+      ipcRenderer.on(IPC.uiNotify, handler)
+      return () => ipcRenderer.removeListener(IPC.uiNotify, handler)
+    },
+    onSelectConversation: (listener) => {
+      const handler = (_event: unknown, conversationId: string): void => listener(conversationId)
+      ipcRenderer.on(IPC.uiSelectConversation, handler)
+      return () => ipcRenderer.removeListener(IPC.uiSelectConversation, handler)
+    },
+    setActiveConversation: (conversationId) => {
+      ipcRenderer.send(IPC.uiActiveConversation, conversationId)
     }
   },
   messages: {

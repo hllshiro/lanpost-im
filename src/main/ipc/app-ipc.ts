@@ -28,4 +28,7 @@ export function registerAppIpc(service: AppService): void {
     IPC.fileSend,
     (_event, conversationId: string, paths: string[]) => service.sendFiles(conversationId, paths)
   )
+  ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
+    service.setActiveConversation(conversationId)
+  )
 }

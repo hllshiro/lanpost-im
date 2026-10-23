@@ -1,7 +1,11 @@
 import { Menu, Tray, nativeImage, type Tray as TrayType } from 'electron'
 import icon from '../../resources/icon.png?asset'
+import unreadIcon from '../../resources/tray-unread.png?asset'
 
 let tray: TrayType | null = null
+let normalImage: Electron.NativeImage | null = null
+let unreadImage: Electron.NativeImage | null = null
+let unreadCount = 0
 
 export interface TrayActions {
   onShow: () => void
@@ -11,8 +15,9 @@ export interface TrayActions {
 
 export function createTray(actions: TrayActions): TrayType {
   const size = process.platform === 'win32' ? 16 : 22
-  const image = nativeImage.createFromPath(icon).resize({ width: size, height: size })
-  tray = new Tray(image)
+  normalImage = nativeImage.createFromPath(icon).resize({ width: size, height: size })
+  unreadImage = nativeImage.createFromPath(unreadIcon).resize({ width: size, height: size })
+  tray = new Tray(normalImage)
   tray.setToolTip('内网传书')
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -26,7 +31,28 @@ export function createTray(actions: TrayActions): TrayType {
   return tray
 }
 
+export function setTrayBadge(count: number): void {
+  unreadCount = count
+  if (tray === null) {
+    return
+  }
+  const showUnread = count > 0
+  if (showUnread && unreadImage !== null) {
+    tray.setImage(unreadImage)
+  } else if (normalImage !== null) {
+    tray.setImage(normalImage)
+  }
+  tray.setToolTip(count > 0 ? `内网传书 · ${count} 条未读` : '内网传书')
+}
+
+export function currentTrayUnread(): number {
+  return unreadCount
+}
+
 export function destroyTray(): void {
   tray?.destroy()
   tray = null
+  normalImage = null
+  unreadImage = null
+  unreadCount = 0
 }

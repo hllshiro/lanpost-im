@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
+import type { NotifyPayload } from '../../shared/ipc'
+import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
 import ChatPane from './components/ChatPane.vue'
 import ConversationList from './components/ConversationList.vue'
@@ -21,6 +23,22 @@ const shellStyle = computed<Record<string, string>>(() => ({
 }))
 
 let unsubscribeSettings: (() => void) | null = null
+let unsubscribeNotify: (() => void) | null = null
+let unsubscribeSelect: (() => void) | null = null
+let toastTimer: ReturnType<typeof setTimeout> | null = null
+
+const toast = ref<NotifyPayload | null>(null)
+const soundVolume = ref(70)
+
+function openToast(): void {
+  if (toast.value === null) return
+  void store.selectConversation(toast.value.conversationId)
+  toast.value = null
+  if (toastTimer !== null) {
+    clearTimeout(toastTimer)
+    toastTimer = null
+  }
+}
 
 const currentHasMore = computed(() => {
   const id = store.currentConversationId
@@ -69,9 +87,35 @@ onMounted(async () => {
   unsubscribeSettings = window.api.ui.onOpenSettings(() => {
     settingsOpen.value = true
   })
+  unsubscribeNotify = window.api.ui.onNotify((payload) => {
+    toast.value = payload
+    if (toastTimer !== null) {
+      clearTimeout(toastTimer)
+    }
+    toastTimer = setTimeout(() => {
+      toast.value = null
+      toastTimer = null
+    }, 4000)
+    if (payload.sound) {
+      const audio = new Audio(notifySound)
+      audio.volume = soundVolume.value / 100
+      void audio.play().catch(() => undefined)
+    }
+  })
+  unsubscribeSelect = window.api.ui.onSelectConversation((conversationId) => {
+    void store.selectConversation(conversationId)
+  })
+  watch(
+    () => store.currentConversationId,
+    (conversationId) => {
+      window.api.ui.setActiveConversation(conversationId)
+    },
+    { immediate: true }
+  )
   try {
     const settings = await window.api.settings.get()
     appearance.value = settings.appearance
+    soundVolume.value = settings.notify.soundVolume
   } catch (reason) {
     store.reportError(reason)
   }
@@ -79,7 +123,15 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   unsubscribeSettings?.()
+  unsubscribeNotify?.()
+  unsubscribeSelect?.()
   unsubscribeSettings = null
+  unsubscribeNotify = null
+  unsubscribeSelect = null
+  if (toastTimer !== null) {
+    clearTimeout(toastTimer)
+    toastTimer = null
+  }
 })
 </script>
 
@@ -130,6 +182,11 @@ onBeforeUnmount(() => {
         <X :size="13" />
       </button>
     </div>
+
+    <button v-if="toast" class="notify-toast" @click="openToast">
+      <strong>{{ toast.title }}</strong>
+      <span>{{ toast.body }}</span>
+    </button>
   </div>
 </template>
 
@@ -195,5 +252,37 @@ onBeforeUnmount(() => {
 .error-dismiss:hover {
   background: rgba(255, 255, 255, 0.16);
   color: #ffffff;
+}
+
+.notify-toast {
+  position: fixed;
+  top: 18px;
+  right: 20px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 300px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.16);
+  cursor: pointer;
+}
+
+.notify-toast strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.notify-toast span {
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

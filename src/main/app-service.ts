@@ -15,6 +15,7 @@ import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import { FileManager } from './files/manager'
+import { NotificationManager } from './notify/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
@@ -42,6 +43,7 @@ export class AppService {
   private readonly repos: Repositories
   private readonly engine: ProtocolEngine
   private readonly fileManager: FileManager
+  private readonly notifications: NotificationManager
   private window: BrowserWindow | null = null
   private started = false
   private filesStarted = false
@@ -91,6 +93,7 @@ export class AppService {
       onLog: (message) => logStartup('protocol: ' + message),
       onError: (error) => logStartup('protocol error: ' + error.message)
     })
+    this.notifications = new NotificationManager(settings, () => this.window)
   }
 
   attachWindow(window: BrowserWindow | null): void {
@@ -108,6 +111,7 @@ export class AppService {
     await this.engine.start()
     this.started = true
     this.handlePeers(this.engine.getPeers())
+    this.notifications.setUnread(this.unreadTotal())
   }
 
   private importLegacyHistory(): void {
@@ -136,6 +140,7 @@ export class AppService {
   }
 
   async stop(): Promise<void> {
+    this.notifications.stop()
     if (this.filesStarted) {
       await this.fileManager.stop()
       this.filesStarted = false
@@ -198,6 +203,11 @@ export class AppService {
   markRead(conversationId: string, messageId: number): void {
     this.repos.conversations.markRead(conversationId, messageId)
     this.emitConversation(conversationId)
+    this.notifications.setUnread(this.unreadTotal())
+  }
+
+  setActiveConversation(conversationId: string | null): void {
+    this.notifications.setActiveConversation(conversationId)
   }
 
   saveDraft(conversationId: string, draft: string): void {
@@ -425,6 +435,16 @@ export class AppService {
       this.fileLinks.set(file.id, link)
       this.emit({ type: 'message', message })
       this.emitConversation(conversation.id)
+      if (file.direction === 'in') {
+        this.notifications.notify({
+          conversationId: conversation.id,
+          title: peer?.alias || peer?.name || conversation.title,
+          body: `收到文件：${file.name}`,
+          kind: 'file',
+          muted: conversation.muted,
+          unread: this.unreadTotal()
+        })
+      }
     }
     const persisted: FileTaskInfo = {
       ...file,
@@ -470,6 +490,17 @@ export class AppService {
     this.repos.conversations.touch(conversation.id, message.createdAt, 1)
     this.emit({ type: 'message', message })
     this.emitConversation(conversation.id)
+    const current = this.repos.conversations.get(conversation.id)
+    if (current !== null) {
+      this.notifications.notify({
+        conversationId: current.id,
+        title: peerName || current.title,
+        body: text,
+        kind: 'message',
+        muted: current.muted,
+        unread: this.unreadTotal()
+      })
+    }
   }
 
   private handleStatus(peerKey: string, seq: number, status: 'delivered' | 'read'): void {
@@ -498,5 +529,11 @@ export class AppService {
 
   private emit(event: AppEvent): void {
     this.window?.webContents.send(IPC.event, event)
+  }
+
+  private unreadTotal(): number {
+    return this.repos.conversations
+      .list()
+      .reduce((total, conversation) => total + conversation.unread, 0)
   }
 }

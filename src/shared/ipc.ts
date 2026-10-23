@@ -5,6 +5,9 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   uiOpenSettings: 'ui:open-settings',
+  uiNotify: 'ui:notify',
+  uiSelectConversation: 'ui:select-conversation',
+  uiActiveConversation: 'ui:active-conversation',
   snapshot: 'state:snapshot',
   event: 'state:event',
   messagesList: 'messages:list',
@@ -29,6 +32,13 @@ export interface AppInfo {
   appId: string
 }
 
+export interface NotifyPayload {
+  conversationId: string
+  title: string
+  body: string
+  sound: boolean
+}
+
 export interface MessagesListRequest {
   conversationId: string
   beforeId?: number
@@ -50,6 +60,9 @@ export type Api = {
   }
   ui: {
     onOpenSettings(listener: () => void): () => void
+    onNotify(listener: (payload: NotifyPayload) => void): () => void
+    onSelectConversation(listener: (conversationId: string) => void): () => void
+    setActiveConversation(conversationId: string | null): void
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
