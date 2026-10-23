@@ -6,12 +6,29 @@ const props = defineProps<{
   draft: string
   sending: boolean
   conversationTitle: string
+  conversationId: string
 }>()
 
 const emit = defineEmits<{
   'update:draft': [value: string]
   send: [text: string]
 }>()
+
+const fileBusy = ref(false)
+const fileError = ref('')
+
+async function pickFile(): Promise<void> {
+  if (fileBusy.value || props.conversationId === '') return
+  fileBusy.value = true
+  fileError.value = ''
+  try {
+    await window.api.files.pickAndSend(props.conversationId)
+  } catch (reason) {
+    fileError.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
 
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const text = computed({
@@ -80,12 +97,19 @@ onMounted(async () => {
     />
 
     <div class="toolbar">
-      <button class="tool" disabled title="文件发送开发中" aria-label="发送文件（开发中）">
+      <button
+        class="tool"
+        :disabled="fileBusy || conversationId === ''"
+        :title="fileBusy ? '正在选择文件' : '发送文件'"
+        aria-label="发送文件"
+        @click="pickFile"
+      >
         <Paperclip :size="17" :stroke-width="1.8" />
         <span>文件</span>
       </button>
 
-      <span class="hint">Enter 发送 · Shift + Enter 换行</span>
+      <span v-if="fileError" class="file-error">{{ fileError }}</span>
+      <span v-else class="hint">Enter 发送 · Shift + Enter 换行</span>
 
       <button class="send" :disabled="!canSend" @click="submit">
         <Send :size="14" :stroke-width="2" />
@@ -147,6 +171,17 @@ onMounted(async () => {
   white-space: nowrap;
   font-size: 11px;
   color: var(--text-muted);
+  text-align: right;
+}
+
+.file-error {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: #d33b3b;
   text-align: right;
 }
 

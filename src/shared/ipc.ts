@@ -17,7 +17,9 @@ export const IPC = {
   fileReject: 'files:reject',
   fileOpen: 'files:open',
   fileReveal: 'files:reveal',
-  fileSaveAs: 'files:save-as'
+  fileSaveAs: 'files:save-as',
+  filePick: 'files:pick',
+  fileSend: 'files:send'
 } as const
 
 export interface AppInfo {
@@ -64,5 +66,7 @@ export type Api = {
     open(id: string): Promise<void>
     reveal(id: string): Promise<void>
     saveAs(id: string): Promise<void>
+    pickAndSend(conversationId: string): Promise<void>
+    sendPaths(conversationId: string, paths: string[]): Promise<void>
   }
 }
