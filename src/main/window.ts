@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { logStartup } from './startup-log'
 import type { SettingsStore } from './settings/store'
 
 let mainWindow: BrowserWindow | null = null
@@ -30,7 +31,10 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
     }
   })
 
-  window.on('ready-to-show', () => window.show())
+  window.on('ready-to-show', () => {
+    window.show()
+    logStartup('window ready-to-show')
+  })
   window.on('close', (event) => {
     if (quitting) {
       return

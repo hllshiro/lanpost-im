@@ -16,6 +16,7 @@
     "test:watch": "vitest",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
+    "dev:no-sandbox": "electron-vite dev --noSandbox",
     "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "pnpm run build && electron-builder --dir",

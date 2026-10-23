@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog } from 'electron'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
@@ -13,7 +13,10 @@ import { errorMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
 
-if (is.dev) {
+const dataDirOverride = process.env['LANPOST_DATA_DIR']
+if (dataDirOverride) {
+  app.setPath('userData', resolve(dataDirOverride))
+} else if (is.dev) {
   app.setPath('userData', join(app.getPath('appData'), 'Lanpost-IM-dev'))
 }
 
