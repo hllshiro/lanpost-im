@@ -20,6 +20,13 @@ const api: Api & {
       return () => ipcRenderer.removeListener(IPC.event, handler)
     }
   },
+  ui: {
+    onOpenSettings: (listener: () => void) => {
+      const handler = (): void => listener()
+      ipcRenderer.on(IPC.uiOpenSettings, handler)
+      return () => ipcRenderer.removeListener(IPC.uiOpenSettings, handler)
+    }
+  },
   messages: {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),

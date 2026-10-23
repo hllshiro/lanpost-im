@@ -46,6 +46,9 @@ export type Api = {
     snapshot(): Promise<AppSnapshot>
     onEvent(listener: (event: AppEvent) => void): () => void
   }
+  ui: {
+    onOpenSettings(listener: () => void): () => void
+  }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
     send(request: MessagesSendRequest): Promise<SendTextResult>
