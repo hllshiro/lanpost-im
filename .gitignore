@@ -8,3 +8,5 @@ coverage
 tmp-*
 package-lock.json
 yarn.lock
+
+.superpowers/
