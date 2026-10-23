@@ -1,4 +1,4 @@
-import { BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -38,7 +38,10 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
     if (settings.get().general.closeToTray) {
       event.preventDefault()
       window.hide()
+      return
     }
+    setQuitting(true)
+    app.quit()
   })
   window.on('closed', () => {
     mainWindow = null
@@ -49,6 +52,17 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
       shell.openExternal(url)
     }
     return { action: 'deny' }
+  })
+
+  window.webContents.on('will-navigate', (event, url) => {
+    const devUrl = process.env['ELECTRON_RENDERER_URL']
+    if ((devUrl && url.startsWith(devUrl)) || url.startsWith('file://')) {
+      return
+    }
+    event.preventDefault()
+    if (/^https?:\/\//i.test(url)) {
+      shell.openExternal(url)
+    }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

@@ -23,7 +23,6 @@
     "build:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {
-    "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
     "@lucide/vue": "^1.61.0",
     "@vueuse/core": "^15.0.0",

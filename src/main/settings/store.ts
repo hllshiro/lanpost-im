@@ -12,6 +12,7 @@ import {
 import { dirname } from 'node:path'
 import {
   defaultSettings,
+  SETTINGS_VERSION,
   settingsSchema,
   type Settings,
   type SettingsPatch
@@ -49,6 +50,7 @@ export class SettingsStore {
 
   update(patch: SettingsPatch): Settings {
     const next = settingsSchema.parse(mergeValue(this.settings, patch))
+    next.version = SETTINGS_VERSION
     this.write(next)
     this.settings = next
     return structuredClone(next)
@@ -59,13 +61,26 @@ export class SettingsStore {
       return structuredClone(defaultSettings)
     }
     try {
-      return settingsSchema.parse(JSON.parse(readFileSync(this.file, 'utf8')))
+      const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
+      const version =
+        typeof parsed === 'object' && parsed !== null
+          ? (parsed as { version?: unknown }).version
+          : undefined
+      if (typeof version === 'number' && version > SETTINGS_VERSION) {
+        this.backup()
+        return structuredClone(defaultSettings)
+      }
+      return settingsSchema.parse(parsed)
     } catch {
-      const backup = this.file + '.bak'
-      rmSync(backup, { force: true })
-      renameSync(this.file, backup)
+      this.backup()
       return structuredClone(defaultSettings)
     }
+  }
+
+  private backup(): void {
+    const backup = this.file + '.bak'
+    rmSync(backup, { force: true })
+    renameSync(this.file, backup)
   }
 
   private write(value: Settings): void {

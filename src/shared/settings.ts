@@ -1,5 +1,7 @@
 import { z } from 'zod'
 
+export const SETTINGS_VERSION = 1
+
 const identitySchema = z.object({
   displayName: z.string().min(1).default('张三'),
   account: z.string().min(1).default('lanpost'),
@@ -58,6 +60,7 @@ const storageSchema = z.object({
 })
 
 export const settingsSchema = z.object({
+  version: z.number().int().min(1).default(SETTINGS_VERSION),
   identity: identitySchema.prefault({}),
   network: networkSchema.prefault({}),
   notify: notifySchema.prefault({}),
@@ -68,6 +71,8 @@ export const settingsSchema = z.object({
 })
 
 export type Settings = z.infer<typeof settingsSchema>
-export type SettingsPatch = { [K in keyof Settings]?: Partial<Settings[K]> }
+export type SettingsPatch = {
+  [K in Exclude<keyof Settings, 'version'>]?: Partial<Settings[K]>
+}
 
 export const defaultSettings: Settings = settingsSchema.parse({})

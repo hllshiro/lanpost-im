@@ -1,7 +1,8 @@
 export const IPC = {
   appInfo: 'app:info',
   settingsGet: 'settings:get',
-  settingsUpdate: 'settings:update'
+  settingsUpdate: 'settings:update',
+  uiOpenSettings: 'ui:open-settings'
 } as const
 
 export interface AppInfo {
