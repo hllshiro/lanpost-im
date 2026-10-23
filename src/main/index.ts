@@ -4,10 +4,12 @@ import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
+import { AppService } from './app-service'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
 import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
+import { registerAppIpc } from './ipc/app-ipc'
 import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
 import { createTray, destroyTray } from './tray'
 import { errorMessage, logStartup, startupLogFile } from './startup-log'
@@ -55,12 +57,13 @@ if (!gotLock) {
   app.quit()
 } else {
   let database: ReturnType<typeof openDatabase> | null = null
+  let service: AppService | null = null
 
   app.on('second-instance', () => {
     showMainWindow()
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     logStartup('app ready')
     electronApp.setAppUserModelId(APP_ID)
 
@@ -77,19 +80,26 @@ if (!gotLock) {
       logStartup(`opening database: ${databaseFile}`)
       database = openDatabase(databaseFile)
 
+      const appInfo = {
+        name: APP_NAME,
+        version: app.getVersion(),
+        platform: process.platform,
+        appId: APP_ID
+      }
+      const appService = new AppService(database, settings, appInfo)
+      service = appService
+
       const handlers = createHandlers({
         settings,
-        appInfo: {
-          name: APP_NAME,
-          version: app.getVersion(),
-          platform: process.platform,
-          appId: APP_ID
-        }
+        appInfo,
+        onSettingsChanged: (next) => appService.applySettings(next)
       })
       registerIpc(handlers)
+      registerAppIpc(appService)
       logStartup('ipc registered')
 
       createMainWindow(settings)
+      appService.attachWindow(getMainWindow())
       logStartup('main window created')
 
       createTray({
@@ -105,9 +115,21 @@ if (!gotLock) {
       })
       logStartup('tray created')
 
+      try {
+        await appService.start()
+        logStartup('protocol started')
+      } catch (error) {
+        logStartup('protocol start failed: ' + errorMessage(error))
+        dialog.showErrorBox(
+          '内网传书',
+          `协议服务启动失败：\n${errorMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
+        )
+      }
+
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
           createMainWindow(settings)
+          appService.attachWindow(getMainWindow())
         } else {
           showMainWindow()
         }
@@ -127,6 +149,7 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    void service?.stop()
     database?.close()
     database = null
     destroyTray()
