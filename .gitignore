@@ -6,6 +6,7 @@ coverage
 .eslintcache
 .DS_Store
 tmp-*
+.tmp-*/
 package-lock.json
 yarn.lock
 .dev-data/
