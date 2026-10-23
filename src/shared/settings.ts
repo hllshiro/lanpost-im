@@ -58,13 +58,13 @@ const storageSchema = z.object({
 })
 
 export const settingsSchema = z.object({
-  identity: identitySchema.default({}),
-  network: networkSchema.default({}),
-  notify: notifySchema.default({}),
-  files: filesSchema.default({}),
-  appearance: appearanceSchema.default({}),
-  general: generalSchema.default({}),
-  storage: storageSchema.default({})
+  identity: identitySchema.prefault({}),
+  network: networkSchema.prefault({}),
+  notify: notifySchema.prefault({}),
+  files: filesSchema.prefault({}),
+  appearance: appearanceSchema.prefault({}),
+  general: generalSchema.prefault({}),
+  storage: storageSchema.prefault({})
 })
 
 export type Settings = z.infer<typeof settingsSchema>
