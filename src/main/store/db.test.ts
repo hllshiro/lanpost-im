@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest'
+import { mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { openDatabase } from './db'
+
+function tempDb(): string {
+  return join(mkdtempSync(join(tmpdir(), 'lanpost-db-')), 'lanpost.db')
+}
+
+describe('openDatabase', () => {
+  it('creates the phase 0 tables and sets the schema version', () => {
+    const db = openDatabase(tempDb())
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+      .all()
+      .map((row) => (row as { name: string }).name)
+    expect(tables).toEqual(
+      expect.arrayContaining(['conversations', 'messages', 'file_tasks', 'peers', 'group_members'])
+    )
+    const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
+    expect(version.user_version).toBe(1)
+    db.close()
+  })
+
+  it('finds chinese text with a like query', () => {
+    const db = openDatabase(tempDb())
+    db.prepare('INSERT INTO conversations (id, kind, title, created_at) VALUES (?, ?, ?, ?)').run(
+      'c1',
+      'direct',
+      '测试会话',
+      1
+    )
+    db.prepare(
+      'INSERT INTO messages (conversation_id, direction, kind, text, status, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('c1', 'in', 'text', '局域网文件传输', 'delivered', 1)
+    const rows = db.prepare('SELECT id FROM messages WHERE text LIKE ?').all('%文件%')
+    expect(rows).toHaveLength(1)
+    db.close()
+  })
+
+  it('refuses a database from a newer schema version', () => {
+    const file = tempDb()
+    const db = openDatabase(file)
+    db.exec('PRAGMA user_version = 99')
+    db.close()
+    expect(() => openDatabase(file)).toThrow(/更新版本/)
+  })
+})
