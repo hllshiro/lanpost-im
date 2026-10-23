@@ -1,0 +1,43 @@
+appId: com.lanpost.im
+productName: Lanpost-IM
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{.eslintcache,eslint.config.mjs,.prettierignore,.prettierrc.yaml,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+asarUnpack:
+  - resources/**
+win:
+  executableName: lanpost-im
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: zip
+      arch:
+        - x64
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: 内网传书
+  uninstallDisplayName: 内网传书
+  createDesktopShortcut: always
+linux:
+  executableName: lanpost-im
+  maintainer: hllshiro <hllshiro@users.noreply.github.com>
+  category: Network
+  target:
+    - target: AppImage
+      arch:
+        - arm64
+    - target: deb
+      arch:
+        - arm64
+appImage:
+  artifactName: ${name}-${version}-${arch}.${ext}
+deb:
+  artifactName: ${name}_${version}_${arch}.${ext}
+npmRebuild: false
