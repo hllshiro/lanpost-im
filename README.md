@@ -24,9 +24,10 @@
 
 ```bash
 pnpm install
-pnpm dev          # 兼容虚拟机与远程桌面，关闭 Chromium 沙箱
-pnpm dev:sandbox  # 保留 Chromium 沙箱，需要 GPU 进程可以正常启动
+pnpm dev
 ```
+
+`pnpm dev` 保留 Chromium 沙箱。如果所在机器的 GPU 进程无法启动（日志出现 `GPU process launch failed`），使用 `pnpm dev:no-sandbox`。
 
 ## 构建
 
@@ -37,7 +38,7 @@ pnpm build:linux   # Linux ARM64，deb 与 AppImage
 
 ### 受限环境
 
-如果终端运行在沙箱中，无法写入 `%APPDATA%`，可以把数据目录指向项目内：
+如果终端运行在沙箱中，无法写入 `%APPDATA%`，开发模式会自动退回到项目下的 `.dev-data` 目录；也可以手动指定：
 
 ```powershell
 $env:LANPOST_DATA_DIR="D:\wlr\ai\lanpost-im\.tmp-data"
