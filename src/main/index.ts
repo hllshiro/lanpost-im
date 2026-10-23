@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import { join, resolve } from 'node:path'
+import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
@@ -17,11 +18,24 @@ app.setName(APP_NAME_EN)
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu-sandbox')
 
+function writableDir(dir: string): boolean {
+  try {
+    mkdirSync(dir, { recursive: true })
+    const probe = join(dir, `.write-test-${process.pid}`)
+    writeFileSync(probe, '')
+    unlinkSync(probe)
+    return true
+  } catch {
+    return false
+  }
+}
+
 const dataDirOverride = process.env['LANPOST_DATA_DIR']
 if (dataDirOverride) {
   app.setPath('userData', resolve(dataDirOverride))
 } else if (is.dev) {
-  app.setPath('userData', join(app.getPath('appData'), 'Lanpost-IM-dev'))
+  const preferred = join(app.getPath('appData'), 'Lanpost-IM-dev')
+  app.setPath('userData', writableDir(preferred) ? preferred : resolve('.dev-data'))
 }
 
 logStartup(`starting, userData=${app.getPath('userData')}, packaged=${app.isPackaged}`)
@@ -34,7 +48,7 @@ process.on('unhandledRejection', (error) => {
   logStartup('unhandledRejection: ' + errorMessage(error))
 })
 
-const gotLock = app.isPackaged ? app.requestSingleInstanceLock() : true
+const gotLock = app.requestSingleInstanceLock()
 
 if (!gotLock) {
   logStartup('another instance is running, quit')
@@ -100,11 +114,13 @@ if (!gotLock) {
       })
     } catch (error) {
       logStartup('startup failed: ' + errorMessage(error))
-      dialog.showErrorBox('内网传书', `无法打开数据文件：\n${errorMessage(error)}\n\n日志：${startupLogFile()}`)
+      dialog.showErrorBox(
+        '内网传书',
+        `无法打开数据文件：\n${errorMessage(error)}\n\n日志：${startupLogFile()}`
+      )
       app.quit()
     }
   })
-
 
   app.on('before-quit', () => {
     setQuitting(true)
