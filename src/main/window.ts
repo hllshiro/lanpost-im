@@ -51,7 +51,9 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
     }
     window.webContents
       .executeJavaScript('document.body.innerText')
-      .then((text: string) => logStartup('renderer text: ' + text.replace(/\s+/g, ' ').slice(0, 200)))
+      .then((text: string) =>
+        logStartup('renderer text: ' + text.replace(/\s+/g, ' ').slice(0, 200))
+      )
       .catch((error: unknown) => logStartup('renderer text failed: ' + String(error)))
   })
   window.on('close', (event) => {
