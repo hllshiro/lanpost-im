@@ -1,12 +1,10 @@
-import type { AppInfo } from '../shared/ipc'
+import type { Api } from '../shared/ipc'
+import type { AppEvent } from '../shared/domain'
 import type { Settings, SettingsPatch } from '../shared/settings'
 
 declare global {
   interface Window {
-    api: {
-      app: {
-        info(): Promise<AppInfo>
-      }
+    api: Api & {
       settings: {
         get(): Promise<Settings>
         update(patch: SettingsPatch): Promise<Settings>
@@ -15,4 +13,4 @@ declare global {
   }
 }
 
-export {}
+export type { AppEvent }
