@@ -6,7 +6,9 @@ import type { NotifyPayload } from '../../shared/ipc'
 import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
 import ChatPane from './components/ChatPane.vue'
+import ContactsPage from './components/ContactsPage.vue'
 import ConversationList from './components/ConversationList.vue'
+import FilesPage from './components/FilesPage.vue'
 import NavRail from './components/NavRail.vue'
 import SettingsOverlay from './components/SettingsOverlay.vue'
 
@@ -82,6 +84,12 @@ function handleViewSelect(next: 'chat' | 'contacts' | 'files'): void {
   settingsOpen.value = false
 }
 
+function handleOpenContact(conversationId: string): void {
+  view.value = 'chat'
+  settingsOpen.value = false
+  void store.selectConversation(conversationId)
+}
+
 onMounted(async () => {
   void store.initialize()
   unsubscribeSettings = window.api.ui.onOpenSettings(() => {
@@ -147,29 +155,35 @@ onBeforeUnmount(() => {
 
     <div class="workspace">
       <template v-if="!settingsOpen">
-        <ConversationList
-          :conversations="store.sortedConversations"
-          :previews="store.previews"
-          :selected-id="store.currentConversationId"
-          :loading="store.loading"
-          @select="store.selectConversation($event)"
-        />
+        <template v-if="view === 'chat'">
+          <ConversationList
+            :conversations="store.sortedConversations"
+            :previews="store.previews"
+            :selected-id="store.currentConversationId"
+            :loading="store.loading"
+            @select="store.selectConversation($event)"
+          />
 
-        <ChatPane
-          :conversation="store.currentConversation"
-          :peer="store.currentPeer"
-          :messages="store.currentMessages"
-          :files="store.currentFiles"
-          :local="store.local"
-          :loading-messages="currentLoadingMessages"
-          :has-more="currentHasMore"
-          :sending="store.sending"
-          :unread-after-id="currentUnreadAfterId"
-          @send="handleSend"
-          @draft="handleDraft"
-          @read="handleRead"
-          @load-more="handleLoadMore"
-        />
+          <ChatPane
+            :conversation="store.currentConversation"
+            :peer="store.currentPeer"
+            :messages="store.currentMessages"
+            :files="store.currentFiles"
+            :local="store.local"
+            :loading-messages="currentLoadingMessages"
+            :has-more="currentHasMore"
+            :sending="store.sending"
+            :unread-after-id="currentUnreadAfterId"
+            @send="handleSend"
+            @draft="handleDraft"
+            @read="handleRead"
+            @load-more="handleLoadMore"
+          />
+        </template>
+
+        <ContactsPage v-else-if="view === 'contacts'" @open="handleOpenContact" />
+
+        <FilesPage v-else />
       </template>
 
       <SettingsOverlay v-else @close="settingsOpen = false" @saved="handleSettingsSaved" />

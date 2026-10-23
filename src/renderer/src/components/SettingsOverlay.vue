@@ -515,7 +515,9 @@ onBeforeUnmount(() => {
           <h2>接收文件</h2>
           <div class="row">
             <div class="row-text">
-              <label class="label" for="setting-receive-dir">接收目录</label>
+              <label class="label" for="setting-receive-dir"
+                >接收目录<span class="restart">重启生效</span></label
+              >
               <p class="hint">留空使用默认目录</p>
             </div>
             <div class="control">

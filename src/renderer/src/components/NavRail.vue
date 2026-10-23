@@ -59,12 +59,22 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
         <span v-if="unread > 0" class="badge">{{ badge }}</span>
       </button>
 
-      <button class="nav-item disabled" disabled title="联系人页开发中">
+      <button
+        class="nav-item"
+        :class="{ active: active === 'contacts' }"
+        title="联系人"
+        @click="emit('select', 'contacts')"
+      >
         <Users :size="21" :stroke-width="1.7" />
         <span class="label">联系人</span>
       </button>
 
-      <button class="nav-item disabled" disabled title="文件页开发中">
+      <button
+        class="nav-item"
+        :class="{ active: active === 'files' }"
+        title="文件"
+        @click="emit('select', 'files')"
+      >
         <FolderOpen :size="21" :stroke-width="1.7" />
         <span class="label">文件</span>
       </button>
@@ -167,7 +177,7 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
     color 0.12s ease;
 }
 
-.nav-item:hover:not(.disabled) {
+.nav-item:hover {
   background: var(--rail-hover);
   color: var(--rail-text);
 }
@@ -179,11 +189,6 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
 
 .nav-item.active .label {
   color: var(--rail-text);
-}
-
-.nav-item.disabled {
-  opacity: 0.42;
-  cursor: default;
 }
 
 .label {
