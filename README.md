@@ -20,18 +20,18 @@
 
 ## 开发
 
-要求 Node.js 24 与 npm 11。
+要求 Node.js 24 与 pnpm 12.15.0（`packageManager` 已经写入 `package.json`）。
 
 ```bash
-npm ci
-npm run dev
+pnpm install
+pnpm dev
 ```
 
 ## 构建
 
 ```bash
-npm run build:win     # Windows x64，NSIS 安装包与 zip
-npm run build:linux   # Linux ARM64，deb 与 AppImage
+pnpm build:win     # Windows x64，NSIS 安装包与 zip
+pnpm build:linux   # Linux ARM64，deb 与 AppImage
 ```
 
 构建与测试由 GitHub Actions 执行，工作流见 `.github/workflows/build.yml`。

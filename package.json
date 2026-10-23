@@ -1,6 +1,7 @@
 {
   "name": "lanpost-im",
   "version": "0.1.0",
+  "packageManager": "pnpm@12.15.0",
   "description": "内网传书（Lanpost-IM）—— 基于 IPMSG 的跨平台局域网即时通信",
   "main": "./out/main/index.js",
   "author": "hllshiro <hllshiro@users.noreply.github.com>",
@@ -10,16 +11,16 @@
     "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "vue-tsc --noEmit -p tsconfig.web.json --composite false",
-    "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "typecheck": "pnpm run typecheck:node && pnpm run typecheck:web",
     "test": "vitest run",
     "test:watch": "vitest",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
-    "build": "npm run typecheck && electron-vite build",
+    "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:win": "npm run build && electron-builder --win",
-    "build:linux": "npm run build && electron-builder --linux"
+    "build:unpack": "pnpm run build && electron-builder --dir",
+    "build:win": "pnpm run build && electron-builder --win",
+    "build:linux": "pnpm run build && electron-builder --linux"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
@@ -49,9 +50,5 @@
     "vue": "^3.5.44",
     "vue-eslint-parser": "^10.4.1",
     "vue-tsc": "^3.3.13"
-  },
-  "allowScripts": {
-    "electron-winstaller@5.4.0": true,
-    "electron@44.9.3": true
   }
 }
