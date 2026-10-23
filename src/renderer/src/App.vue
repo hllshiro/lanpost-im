@@ -1,26 +1,51 @@
 <script setup lang="ts">
-import Versions from './components/Versions.vue'
+import { onMounted, ref } from 'vue'
+import type { AppInfo } from '../../shared/ipc'
 
-const ipcHandle = (): void => window.electron.ipcRenderer.send('ping')
+const info = ref<AppInfo | null>(null)
+
+onMounted(async () => {
+  info.value = await window.api.app.info()
+})
 </script>
 
 <template>
-  <img alt="logo" class="logo" src="./assets/electron.svg" />
-  <div class="creator">Powered by electron-vite</div>
-  <div class="text">
-    Build an Electron app with
-    <span class="vue">Vue</span>
-    and
-    <span class="ts">TypeScript</span>
-  </div>
-  <p class="tip">Please try pressing <code>F12</code> to open the devTool</p>
-  <div class="actions">
-    <div class="action">
-      <a href="https://electron-vite.org/" target="_blank" rel="noreferrer">Documentation</a>
-    </div>
-    <div class="action">
-      <a target="_blank" rel="noreferrer" @click="ipcHandle">Send IPC</a>
-    </div>
-  </div>
-  <Versions />
+  <main class="boot">
+    <div class="logo">✉️</div>
+    <h1>{{ info?.name ?? '内网传书' }}</h1>
+    <p v-if="info">版本 {{ info.version }} · {{ info.platform }}</p>
+    <p v-else>正在加载…</p>
+  </main>
 </template>
+
+<style scoped>
+.boot {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #f5f5f5;
+  color: #191919;
+}
+.logo {
+  width: 72px;
+  height: 72px;
+  display: grid;
+  place-items: center;
+  border-radius: 18px;
+  background: #07c160;
+  font-size: 36px;
+}
+h1 {
+  margin: 8px 0 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+p {
+  margin: 0;
+  font-size: 13px;
+  color: #999999;
+}
+</style>
