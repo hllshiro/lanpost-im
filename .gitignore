@@ -14,3 +14,5 @@ yarn.lock
 
 .tmp-probe/
 .tmp-data/
+
+*.tsbuildinfo

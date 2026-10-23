@@ -10,6 +10,35 @@
   font-size: 14px;
   color: #191919;
   background: #f5f5f5;
+
+  --accent: #07c160;
+  --accent-hover: #06ad56;
+  --accent-soft: #e8f8ee;
+  --rail-bg: #2e2e2e;
+  --rail-hover: #3a3a3a;
+  --rail-active: #414141;
+  --rail-text: #d0d0d0;
+  --rail-text-dim: #8d8d8d;
+  --page-bg: #f5f5f5;
+  --list-bg: #ffffff;
+  --card-bg: #ffffff;
+  --text: #191919;
+  --text-secondary: #999999;
+  --text-muted: #b2b2b2;
+  --divider: #e7e7e7;
+  --hover: #f2f2f2;
+  --selected: #ececec;
+  --own-bubble: #95ec69;
+  --other-bubble: #ffffff;
+  --danger: #fa5151;
+  --warning: #fa9d3b;
+  --radius-card: 8px;
+  --radius-bubble: 6px;
+  --radius-button: 4px;
+  --avatar-radius: 4px;
+  --chat-font-size: 14px;
+  --row-height: 64px;
+  --msg-gap: 16px;
 }
 
 *,
@@ -28,12 +57,48 @@ body,
 
 body {
   overflow: hidden;
-  background: #f5f5f5;
-  color: #191919;
+  background: var(--page-bg);
+  color: var(--text);
 }
 
 button,
 input,
-textarea {
+textarea,
+select {
   font: inherit;
+  color: inherit;
+}
+
+button {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+}
+
+input,
+textarea {
+  min-width: 0;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--text-muted);
+}
+
+:focus-visible {
+  outline: 2px solid rgba(7, 193, 96, 0.45);
+  outline-offset: 1px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: rgba(7, 193, 96, 0.24);
 }
