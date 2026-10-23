@@ -559,11 +559,11 @@ Linux 桌面没有通知守护进程或者托盘宿主时，设置页面显示�
 
 ## 15. 构建与发布
 
-- 开发: `npm run dev` 启动 electron-vite 开发模式。
+- 开发: `pnpm dev` 启动 electron-vite 开发模式。
 - CI: GitHub Actions，工作流文件 `.github/workflows/build.yml`。
 - 触发: 推送 `v*` 标签与手动 `workflow_dispatch`。
-- `windows` 任务: `runs-on: windows-latest`，Node 22，执行 `npm ci`、类型检查、单元测试、`npm run build:win`，上传安装包与免安装压缩包。
-- `linux-arm64` 任务: `runs-on: ubuntu-24.04-arm`，执行同样的检查与 `npm run build:linux`，上传 deb 与 AppImage。
+- `windows` 任务: `runs-on: windows-latest`，Node 24 与 pnpm 12.15.0，执行 `pnpm install --frozen-lockfile`、类型检查、单元测试、`pnpm build:win`，上传安装包与免安装压缩包。
+- `linux-arm64` 任务: `runs-on: ubuntu-24.04-arm`，执行同样的检查与 `pnpm build:linux`，上传 deb 与 AppImage。
 - 两个任务都使用 Electron 内置的 `node:sqlite`，不需要原生编译工具链。
 - 发布任务: 两个构建任务成功后，创建 GitHub Release，上传全部产物；版本号取自标签。
 - arm64 托管 runner 目前处于公开预览，公开仓库可以直接使用；私有仓库没有该 runner 时改用自托管 ARM64 runner，或者 Docker buildx 加 QEMU 作为备选。

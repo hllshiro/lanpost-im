@@ -96,7 +96,7 @@ describe('SettingsStore', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npx vitest run src/main/settings/store.test.ts`
+Run: `pnpm exec vitest run src/main/settings/store.test.ts`
 
 Expected: FAIL，提示找不到 `./store` 或者 `defaultSettings`。
 
@@ -112,7 +112,7 @@ Expected: FAIL，提示找不到 `./store` 或者 `defaultSettings`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `npx vitest run src/main/settings/store.test.ts`
+Run: `pnpm exec vitest run src/main/settings/store.test.ts`
 
 Expected: 4 passed。
 
@@ -193,7 +193,7 @@ describe('openDatabase', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npx vitest run src/main/store/db.test.ts`
+Run: `pnpm exec vitest run src/main/store/db.test.ts`
 
 Expected: FAIL，提示找不到 `./db`。
 
@@ -210,7 +210,7 @@ Expected: FAIL，提示找不到 `./db`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `npx vitest run src/main/store/db.test.ts`
+Run: `pnpm exec vitest run src/main/store/db.test.ts`
 
 Expected: 3 passed。
 
@@ -281,7 +281,7 @@ describe('ipc handlers', () => {
 
 - [ ] **Step 2: 运行测试确认失败**
 
-Run: `npx vitest run src/main/ipc/handlers.test.ts`
+Run: `pnpm exec vitest run src/main/ipc/handlers.test.ts`
 
 Expected: FAIL，提示找不到 `./handlers`。
 
@@ -295,7 +295,7 @@ Expected: FAIL，提示找不到 `./handlers`。
 
 - [ ] **Step 4: 运行测试确认通过**
 
-Run: `npx vitest run src/main/ipc/handlers.test.ts`
+Run: `pnpm exec vitest run src/main/ipc/handlers.test.ts`
 
 Expected: 3 passed。
 
@@ -344,7 +344,7 @@ git commit -m "feat: add typed ipc bridge"
 
 - [ ] **Step 4: 人工验证**
 
-Run: `npm run dev`
+Run: `pnpm dev`
 
 Expected:
 
@@ -380,16 +380,16 @@ git commit -m "feat: add main window and tray"
 Run:
 
 ```bash
-npm run typecheck
-npm test
-npm run build
+pnpm typecheck
+pnpm test
+pnpm build
 ```
 
 Expected: 全部通过，`out/` 目录生成主进程、预加载与渲染进程产物。
 
 - [ ] **Step 2: 验证打包配置**
 
-Run: `npm run build:unpack`
+Run: `pnpm build:unpack`
 
 Expected: `dist/win-unpacked/lanpost-im.exe` 存在，启动后窗口正常。
 
@@ -412,5 +412,5 @@ git commit -m "chore: wire ci and document phase 0"
 - 设置修改后重启仍然生效，坏文件自动备份。
 - 数据库自动建表，中文两字词搜索可用，版本更高时拒绝打开。
 - 渲染进程通过 `window.api` 读取设置与修改设置，非法入参被拒绝。
-- `npm run typecheck`、`npm test`、`npm run build` 全部通过。
+- `pnpm typecheck`、`pnpm test`、`pnpm build` 全部通过。
 - CI 两个平台任务通过，Release 产物齐全。
