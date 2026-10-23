@@ -5,7 +5,17 @@ import eslintPluginVue from 'eslint-plugin-vue'
 import vueParser from 'vue-eslint-parser'
 
 export default defineConfig(
-  { ignores: ['**/node_modules', '**/dist', '**/out', '**/.tmp-probe', '**/.dev-data', '**/coverage', '**/.superpowers'] },
+  {
+    ignores: [
+      '**/node_modules',
+      '**/dist',
+      '**/out',
+      '**/.tmp-probe',
+      '**/.dev-data',
+      '**/coverage',
+      '**/.superpowers'
+    ]
+  },
   tseslint.configs.recommended,
   eslintPluginVue.configs['flat/recommended'],
   {
