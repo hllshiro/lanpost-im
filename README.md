@@ -24,7 +24,8 @@
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev          # 兼容虚拟机与远程桌面，关闭 Chromium 沙箱
+pnpm dev:sandbox  # 保留 Chromium 沙箱，需要 GPU 进程可以正常启动
 ```
 
 ## 构建

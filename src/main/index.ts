@@ -13,6 +13,10 @@ import { errorMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
 
+// 远程桌面、虚拟机与部分安全策略下 GPU 进程会启动失败并导致 Chromium 退出。
+app.disableHardwareAcceleration()
+app.commandLine.appendSwitch('disable-gpu-sandbox')
+
 const dataDirOverride = process.env['LANPOST_DATA_DIR']
 if (dataDirOverride) {
   app.setPath('userData', resolve(dataDirOverride))
