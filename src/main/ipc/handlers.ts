@@ -14,13 +14,19 @@ function assertPatch(value: unknown): asserts value is SettingsPatch {
   }
 }
 
-export function createHandlers(ctx: { settings: SettingsStore; appInfo: AppInfo }): Handlers {
+export function createHandlers(ctx: {
+  settings: SettingsStore
+  appInfo: AppInfo
+  onSettingsChanged?: (settings: Settings) => void
+}): Handlers {
   return {
     appInfo: () => ({ ...ctx.appInfo }),
     settingsGet: () => ctx.settings.get(),
     settingsUpdate: (patch) => {
       assertPatch(patch)
-      return ctx.settings.update(patch)
+      const next = ctx.settings.update(patch)
+      ctx.onSettingsChanged?.(next)
+      return next
     }
   }
 }
