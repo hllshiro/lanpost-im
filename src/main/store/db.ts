@@ -1,47 +1,89 @@
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema'
+
+export interface OpenDatabaseOptions {
+  busyTimeout?: number
+}
+
+class NewerSchemaError extends Error {}
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export function openDatabase(file: string): DatabaseSync {
+function readExistingVersion(file: string): number | null {
+  if (file === ':memory:' || !existsSync(file)) {
+    return null
+  }
+  let probe: DatabaseSync | null = null
+  try {
+    probe = new DatabaseSync(file, { readOnly: true })
+    const row = probe.prepare('PRAGMA user_version').get() as { user_version: number }
+    return row.user_version
+  } catch {
+    return null
+  } finally {
+    probe?.close()
+  }
+}
+
+export function migrate(db: DatabaseSync): void {
+  db.exec('BEGIN')
+  try {
+    db.exec(SCHEMA_SQL)
+    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
+    db.exec('COMMIT')
+  } catch (error) {
+    try {
+      db.exec('ROLLBACK')
+    } catch {
+      // 保留原始错误，回滚失败只说明事务没有建立。
+    }
+    throw error
+  }
+}
+
+export function openDatabase(file: string, options: OpenDatabaseOptions = {}): DatabaseSync {
   if (file !== ':memory:') {
     mkdirSync(dirname(file), { recursive: true })
+  }
+
+  const existing = readExistingVersion(file)
+  if (existing !== null && existing > SCHEMA_VERSION) {
+    throw new NewerSchemaError(`数据库由更新版本创建，无法打开 (${file})`)
   }
 
   let db: DatabaseSync
   try {
     db = new DatabaseSync(file)
   } catch (error) {
-    throw new Error(`打开数据库失败 (${file}): ${messageOf(error)}`)
+    throw new Error(`打开数据库失败 (${file}): ${messageOf(error)}`, { cause: error })
   }
 
   try {
+    db.exec(`PRAGMA busy_timeout = ${options.busyTimeout ?? 5000}`)
     db.exec('PRAGMA journal_mode = WAL')
     db.exec('PRAGMA foreign_keys = ON')
-    db.exec('PRAGMA busy_timeout = 5000')
 
     const row = db.prepare('PRAGMA user_version').get() as { user_version: number }
     if (row.user_version > SCHEMA_VERSION) {
-      throw new Error(`数据库由更新版本创建，无法打开 (${file})`)
+      throw new NewerSchemaError(`数据库由更新版本创建，无法打开 (${file})`)
     }
     if (row.user_version === 0) {
-      db.exec('BEGIN')
-      try {
-        db.exec(SCHEMA_SQL)
-        db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
-        db.exec('COMMIT')
-      } catch (error) {
-        db.exec('ROLLBACK')
-        throw error
-      }
+      migrate(db)
     }
     return db
   } catch (error) {
-    db.close()
-    throw error
+    try {
+      db.close()
+    } catch {
+      // 保留原始错误。
+    }
+    if (error instanceof NewerSchemaError) {
+      throw error
+    }
+    throw new Error(`打开数据库失败 (${file}): ${messageOf(error)}`, { cause: error })
   }
 }

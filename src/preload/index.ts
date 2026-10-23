@@ -8,7 +8,8 @@ const api = {
   },
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke(IPC.settingsGet),
-    update: (patch: SettingsPatch): Promise<Settings> => ipcRenderer.invoke(IPC.settingsUpdate, patch)
+    update: (patch: SettingsPatch): Promise<Settings> =>
+      ipcRenderer.invoke(IPC.settingsUpdate, patch)
   }
 }
 

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from './db'
 
 function tempDb(): string {
@@ -39,11 +40,32 @@ describe('openDatabase', () => {
     db.close()
   })
 
-  it('refuses a database from a newer schema version', () => {
+  it('refuses a database from a newer schema version without changing it', () => {
     const file = tempDb()
     const db = openDatabase(file)
     db.exec('PRAGMA user_version = 99')
     db.close()
+    const before = readFileSync(file).toString('hex')
     expect(() => openDatabase(file)).toThrow(/更新版本/)
+    expect(readFileSync(file).toString('hex')).toBe(before)
+  })
+
+  it('reports a corrupt database with its path', () => {
+    const file = tempDb()
+    writeFileSync(file, 'this is not a database')
+    expect(() => openDatabase(file)).toThrow(/打开数据库失败.*lanpost\.db/)
+  })
+
+  it('reports a locked database instead of hanging', () => {
+    const file = tempDb()
+    const holder = new DatabaseSync(file)
+    holder.exec('CREATE TABLE locked_table (a INTEGER)')
+    holder.exec('BEGIN EXCLUSIVE')
+    try {
+      expect(() => openDatabase(file, { busyTimeout: 50 })).toThrow(/database is locked/)
+    } finally {
+      holder.exec('ROLLBACK')
+      holder.close()
+    }
   })
 })
