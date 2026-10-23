@@ -43,7 +43,10 @@ const api: Api & {
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
     open: (id) => ipcRenderer.invoke(IPC.fileOpen, id),
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
-    saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id)
+    saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
+    pickAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
+    sendPaths: (conversationId, paths) =>
+      ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

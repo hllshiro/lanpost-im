@@ -59,6 +59,7 @@ export interface FileTaskInfo {
   id: string
   messageId: number | null
   conversationId: string
+  peerKey?: string
   direction: 'in' | 'out'
   name: string
   size: number

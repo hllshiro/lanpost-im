@@ -1,12 +1,20 @@
 import { basename, join } from 'node:path'
-import { copyFileSync, existsSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
-import type { AppEvent, AppSnapshot, MessagesPage, SendTextResult } from '../shared/domain'
+import type {
+  AppEvent,
+  AppSnapshot,
+  FileTaskInfo,
+  MessagesPage,
+  SendTextResult
+} from '../shared/domain'
 import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
-import { ProtocolEngine, toPeerInfo } from './protocol/discovery'
+import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
+import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
+import { FileManager } from './files/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
@@ -33,8 +41,13 @@ function engineConfig(settings: Settings): ConstructorParameters<typeof Protocol
 export class AppService {
   private readonly repos: Repositories
   private readonly engine: ProtocolEngine
+  private readonly fileManager: FileManager
   private window: BrowserWindow | null = null
   private started = false
+  private filesStarted = false
+  private fileSeq = 0
+  private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
+  private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
 
   constructor(
     private readonly db: DatabaseSync,
@@ -42,9 +55,38 @@ export class AppService {
     private readonly appInfo: AppInfo
   ) {
     this.repos = createRepositories(db)
+    let receiveDir = settings.get().files.receiveDir
+    if (receiveDir === '') {
+      const downloads = join(app.getPath('downloads'), '内网传书')
+      try {
+        mkdirSync(downloads, { recursive: true })
+        receiveDir = downloads
+      } catch {
+        receiveDir = join(app.getPath('userData'), 'recv')
+        logStartup(`下载目录不可写，接收目录改为 ${receiveDir}`)
+      }
+    }
+    this.fileManager = new FileManager({
+      bindAddr: settings.get().network.bindAddr,
+      port: settings.get().network.port,
+      receiveDir,
+      notifyAccepted: (peerKey, packetId) => this.engine.sendFileAccept(peerKey, packetId),
+      identity: () => ({
+        user: this.settings.get().identity.account,
+        host: this.settings.get().identity.hostName,
+        seq: (this.fileRequestSeq = (this.fileRequestSeq + 1) >>> 0)
+      }),
+      callbacks: {
+        onUpdate: (file) => this.handleFileUpdate(file),
+        onLog: (message) => logStartup('files: ' + message),
+        onError: (error) => logStartup('files error: ' + error.message)
+      }
+    })
     this.engine = new ProtocolEngine(engineConfig(settings.get()), {
       onPeers: (peers) => this.handlePeers(peers),
       onMessage: (peer, text, remoteSeq) => this.handleIncoming(peer.key, peer.name, text, remoteSeq),
+      onFileOffer: (peer, packetId, text, attachments) =>
+        this.handleFileOffer(peer, packetId, text, attachments),
       onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
       onLog: (message) => logStartup('protocol: ' + message),
       onError: (error) => logStartup('protocol error: ' + error.message)
@@ -57,6 +99,12 @@ export class AppService {
 
   async start(): Promise<void> {
     this.importLegacyHistory()
+    try {
+      await this.fileManager.start()
+      this.filesStarted = true
+    } catch (error) {
+      logStartup('file service start failed: ' + (error as Error).message)
+    }
     await this.engine.start()
     this.started = true
     this.handlePeers(this.engine.getPeers())
@@ -88,6 +136,10 @@ export class AppService {
   }
 
   async stop(): Promise<void> {
+    if (this.filesStarted) {
+      await this.fileManager.stop()
+      this.filesStarted = false
+    }
     if (this.started) {
       await this.engine.stop()
       this.started = false
@@ -170,23 +222,77 @@ export class AppService {
   }
 
   rejectFile(id: string): void {
-    const task = this.repos.files.get(id)
-    if (task === null) {
-      throw new Error('文件任务不存在')
+    if (!this.filesStarted) {
+      throw new Error('文件服务未启动')
     }
-    if (task.state !== 'waiting') {
-      throw new Error('文件任务当前不可拒绝')
-    }
-    this.repos.files.updateState(id, 'rejected', task.received, '', task.path)
-    this.emitFile(id)
+    this.fileManager.reject(id)
   }
 
   acceptFile(id: string): void {
-    const task = this.repos.files.get(id)
-    if (task === null) {
-      throw new Error('文件任务不存在')
+    if (!this.filesStarted) {
+      throw new Error('文件服务未启动')
     }
-    throw new Error(`文件接收尚未接入协议层: ${task.name}`)
+    void this.fileManager.accept(id).catch((error: unknown) => {
+      logStartup('file accept failed: ' + (error instanceof Error ? error.message : String(error)))
+    })
+  }
+
+  async pickAndSend(conversationId: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const result = await dialog.showOpenDialog({
+      title: '发送文件',
+      properties: ['openFile', 'multiSelections']
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return
+    }
+    this.sendFiles(conversationId, result.filePaths)
+  }
+
+  sendFiles(conversationId: string, paths: string[], text = ''): void {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    if (!this.filesStarted) {
+      throw new Error('文件服务未启动')
+    }
+    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (peer === undefined || !peer.online) {
+      throw new Error('联系人不在线')
+    }
+    for (const path of paths) {
+      const stats = statSync(path)
+      if (!stats.isFile()) {
+        continue
+      }
+      const fileId = this.nextFileId()
+      const name = basename(path)
+      const mtime = Math.floor(stats.mtimeMs / 1000)
+      const attachment: Attachment = {
+        id: fileId,
+        name,
+        size: stats.size,
+        mtime,
+        attr: FILE_ATTR_REGULAR
+      }
+      const packetId = this.engine.sendFileOffer(conversation.peerKey, text, [attachment])
+      this.fileManager.addOutgoing({
+        peerKey: conversation.peerKey,
+        peerIp: peer.ip,
+        peerPort: peer.port,
+        name,
+        size: stats.size,
+        mtime,
+        fileId,
+        packetId,
+        path
+      })
+      text = ''
+    }
   }
 
   async openFile(id: string): Promise<void> {
@@ -246,6 +352,94 @@ export class AppService {
     this.engine.updateStatus(settings.identity.status)
   }
 
+  private handleFileOffer(
+    peer: ProtocolPeer,
+    packetId: number,
+    _text: string,
+    attachments: Attachment[]
+  ): void {
+    if (!this.filesStarted) {
+      logStartup('file offer ignored: file service not started')
+      return
+    }
+    const created = this.fileManager.offerIncoming({
+      peerKey: peer.key,
+      peerIp: peer.ip,
+      peerPort: peer.port,
+      packetId,
+      attachments
+    })
+    const settings = this.settings.get()
+    for (const file of created) {
+      const limit = settings.files.autoAcceptMaxMB
+      if (settings.files.autoAccept && (limit === 0 || file.size <= limit * 1024 * 1024)) {
+        void this.fileManager.accept(file.id).catch((error: unknown) => {
+          logStartup(
+            'auto accept failed: ' + (error instanceof Error ? error.message : String(error))
+          )
+        })
+      }
+    }
+  }
+
+  private handleFileUpdate(file: FileTaskInfo): void {
+    const peerKey = file.peerKey
+    if (peerKey === undefined || peerKey === '') {
+      logStartup('file update without peer key: ' + file.id)
+      return
+    }
+    let link = this.fileLinks.get(file.id)
+    if (link === undefined) {
+      const peer = this.repos.peers.get(peerKey)
+      const conversation = this.repos.conversations.ensureDirect(
+        peerKey,
+        peer?.alias || peer?.name || peerKey
+      )
+      const text = file.name
+      const meta = JSON.stringify({ fileId: file.id })
+      const message =
+        file.direction === 'in'
+          ? this.repos.messages.insertIncoming(
+              conversation.id,
+              text,
+              file.packetId,
+              'file',
+              meta
+            )
+          : this.repos.messages.insertOutgoing(
+              conversation.id,
+              text,
+              file.packetId,
+              'file',
+              meta
+            )
+      if (file.direction === 'out') {
+        this.repos.messages.setStatus(message.id, 'sent')
+      }
+      this.repos.conversations.touch(
+        conversation.id,
+        message.createdAt,
+        file.direction === 'in' ? 1 : 0
+      )
+      link = { conversationId: conversation.id, messageId: message.id }
+      this.fileLinks.set(file.id, link)
+      this.emit({ type: 'message', message })
+      this.emitConversation(conversation.id)
+    }
+    const persisted: FileTaskInfo = {
+      ...file,
+      conversationId: link.conversationId,
+      messageId: link.messageId
+    }
+    this.repos.files.upsert(persisted)
+    this.emit({ type: 'file', file: persisted })
+  }
+
+  private nextFileId(): number {
+    this.fileSeq += 1
+    return Date.now() * 1000 + (this.fileSeq % 1000)
+  }
+
   private handlePeers(peers: ReturnType<ProtocolEngine['getPeers']>): void {
     for (const peer of peers) {
       this.repos.peers.upsert(toPeerInfo(peer))
@@ -299,13 +493,6 @@ export class AppService {
     const conversation = this.repos.conversations.get(id)
     if (conversation !== null) {
       this.emit({ type: 'conversation', conversation })
-    }
-  }
-
-  private emitFile(id: string): void {
-    const file = this.repos.files.get(id)
-    if (file !== null) {
-      this.emit({ type: 'file', file })
     }
   }
 

@@ -22,7 +22,7 @@ import {
   CMD_SENDMSG,
   CMD_UTF8
 } from './commands'
-import { parseOffer } from './attach'
+import { buildFileBody, parseOffer, type Attachment } from './attach'
 import { decodeText, encodeText } from './encoding'
 import {
   decodeXml,
@@ -113,6 +113,8 @@ export interface ProtocolCallbacks {
   onMessageStatus(peerKey: string, seq: number, status: MessageStatus): void
   onLog(message: string): void
   onError(error: Error): void
+  // 附件邀请。packetId 取邀请报文的 UDP 序号，拉取文件时用它匹配发送任务。
+  onFileOffer?(peer: ProtocolPeer, packetId: number, text: string, attachments: Attachment[]): void
 }
 
 interface SeedTarget {
@@ -354,6 +356,33 @@ export class ProtocolEngine {
     }
     const payload = Buffer.from(encodeChatReceipt({ Docver: DOCVER, MsgID: msgId }), 'utf8')
     this.sendPacket(peer, CMD_CHAT_RECEIPT, payload, false)
+  }
+
+  // 文件邀请走标准 SENDMSG|SENDCHECK|FILEATTACH，与对端是否支持私有通道无关。
+  // 返回的序号就是包编号，对方拉取时原样带回。
+  sendFileOffer(peerKey: string, text: string, attachments: Attachment[]): number {
+    const peer = this.peers.get(peerKey)
+    if (peer === undefined) {
+      throw new Error(`未知联系人: ${peerKey}`)
+    }
+    if (attachments.length === 0) {
+      throw new Error('文件邀请必须包含附件')
+    }
+    const { body, utf8 } = buildFileBody(text, attachments)
+    if (body.length > 60000) {
+      throw new Error(`消息与文件名过长: ${body.length} 字节`)
+    }
+    const cmd = CMD_SENDMSG | CMD_SENDCHECK | CMD_FILEATTACH | (utf8 ? CMD_UTF8 : 0)
+    return this.sendPacket(peer, cmd, body, true)
+  }
+
+  // 兼容层在拉取文件前补发一条内网通格式的接收确认；legacy 对端由标准 RECVMSG 覆盖。
+  sendFileAccept(peerKey: string, packetId: number): void {
+    const peer = this.peers.get(peerKey)
+    if (peer === undefined || peer.legacy) {
+      return
+    }
+    this.sendPacket(peer, CMD_RECVMSG, Buffer.from(`${packetId}\u0000`, 'utf8'), false)
   }
 
   updateStatus(status: number): void {
@@ -816,9 +845,14 @@ export class ProtocolEngine {
   private handleLegacyMessage(peer: ProtocolPeer, header: Header): void {
     const utf8Body = (header.cmd & CMD_UTF8) !== 0
     let body = TrimNul(header.payload)
+    const isOffer = (header.cmd & CMD_FILEATTACH) !== 0
     let text: string
-    if ((header.cmd & CMD_FILEATTACH) !== 0) {
-      text = parseOffer(body, utf8Body).text
+    if (isOffer) {
+      const offer = parseOffer(body, utf8Body)
+      text = offer.text
+      if (offer.attachments.length > 0) {
+        this.callbacks.onFileOffer?.(clonePeer(peer), header.seq, offer.text, offer.attachments)
+      }
     } else {
       const nul = body.indexOf(0)
       if (nul >= 0) {
@@ -829,7 +863,9 @@ export class ProtocolEngine {
     if (text.trim().startsWith('<X_')) {
       return
     }
-    this.callbacks.onMessage(clonePeer(peer), text, header.seq, true)
+    if (!isOffer || text.trim() !== '') {
+      this.callbacks.onMessage(clonePeer(peer), text, header.seq, true)
+    }
     if ((header.cmd & CMD_SENDCHECK) !== 0) {
       const payload = Buffer.from(`${header.seq}\u0000`, 'utf8')
       this.sendPacket(peer, CMD_RECVMSG, payload, false)

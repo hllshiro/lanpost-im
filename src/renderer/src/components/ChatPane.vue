@@ -240,6 +240,7 @@ onBeforeUnmount(() => {
         :draft="conversation.draft"
         :sending="sending"
         :conversation-title="conversation.title"
+        :conversation-id="conversation.id"
         @update:draft="handleDraft"
         @send="handleSend"
       />
