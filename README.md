@@ -37,14 +37,14 @@ pnpm build:linux   # Linux ARM64，deb 与 AppImage
 
 ### 受限环境
 
-如果终端运行在沙箱中，无法写入 `%APPDATA%`，可以把数据目录指向项目内并关闭 Chromium 沙箱：
+如果终端运行在沙箱中，无法写入 `%APPDATA%`，可以把数据目录指向项目内：
 
 ```powershell
 $env:LANPOST_DATA_DIR="D:\wlr\ai\lanpost-im\.tmp-data"
-pnpm dev:no-sandbox
+pnpm dev
 ```
 
-正式使用请从桌面打开终端，保持默认沙箱。
+不要用管理员终端启动开发版。Electron 44 在提权环境里 GPU 与渲染进程会启动失败，表现为 `0x80000003` 或 `GPU process isn't usable`。正式使用也从普通权限启动。
 
 构建与测试由 GitHub Actions 执行，工作流见 `.github/workflows/build.yml`。
 

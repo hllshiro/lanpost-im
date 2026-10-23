@@ -35,6 +35,25 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
     window.show()
     logStartup('window ready-to-show')
   })
+
+  window.webContents.on('console-message', (_event, level: number, message: string) => {
+    logStartup(`renderer console[${level}]: ${message}`)
+  })
+  window.webContents.on('did-fail-load', (_event, code, description, url) => {
+    logStartup(`did-fail-load ${code} ${description} ${url}`)
+  })
+  window.webContents.on('render-process-gone', (_event, details) => {
+    logStartup(`render-process-gone: ${JSON.stringify(details)}`)
+  })
+  window.webContents.on('did-finish-load', () => {
+    if (!is.dev) {
+      return
+    }
+    window.webContents
+      .executeJavaScript('document.body.innerText')
+      .then((text: string) => logStartup('renderer text: ' + text.replace(/\s+/g, ' ').slice(0, 200)))
+      .catch((error: unknown) => logStartup('renderer text failed: ' + String(error)))
+  })
   window.on('close', (event) => {
     if (quitting) {
       return
