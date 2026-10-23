@@ -1,6 +1,6 @@
-import { basename } from 'node:path'
+import { basename, join } from 'node:path'
 import { copyFileSync, existsSync } from 'node:fs'
-import { dialog, shell, type BrowserWindow } from 'electron'
+import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type { AppEvent, AppSnapshot, MessagesPage, SendTextResult } from '../shared/domain'
 import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
@@ -8,6 +8,7 @@ import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo } from './protocol/discovery'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
+import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { logStartup } from './startup-log'
 
@@ -55,9 +56,35 @@ export class AppService {
   }
 
   async start(): Promise<void> {
+    this.importLegacyHistory()
     await this.engine.start()
     this.started = true
     this.handlePeers(this.engine.getPeers())
+  }
+
+  private importLegacyHistory(): void {
+    if (this.repos.conversations.list().length > 0) {
+      return
+    }
+    const candidates = [
+      app.getPath('userData'),
+      process.cwd(),
+      join(app.getPath('documents'), 'nwt'),
+      join(app.getPath('appData'), 'nwt'),
+      join(app.getPath('home'), 'nwt'),
+      join(app.getPath('downloads'), 'nwt')
+    ]
+    for (const dir of candidates) {
+      if (!existsSync(join(dir, 'history.jsonl'))) {
+        continue
+      }
+      const result = importLegacyHistory(this.db, dir)
+      logStartup(`legacy import ${dir}: ${result.imported} imported, ${result.skipped} skipped`)
+      if (result.imported > 0) {
+        this.emit({ type: 'peers', peers: this.repos.peers.list() })
+      }
+      break
+    }
   }
 
   async stop(): Promise<void> {
