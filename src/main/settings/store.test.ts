@@ -25,6 +25,13 @@ describe('SettingsStore', () => {
     expect(store.get()).toEqual(defaultSettings)
   })
 
+  it('uses the provided identity defaults for a new file', () => {
+    const store = new SettingsStore(tempFile(), { account: 'pc-a', hostName: 'pc-a' })
+    expect(store.get().identity.account).toBe('pc-a')
+    expect(store.get().identity.hostName).toBe('pc-a')
+    expect(store.defaultSettings().identity.account).toBe('pc-a')
+  })
+
   it('merges a nested patch and persists it', () => {
     const file = tempFile()
     const store = new SettingsStore(file)

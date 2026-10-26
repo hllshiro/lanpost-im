@@ -9,15 +9,11 @@ import type {
   MessageInfo,
   PeerInfo
 } from '../../../shared/domain'
+import { errorMessage } from '../utils/errors'
 
 const MESSAGE_PAGE_SIZE = 50
 const PREVIEW_PAGE_SIZE = 10
 const DRAFT_SAVE_DELAY = 400
-
-function describe(reason: unknown): string {
-  if (reason instanceof Error) return reason.message
-  return String(reason)
-}
 
 export const useAppStore = defineStore('app', () => {
   const local = ref<LocalInfo | null>(null)
@@ -45,6 +41,9 @@ export const useAppStore = defineStore('app', () => {
   const sortedConversations = computed(() =>
     [...conversations.value].sort((left, right) => {
       if (left.pinned !== right.pinned) return left.pinned ? -1 : 1
+      const leftUnread = left.unread > 0 ? 1 : 0
+      const rightUnread = right.unread > 0 ? 1 : 0
+      if (leftUnread !== rightUnread) return rightUnread - leftUnread
       if (left.lastMessageAt !== right.lastMessageAt)
         return right.lastMessageAt - left.lastMessageAt
       return left.title.localeCompare(right.title, 'zh-CN')
@@ -74,8 +73,7 @@ export const useAppStore = defineStore('app', () => {
   })
 
   function reportError(reason: unknown): void {
-    const message = describe(reason)
-    if (message) error.value = message
+    error.value = errorMessage(reason)
   }
 
   function clearError(): void {
@@ -348,6 +346,19 @@ export const useAppStore = defineStore('app', () => {
     if (id) await markRead(id)
   }
 
+  async function setPinned(conversationId: string, pinned: boolean): Promise<void> {
+    const conversation = conversations.value.find((item) => item.id === conversationId)
+    if (!conversation) return
+    const previous = conversation.pinned
+    conversation.pinned = pinned
+    try {
+      await window.api.conversations.pin(conversationId, pinned)
+    } catch (reason) {
+      conversation.pinned = previous
+      reportError(reason)
+    }
+  }
+
   async function setAlias(peerKey: string, alias: string): Promise<void> {
     const name = alias.trim()
     try {
@@ -394,6 +405,7 @@ export const useAppStore = defineStore('app', () => {
     saveDraft,
     markRead,
     markReadCurrent,
+    setPinned,
     setAlias,
     handleEvent,
     reportError,

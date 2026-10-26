@@ -7,12 +7,13 @@ import { IPC } from '../shared/ipc'
 import { AppService } from './app-service'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
+import { currentIdentityDefaults } from './identity'
 import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
 import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
 import { createTray, destroyTray } from './tray'
-import { errorMessage, logStartup, startupLogFile } from './startup-log'
+import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
 
@@ -86,7 +87,7 @@ if (!gotLock) {
     try {
       const settingsFile = join(app.getPath('userData'), 'settings.json')
       logStartup(`loading settings: ${settingsFile}`)
-      const settings = new SettingsStore(settingsFile)
+      const settings = new SettingsStore(settingsFile, currentIdentityDefaults())
 
       const databaseFile = join(app.getPath('userData'), 'lanpost.db')
       logStartup(`opening database: ${databaseFile}`)
@@ -134,7 +135,7 @@ if (!gotLock) {
         logStartup('protocol start failed: ' + errorMessage(error))
         dialog.showErrorBox(
           '内网传书',
-          `协议服务启动失败：\n${errorMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
+          `协议服务启动失败：\n${friendlyMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
         )
       }
 
@@ -150,7 +151,7 @@ if (!gotLock) {
       logStartup('startup failed: ' + errorMessage(error))
       dialog.showErrorBox(
         '内网传书',
-        `无法打开数据文件：\n${errorMessage(error)}\n\n日志：${startupLogFile()}`
+        `无法打开数据文件：\n${friendlyMessage(error)}\n\n日志：${startupLogFile()}`
       )
       app.quit()
     }

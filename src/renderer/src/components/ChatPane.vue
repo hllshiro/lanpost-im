@@ -9,6 +9,7 @@ import type {
   MessageInfo,
   PeerInfo
 } from '../../../shared/domain'
+import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import Composer from './Composer.vue'
 import MessageList from './MessageList.vue'
@@ -110,7 +111,7 @@ async function copyAddress(): Promise<void> {
       copied.value = false
     }, 1500)
   } catch (reason) {
-    copyError.value = reason instanceof Error ? reason.message : String(reason)
+    copyError.value = errorMessage(reason)
   }
 }
 
