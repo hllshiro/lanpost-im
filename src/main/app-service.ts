@@ -12,7 +12,7 @@ import type {
 import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
-import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
+import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/engine'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import { FileManager } from './files/manager'
 import { NotificationManager } from './notify/manager'
@@ -27,9 +27,6 @@ function engineConfig(settings: Settings): ConstructorParameters<typeof Protocol
     account: settings.identity.account,
     host: settings.identity.hostName,
     group: settings.identity.group,
-    corporation: settings.identity.corporation,
-    department: settings.identity.department,
-    sign: settings.identity.sign,
     status: settings.identity.status,
     port: settings.network.port,
     bindAddr: settings.network.bindAddr,
@@ -362,9 +359,6 @@ export class AppService {
       account: settings.identity.account,
       host: settings.identity.hostName,
       group: settings.identity.group,
-      corporation: settings.identity.corporation,
-      department: settings.identity.department,
-      sign: settings.identity.sign,
       status: settings.identity.status,
       subnets: settings.network.subnets,
       seeds: settings.network.seeds,
@@ -497,7 +491,11 @@ export class AppService {
     }
   }
 
-  private handleStatus(peerKey: string, seq: number, status: 'delivered' | 'read'): void {
+  private handleStatus(
+    peerKey: string,
+    seq: number,
+    status: 'delivered' | 'read' | 'failed'
+  ): void {
     const conversationId = directConversationId(peerKey)
     const row = this.db
       .prepare(

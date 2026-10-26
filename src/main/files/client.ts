@@ -1,8 +1,8 @@
 import { mkdir, open, rm, type FileHandle } from 'node:fs/promises'
 import { connect, type Socket } from 'node:net'
 import { dirname } from 'node:path'
-import { CMD_GETFILE } from '../protocol/commands'
-import { Encode } from '../protocol/packet'
+import { CMD_GETFILEDATA } from '../protocol/commands'
+import { encodePacket } from '../protocol/packet'
 
 export const CONNECT_TIMEOUT_MS = 10_000
 export const WRITE_TIMEOUT_MS = 10_000
@@ -38,13 +38,12 @@ export function buildGetFileRequest(request: {
   user: string
   host: string
 }): Buffer {
-  return Encode({
+  return encodePacket({
     seq: request.seq,
     user: request.user,
     host: request.host,
-    cmd: CMD_GETFILE,
-    payload: buildGetFilePayload(request.packetId, request.fileId),
-    legacy: true
+    cmd: CMD_GETFILEDATA,
+    payload: buildGetFilePayload(request.packetId, request.fileId)
   })
 }
 

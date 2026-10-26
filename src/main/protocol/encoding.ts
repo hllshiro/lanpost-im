@@ -16,6 +16,11 @@ export function encodeGbk(text: string): Buffer {
   return data
 }
 
+// 兼容性场景使用：无法表示的字符写成 '?'，不抛错。
+export function encodeGbkLossy(text: string): Buffer {
+  return iconv.encode(text, 'gbk')
+}
+
 export interface EncodedText {
   data: Buffer
   utf8: boolean

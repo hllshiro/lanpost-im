@@ -47,13 +47,7 @@ export interface MessageInfo {
 }
 
 export type FileState =
-  | 'waiting'
-  | 'offered'
-  | 'transferring'
-  | 'done'
-  | 'rejected'
-  | 'failed'
-  | 'canceled'
+  'waiting' | 'offered' | 'transferring' | 'done' | 'rejected' | 'failed' | 'canceled'
 
 export interface FileTaskInfo {
   id: string

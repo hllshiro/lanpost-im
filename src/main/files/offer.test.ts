@@ -3,11 +3,11 @@ import { describe, expect, it } from 'vitest'
 import { parseOffer, buildFileBody, type Attachment } from '../protocol/attach'
 import {
   CMD_ENTRY,
-  CMD_FILEATTACH,
   CMD_RECVMSG,
-  CMD_SENDCHECK,
   CMD_SENDMSG,
-  CMD_UTF8
+  OPT_FILEATTACH,
+  OPT_SENDCHECK,
+  OPT_UTF8
 } from '../protocol/commands'
 import { encodeGbk } from '../protocol/encoding'
 import {
@@ -15,8 +15,8 @@ import {
   type ProtocolCallbacks,
   type ProtocolConfig,
   type ProtocolPeer
-} from '../protocol/discovery'
-import { DecodeCompat, Encode } from '../protocol/packet'
+} from '../protocol/engine'
+import { decodePacket, encodePacket } from '../protocol/packet'
 
 interface OfferRecord {
   peer: ProtocolPeer
@@ -58,9 +58,6 @@ function makeConfig(port: number): ProtocolConfig {
     account: 'file-receiver',
     host: 'file-host',
     group: '',
-    corporation: '',
-    department: '',
-    sign: '',
     status: 0,
     port,
     bindAddr: '127.0.0.1',
@@ -71,7 +68,7 @@ function makeConfig(port: number): ProtocolConfig {
 }
 
 describe('文件邀请报文', () => {
-  it('raises onFileOffer with the packet seq and sends offers as legacy SENDMSG', async () => {
+  it('raises onFileOffer with the packet seq and sends standard file offers', async () => {
     const enginePort = await freeUdpPort()
     const raw = createSocket('udp4')
     const packets: Buffer[] = []
@@ -100,13 +97,12 @@ describe('文件邀请报文', () => {
     try {
       await engine.start()
       raw.send(
-        Encode({
+        encodePacket({
           seq: 10,
           user: peerUser,
           host: peerHost,
           cmd: CMD_ENTRY,
-          payload: Buffer.concat([encodeGbk('对端'), Buffer.from([0, 0, 0])]),
-          legacy: true
+          payload: Buffer.concat([encodeGbk('对端'), Buffer.from([0, 0, 0])])
         }),
         enginePort,
         '127.0.0.1'
@@ -117,13 +113,12 @@ describe('文件邀请报文', () => {
       ]
       const outgoing = buildFileBody('发一个文件', attachments)
       raw.send(
-        Encode({
+        encodePacket({
           seq: 777,
           user: peerUser,
           host: peerHost,
-          cmd: CMD_SENDMSG | CMD_SENDCHECK | CMD_FILEATTACH | (outgoing.utf8 ? CMD_UTF8 : 0),
-          payload: outgoing.body,
-          legacy: true
+          cmd: CMD_SENDMSG | OPT_SENDCHECK | OPT_FILEATTACH | (outgoing.utf8 ? OPT_UTF8 : 0),
+          payload: outgoing.body
         }),
         enginePort,
         '127.0.0.1'
@@ -135,11 +130,10 @@ describe('文件邀请报文', () => {
       expect(offer.attachments[0].name).toBe('归档:报告.pdf')
       expect(offer.attachments[0].size).toBe(0x400)
       expect(offer.peer.key).toBe(peerKey)
-      expect(messages).toContain('发一个文件')
 
       const ack = await waitFor(() => {
         for (const packet of packets) {
-          const header = DecodeCompat(packet)
+          const header = decodePacket(packet)
           if (header.cmd === CMD_RECVMSG) {
             return header
           }
@@ -151,18 +145,17 @@ describe('文件邀请报文', () => {
       const seq = engine.sendFileOffer(peerKey, '发送文件', attachments)
       const sent = await waitFor(() => {
         for (const packet of packets) {
-          const header = DecodeCompat(packet)
-          if ((header.cmd & 0xff) === CMD_SENDMSG && (header.cmd & CMD_FILEATTACH) !== 0) {
+          const header = decodePacket(packet)
+          if ((header.cmd & 0xff) === CMD_SENDMSG && (header.cmd & OPT_FILEATTACH) !== 0) {
             return header
           }
         }
         return null
       })
       expect(sent.version).toBe('1')
-      expect(sent.legacy).toBe(true)
       expect(sent.seq).toBe(seq)
-      expect((sent.cmd & CMD_SENDCHECK) !== 0).toBe(true)
-      const parsed = parseOffer(sent.payload, (sent.cmd & CMD_UTF8) !== 0)
+      expect((sent.cmd & OPT_SENDCHECK) !== 0).toBe(true)
+      const parsed = parseOffer(sent.payload, (sent.cmd & OPT_UTF8) !== 0)
       expect(parsed.text).toBe('发送文件')
       expect(parsed.attachments[0]).toMatchObject({ id: 0x21, name: '归档:报告.pdf', size: 0x400 })
       expect(errors).toEqual([])

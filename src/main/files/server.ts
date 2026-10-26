@@ -1,7 +1,7 @@
 import { open, type FileHandle } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
-import { CMD_GETFILE } from '../protocol/commands'
-import { DecodeCompat, TrimNul, type Header } from '../protocol/packet'
+import { CMD_GETFILEDATA } from '../protocol/commands'
+import { decodePacket, trimNul, type PacketHeader } from '../protocol/packet'
 
 const FIRST_BYTE_TIMEOUT_MS = 3000
 const IDLE_TIMEOUT_MS = 300
@@ -53,7 +53,7 @@ function parseHex(text: string, max: number): number | null {
 // GETFILEDATA 的扩展域是 “包编号:文件ID:偏移:”，全部十六进制，结尾冒号可以省略。
 // 标准 IPMSG 只回传文件标识，因此单字段请求也作为文件标识候选。
 export function parseGetFileRequest(payload: Buffer): { packetId: number; fileIds: number[] } {
-  const raw = TrimNul(payload).toString('ascii')
+  const raw = trimNul(payload).toString('ascii')
   const parts = raw.split(':')
   const first = parts.length > 0 ? parts[0] : ''
   const packetId = parseHex(first, 0xffffffff) ?? 0
@@ -246,14 +246,14 @@ export class FileServer {
       if (raw === null) {
         return
       }
-      let header: Header
+      let header: PacketHeader
       try {
-        header = DecodeCompat(raw)
+        header = decodePacket(raw)
       } catch (error) {
         this.options.onLog(`忽略无法解析的取文件请求: ${toError(error).message}`)
         return
       }
-      if ((header.cmd & 0xff) !== CMD_GETFILE) {
+      if ((header.cmd & 0xff) !== CMD_GETFILEDATA) {
         this.options.onLog(`忽略非取文件命令: ${header.cmd}`)
         return
       }
