@@ -1,13 +1,23 @@
-import { describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from './db'
 
+const tempDirs: string[] = []
+
 function tempDb(): string {
-  return join(mkdtempSync(join(tmpdir(), 'lanpost-db-')), 'lanpost.db')
+  const dir = mkdtempSync(join(tmpdir(), 'lanpost-db-'))
+  tempDirs.push(dir)
+  return join(dir, 'lanpost.db')
 }
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
 
 describe('openDatabase', () => {
   it('creates the phase 0 tables and sets the schema version', () => {

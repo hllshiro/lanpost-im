@@ -1,14 +1,24 @@
-import { describe, expect, it } from 'vitest'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { openDatabase } from './db'
 import { importLegacyHistory } from './import'
 import { ConversationRepository, MessageRepository } from './repositories'
 
+const tempDirs: string[] = []
+
 function tempDir(): string {
-  return mkdtempSync(join(tmpdir(), 'lanpost-import-'))
+  const dir = mkdtempSync(join(tmpdir(), 'lanpost-import-'))
+  tempDirs.push(dir)
+  return dir
 }
+
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  }
+})
 
 describe('importLegacyHistory', () => {
   it('imports valid lines and skips malformed ones', () => {
