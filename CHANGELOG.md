@@ -2,6 +2,13 @@
 
 本文件记录每个版本面向用户的主要变化。发布前以上一个 tag 到当前 HEAD 的提交为输入，按“新增 / 修复 / 兼容性 / 文档 / 已知限制”提炼，不逐条照抄提交信息。首个版本覆盖仓库初始提交到 `v0.0.1`。
 
+## [0.0.3] - 2026-10-26
+
+### 修复
+
+- 修复 tag 构建时 electron-builder 隐式发布、缺少 `GH_TOKEN` 导致 `GitHub Personal Access Token is not set` 的问题：构建阶段设置 `publish: null`，Release 由工作流使用 `RELEASE_TOKEN` 或内置 `GITHUB_TOKEN` 创建。
+- 文档补充发布 token 的配置方式。
+
 ## [0.0.2] - 2026-10-26
 
 ### 修复
