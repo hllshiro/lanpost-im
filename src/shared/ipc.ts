@@ -17,6 +17,8 @@ export const IPC = {
   messagesList: 'messages:list',
   messageSend: 'messages:send',
   messageUnseal: 'messages:unseal',
+  messageBroadcast: 'messages:broadcast',
+  messageMulticast: 'messages:multicast',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -67,6 +69,19 @@ export interface MessagesSendRequest {
   sealed?: boolean
 }
 
+export interface MessageBroadcastRequest {
+  text: string
+}
+
+export interface MessageMulticastRequest {
+  peerKeys: string[]
+  text: string
+}
+
+export interface SentCountResult {
+  count: number
+}
+
 export type Api = {
   app: {
     info(): Promise<AppInfo>
@@ -97,6 +112,8 @@ export type Api = {
     list(request: MessagesListRequest): Promise<MessagesPage>
     send(request: MessagesSendRequest): Promise<SendTextResult>
     unseal(messageId: number): Promise<SendTextResult>
+    broadcast(request: MessageBroadcastRequest): Promise<SentCountResult>
+    multicast(request: MessageMulticastRequest): Promise<SentCountResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }

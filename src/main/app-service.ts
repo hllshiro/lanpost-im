@@ -238,6 +238,42 @@ export class AppService {
     this.handlePeers(this.engine.getPeers())
   }
 
+  broadcast(text: string): number {
+    const targets = this.engine.sendBroadcast(text)
+    for (const target of targets) {
+      this.insertGroupMessage(target.peerKey, text, target.seq, { broadcast: true })
+    }
+    return targets.length
+  }
+
+  multicast(peerKeys: string[], text: string): number {
+    const targets = this.engine.sendMulticast(peerKeys, text)
+    for (const target of targets) {
+      this.insertGroupMessage(target.peerKey, text, target.seq, { multicast: true })
+    }
+    return targets.length
+  }
+
+  private insertGroupMessage(
+    peerKey: string,
+    text: string,
+    seq: number,
+    flags: { broadcast?: boolean; multicast?: boolean }
+  ): void {
+    const peer = this.repos.peers.get(peerKey)
+    const conversation = this.repos.conversations.ensureDirect(
+      peerKey,
+      peer?.alias || peer?.name || peerKey
+    )
+    const meta: MessageMeta = { flags }
+    const message = this.repos.messages.insertOutgoing(conversation.id, text, seq, 'text', meta)
+    this.repos.messages.setStatus(message.id, 'sent')
+    const updated = this.repos.messages.getMessage(message.id)
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    if (updated !== null) this.emit({ type: 'message', message: updated })
+    this.emitConversation(conversation.id)
+  }
+
   async requestPeerInfo(peerKey: string): Promise<PeerInfo> {
     this.engine.requestInfo(peerKey)
     await new Promise((resolve) => setTimeout(resolve, 450))

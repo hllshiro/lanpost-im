@@ -41,6 +41,8 @@ const api: Api = {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),
     unseal: (messageId) => ipcRenderer.invoke(IPC.messageUnseal, messageId),
+    broadcast: (request) => ipcRenderer.invoke(IPC.messageBroadcast, request),
+    multicast: (request) => ipcRenderer.invoke(IPC.messageMulticast, request),
     markRead: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.conversationRead, conversationId, messageId),
     saveDraft: (conversationId, draft) =>

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { ChevronDown, ChevronRight, Search, Users, X } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
 import { useAppStore } from '../stores/app'
+import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
 import { displayName, groupPeers } from '../utils/contacts'
@@ -13,6 +14,12 @@ const store = useAppStore()
 const query = ref('')
 const activeLetter = ref<string | null>(null)
 const collapsed = ref<Set<string>>(new Set())
+const boxOpen = ref(false)
+const boxMode = ref<'broadcast' | 'multicast'>('broadcast')
+const boxText = ref('')
+const boxBusy = ref(false)
+const boxError = ref('')
+const selected = ref<Set<string>>(new Set())
 
 const keyword = computed(() => query.value.trim().toLowerCase())
 
@@ -85,6 +92,48 @@ function toggleGroup(group: string): void {
   collapsed.value = next
 }
 
+function openBox(mode: 'broadcast' | 'multicast'): void {
+  boxMode.value = mode
+  boxOpen.value = true
+  boxError.value = ''
+  if (mode === 'broadcast') selected.value = new Set()
+}
+
+function toggleSelect(peerKey: string): void {
+  const next = new Set(selected.value)
+  if (next.has(peerKey)) next.delete(peerKey)
+  else next.add(peerKey)
+  selected.value = next
+  if (next.size > 0) {
+    boxMode.value = 'multicast'
+    boxOpen.value = true
+  }
+}
+
+async function sendBox(): Promise<void> {
+  const text = boxText.value.trim()
+  if (!text || boxBusy.value) return
+  boxBusy.value = true
+  boxError.value = ''
+  try {
+    const count =
+      boxMode.value === 'broadcast'
+        ? await store.broadcast(text)
+        : await store.multicast([...selected.value], text)
+    if (count > 0) {
+      boxText.value = ''
+      boxOpen.value = false
+      if (boxMode.value === 'multicast') selected.value = new Set()
+    } else {
+      boxError.value = '没有可发送的在线联系人'
+    }
+  } catch (reason) {
+    boxError.value = errorMessage(reason)
+  } finally {
+    boxBusy.value = false
+  }
+}
+
 function hasConversation(peer: PeerInfo): boolean {
   return conversationByPeer.value.has(peer.key)
 }
@@ -111,6 +160,8 @@ function openPeer(peer: PeerInfo): void {
         </p>
       </div>
       <div class="header-actions">
+        <button class="broadcast" @click="openBox('broadcast')">广播</button>
+        <button class="broadcast secondary" @click="openBox('multicast')">多选</button>
         <div class="search">
           <Search :size="14" :stroke-width="1.8" />
           <input
@@ -127,6 +178,24 @@ function openPeer(peer: PeerInfo): void {
         </div>
       </div>
     </header>
+
+    <div v-if="boxOpen" class="broadcast-box">
+      <span class="box-mode">{{
+        boxMode === 'broadcast' ? '全体在线' : `已选 ${selected.size} 人`
+      }}</span>
+      <input
+        v-model="boxText"
+        type="text"
+        :placeholder="boxMode === 'broadcast' ? '发送给所有在线联系人' : '发送给选中的联系人'"
+        :disabled="boxBusy"
+        @keydown.enter.prevent="sendBox"
+      />
+      <button :disabled="boxBusy || !boxText.trim()" @click="sendBox">
+        {{ boxBusy ? '发送中' : '发送' }}
+      </button>
+      <button class="box-close" @click="boxOpen = false">关闭</button>
+      <span v-if="boxError" class="broadcast-error">{{ boxError }}</span>
+    </div>
 
     <div class="scroll">
       <div class="inner">
@@ -172,7 +241,15 @@ function openPeer(peer: PeerInfo): void {
                   <span class="ip">{{ peer.ip }}</span>
                 </span>
 
-                <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+                <input
+                  v-if="boxMode === 'multicast' && boxOpen"
+                  class="select"
+                  type="checkbox"
+                  :checked="selected.has(peer.key)"
+                  aria-label="选择联系人"
+                  @click.stop="toggleSelect(peer.key)"
+                />
+                <ChevronRight v-else :size="16" :stroke-width="1.8" class="chevron" />
               </button>
             </template>
           </template>
@@ -369,6 +446,11 @@ function openPeer(peer: PeerInfo): void {
   font-size: 12.5px;
 }
 
+.broadcast.secondary {
+  background: #eef3f0;
+  color: var(--accent);
+}
+
 .broadcast-box button:disabled {
   opacity: 0.5;
 }
@@ -376,6 +458,23 @@ function openPeer(peer: PeerInfo): void {
 .broadcast-error {
   font-size: 11.5px;
   color: var(--danger);
+}
+
+.box-mode {
+  flex: 0 0 auto;
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.box-close {
+  background: transparent !important;
+  color: var(--text-secondary) !important;
+}
+
+.select {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
 }
 
 .peer {

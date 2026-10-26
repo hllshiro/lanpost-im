@@ -202,4 +202,36 @@ describe('engine discovery', () => {
     })
     expect(a.getPeers().find((item) => item.user === 'bob')?.versionInfo).toContain('lanpost-im')
   }, 10000)
+
+  it('broadcasts to all peers and multicasts to selected peers', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const portC = await freeUdpPort()
+    const aCallbacks = callbacks()
+    const bCallbacks = callbacks()
+    const cCallbacks = callbacks()
+    const a = new ProtocolEngine(
+      config('alice', portA, [`127.0.0.1:${portB}`, `127.0.0.1:${portC}`]),
+      aCallbacks
+    )
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), bCallbacks)
+    const c = new ProtocolEngine(config('carol', portC, [`127.0.0.1:${portA}`]), cCallbacks)
+    engines.push(a, b, c)
+    await a.start()
+    await b.start()
+    await c.start()
+    await waitFor(() => (a.getPeers().filter((item) => item.online).length >= 2 ? true : null))
+    const targets = a.sendBroadcast('hello all')
+    expect(targets).toHaveLength(2)
+    await waitFor(() => (bCallbacks.messages.includes('hello all') ? true : null))
+    await waitFor(() => (cCallbacks.messages.includes('hello all') ? true : null))
+    expect(bCallbacks.metas.at(-1)?.flags).toEqual({ broadcast: true })
+
+    const bob = a.getPeers().find((item) => item.user === 'bob')!
+    const multicast = a.sendMulticast([bob.key], 'only bob')
+    expect(multicast).toHaveLength(1)
+    await waitFor(() => (bCallbacks.messages.includes('only bob') ? true : null))
+    expect(cCallbacks.messages).not.toContain('only bob')
+    expect(bCallbacks.metas.at(-1)?.flags).toEqual({ multicast: true })
+  }, 10000)
 })

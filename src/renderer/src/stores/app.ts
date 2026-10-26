@@ -383,6 +383,16 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function broadcast(text: string): Promise<number> {
+    const result = await window.api.messages.broadcast({ text })
+    return result.count
+  }
+
+  async function multicast(peerKeys: string[], text: string): Promise<number> {
+    const result = await window.api.messages.multicast({ peerKeys, text })
+    return result.count
+  }
+
   async function requestPeerInfo(peerKey: string): Promise<void> {
     try {
       const peer = await window.api.peers.requestInfo(peerKey)
@@ -444,6 +454,8 @@ export const useAppStore = defineStore('app', () => {
     setPinned,
     setAlias,
     requestPeerInfo,
+    broadcast,
+    multicast,
     handleEvent,
     reportError,
     clearError

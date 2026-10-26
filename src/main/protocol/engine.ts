@@ -301,11 +301,33 @@ export class ProtocolEngine {
   }
 
   sendText(peerKey: string, text: string, options: { sealed?: boolean } = {}): number {
-    const peer = this.requirePeer(peerKey)
+    const extra = options.sealed === true ? OPT_SECRET : 0
+    return this.sendTextPacket(this.requirePeer(peerKey), text, extra)
+  }
+
+  sendBroadcast(text: string): Array<{ peerKey: string; seq: number }> {
+    const sent: Array<{ peerKey: string; seq: number }> = []
+    for (const peer of this.getPeers()) {
+      if (!peer.online) continue
+      sent.push({ peerKey: peer.key, seq: this.sendTextPacket(peer, text, OPT_BROADCAST) })
+    }
+    return sent
+  }
+
+  sendMulticast(peerKeys: string[], text: string): Array<{ peerKey: string; seq: number }> {
+    const sent: Array<{ peerKey: string; seq: number }> = []
+    for (const peerKey of [...new Set(peerKeys)]) {
+      const peer = this.peers.get(peerKey)
+      if (peer === undefined || !peer.online) continue
+      sent.push({ peerKey, seq: this.sendTextPacket(peer, text, OPT_MULTICAST) })
+    }
+    return sent
+  }
+
+  private sendTextPacket(peer: ProtocolPeer, text: string, extraFlags: number): number {
     const encoded = encodeMessageText(text, { utf8: peer.capUtf8 })
     if (encoded.lossy) this.log(`${peer.name || peer.user} 不支持 UTF-8，部分字符已替换`)
-    let cmd = CMD_SENDMSG | OPT_SENDCHECK | (encoded.utf8 ? OPT_UTF8 : 0)
-    if (options.sealed === true) cmd |= OPT_SECRET
+    const cmd = CMD_SENDMSG | OPT_SENDCHECK | (encoded.utf8 ? OPT_UTF8 : 0) | extraFlags
     return this.sendTracked(peer, cmd, encoded.data)
   }
 
