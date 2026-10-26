@@ -25,7 +25,7 @@ import {
   OPT_SENDCHECK,
   OPT_UTF8
 } from './commands'
-import { decodeText, encodeText } from './encoding'
+import { decodeMessageText, encodeMessageText } from './text'
 import { encodeEntry, parseEntry } from './entry'
 import { decodePacket, encodePacket, trimNul, type PacketHeader } from './packet'
 
@@ -292,7 +292,8 @@ export class ProtocolEngine {
 
   sendText(peerKey: string, text: string): number {
     const peer = this.requirePeer(peerKey)
-    const encoded = encodeText(text)
+    const encoded = encodeMessageText(text, { utf8: peer.capUtf8 })
+    if (encoded.lossy) this.log(`${peer.name || peer.user} 不支持 UTF-8，部分字符已替换`)
     const cmd = CMD_SENDMSG | OPT_SENDCHECK | (encoded.utf8 ? OPT_UTF8 : 0)
     return this.sendPacket(peer, cmd, encoded.data)
   }
@@ -614,7 +615,7 @@ export class ProtocolEngine {
     } else {
       const body = trimNul(header.payload)
       const nul = body.indexOf(0)
-      const text = decodeText(nul >= 0 ? body.subarray(0, nul) : body, utf8)
+      const text = decodeMessageText(nul >= 0 ? body.subarray(0, nul) : body, utf8)
       this.callbacks.onMessage(clonePeer(peer), text, header.seq, meta)
     }
     this.ackFor(header, peer)
