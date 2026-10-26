@@ -103,13 +103,13 @@ describe('importLegacyHistory', () => {
       remoteSeq: 12,
       createdAt: 1700000001000
     })
-    expect(JSON.parse(aliceMessages[0].meta)).toEqual({ legacy_id: '1' })
-    expect(JSON.parse(aliceMessages[1].meta)).toEqual({ legacy_id: '2' })
+    expect(aliceMessages[0].meta).toEqual({ legacy_id: '1' })
+    expect(aliceMessages[1].meta).toEqual({ legacy_id: '2' })
 
     const bobMessages = messages.list(bob!.id).messages
     expect(bobMessages).toHaveLength(1)
     expect(bobMessages[0]).toMatchObject({ status: 'read', createdAt: 1700000002000 })
-    expect(JSON.parse(bobMessages[0].meta)).toEqual({ legacy_id: '4' })
+    expect(bobMessages[0].meta).toEqual({ legacy_id: '4' })
 
     expect(readFileSync(file, 'utf8')).toBe(content)
 

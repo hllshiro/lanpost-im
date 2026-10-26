@@ -4,6 +4,7 @@ import type {
   FileState,
   FileTaskInfo,
   MessageInfo,
+  MessageMeta,
   MessagesPage,
   PeerInfo
 } from '../../shared/domain'
@@ -98,6 +99,15 @@ function mapConversation(row: ConversationRow): ConversationInfo {
   }
 }
 
+function parseMeta(raw: string): MessageMeta {
+  try {
+    const value: unknown = JSON.parse(raw)
+    return typeof value === 'object' && value !== null ? (value as MessageMeta) : {}
+  } catch {
+    return {}
+  }
+}
+
 function mapMessage(row: MessageRow): MessageInfo {
   return {
     id: row.id,
@@ -108,7 +118,7 @@ function mapMessage(row: MessageRow): MessageInfo {
     remoteSeq: row.remote_seq,
     status: row.status,
     createdAt: row.created_at,
-    meta: row.meta
+    meta: parseMeta(row.meta)
   }
 }
 
@@ -254,7 +264,7 @@ export class MessageRepository {
     text: string,
     remoteSeq: number,
     kind: MessageInfo['kind'] = 'text',
-    meta = '{}'
+    meta: MessageMeta = {}
   ): MessageInfo {
     return this.insert(conversationId, 'in', 'delivered', text, remoteSeq, kind, meta)
   }
@@ -264,13 +274,24 @@ export class MessageRepository {
     text: string,
     remoteSeq: number,
     kind: MessageInfo['kind'] = 'text',
-    meta = '{}'
+    meta: MessageMeta = {}
   ): MessageInfo {
     return this.insert(conversationId, 'out', 'sending', text, remoteSeq, kind, meta)
   }
 
   setStatus(id: number, status: string): void {
     this.db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, id)
+  }
+
+  setMeta(id: number, meta: MessageMeta): void {
+    this.db.prepare('UPDATE messages SET meta = ? WHERE id = ?').run(JSON.stringify(meta), id)
+  }
+
+  deleteByRemoteSeq(conversationId: string, remoteSeq: number): boolean {
+    const result = this.db
+      .prepare('DELETE FROM messages WHERE conversation_id = ? AND remote_seq = ?')
+      .run(conversationId, remoteSeq)
+    return result.changes > 0
   }
 
   setRemoteSeq(id: number, seq: number): void {
@@ -290,13 +311,22 @@ export class MessageRepository {
     text: string,
     remoteSeq: number,
     kind: MessageInfo['kind'],
-    meta: string
+    meta: MessageMeta
   ): MessageInfo {
     const result = this.db
       .prepare(
         'INSERT INTO messages (conversation_id, direction, kind, text, remote_seq, status, created_at, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
       )
-      .run(conversationId, direction, kind, text, remoteSeq, status, Date.now(), meta)
+      .run(
+        conversationId,
+        direction,
+        kind,
+        text,
+        remoteSeq,
+        status,
+        Date.now(),
+        JSON.stringify(meta)
+      )
     const message = this.getMessage(Number(result.lastInsertRowid))
     if (message === null) {
       throw new Error('消息写入后无法读取')

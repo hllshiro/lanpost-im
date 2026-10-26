@@ -4,6 +4,7 @@ import { encodeEntry } from './entry'
 import { encodePacket } from './packet'
 import {
   ProtocolEngine,
+  type MessageMeta,
   type ProtocolCallbacks,
   type ProtocolConfig,
   type ProtocolPeer
@@ -41,13 +42,24 @@ function config(name: string, port: number, seeds: string[]): ProtocolConfig {
   }
 }
 
-function callbacks(): ProtocolCallbacks & { messages: string[] } {
+function callbacks(): ProtocolCallbacks & {
+  messages: string[]
+  metas: MessageMeta[]
+  statuses: Array<[string, number, string]>
+} {
   const messages: string[] = []
+  const metas: MessageMeta[] = []
+  const statuses: Array<[string, number, string]> = []
   return {
     messages,
+    metas,
+    statuses,
     onPeers: () => undefined,
-    onMessage: (...args: unknown[]) => messages.push(String(args[1])),
-    onMessageStatus: () => undefined,
+    onMessage: (...args: unknown[]) => {
+      messages.push(String(args[1]))
+      metas.push(args[3] as MessageMeta)
+    },
+    onMessageStatus: (peerKey, seq, status) => statuses.push([peerKey, seq, status]),
     onLog: () => undefined,
     onError: (error) => {
       throw error
@@ -149,5 +161,28 @@ describe('engine discovery', () => {
       2000
     )
     raw.close()
+  }, 10000)
+
+  it('marks sealed messages and reads them back', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const aCallbacks = callbacks()
+    const bCallbacks = callbacks()
+    const a = new ProtocolEngine(config('alice', portA, [`127.0.0.1:${portB}`]), aCallbacks)
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), bCallbacks)
+    engines.push(a, b)
+    await a.start()
+    await b.start()
+    const peerA = await waitFor(() => a.getPeers().find((item) => item.user === 'bob') ?? null)
+    const seq = a.sendText(peerA.key, 'secret', { sealed: true })
+    await waitFor(() => (bCallbacks.messages.includes('secret') ? true : null))
+    expect(bCallbacks.metas[0]).toMatchObject({ sealed: true, opened: false })
+    const peerB = b.getPeers().find((item) => item.user === 'alice')!
+    b.sendReadMessage(peerB.key, seq, false)
+    await waitFor(() =>
+      aCallbacks.statuses.some(([, value, status]) => value === seq && status === 'read')
+        ? true
+        : null
+    )
   }, 10000)
 })

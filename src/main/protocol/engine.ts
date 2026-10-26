@@ -1,6 +1,6 @@
 import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
-import type { PeerInfo } from '../../shared/domain'
+import type { PeerInfo, MessageMeta } from '../../shared/domain'
 import { buildFileBody, parseOffer, type Attachment } from './attach'
 import {
   CMD_ABSENCE,
@@ -25,6 +25,7 @@ import {
   OPT_SENDCHECK,
   OPT_UTF8
 } from './commands'
+import { Retransmitter } from './retransmit'
 import { decodeMessageText, encodeMessageText } from './text'
 import { encodeEntry, parseEntry } from './entry'
 import { decodePacket, encodePacket, trimNul, type PacketHeader } from './packet'
@@ -37,14 +38,7 @@ const MAX_TEXT_BYTES = 60_000
 
 export type MessageStatus = 'delivered' | 'read' | 'failed'
 
-export interface MessageMeta {
-  sealed?: boolean
-  opened?: boolean
-  flags?: { broadcast?: boolean; multicast?: boolean }
-  files?: string[]
-  images?: string[]
-  channel?: 'standard'
-}
+export type { MessageMeta }
 
 export interface ProtocolConfig {
   name: string
@@ -213,6 +207,7 @@ export class ProtocolEngine {
   private sweepTimer: ReturnType<typeof setInterval> | null = null
   private readonly burstTimers = new Set<ReturnType<typeof setTimeout>>()
   private readonly pendingSends = new Set<Promise<void>>()
+  private readonly retransmitter: Retransmitter
 
   constructor(config: ProtocolConfig, callbacks: ProtocolCallbacks, options: EngineOptions = {}) {
     this.config = normalizeConfig(config)
@@ -223,6 +218,9 @@ export class ProtocolEngine {
       sweepIntervalMs: options.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
       random: options.random ?? Math.random
     }
+    this.retransmitter = new Retransmitter({
+      onFailed: (peerKey, seq) => this.callbacks.onMessageStatus(peerKey, seq, 'failed')
+    })
   }
 
   async start(): Promise<void> {
@@ -272,6 +270,7 @@ export class ProtocolEngine {
     this.sweepTimer = null
     for (const timer of this.burstTimers) clearTimeout(timer)
     this.burstTimers.clear()
+    this.retransmitter.stop()
     this.broadcast(CMD_EXIT, Buffer.alloc(0))
     await Promise.allSettled([...this.pendingSends])
     this.socket = null
@@ -290,12 +289,19 @@ export class ProtocolEngine {
     return this.peers.size
   }
 
-  sendText(peerKey: string, text: string): number {
+  sendText(peerKey: string, text: string, options: { sealed?: boolean } = {}): number {
     const peer = this.requirePeer(peerKey)
     const encoded = encodeMessageText(text, { utf8: peer.capUtf8 })
     if (encoded.lossy) this.log(`${peer.name || peer.user} 不支持 UTF-8，部分字符已替换`)
-    const cmd = CMD_SENDMSG | OPT_SENDCHECK | (encoded.utf8 ? OPT_UTF8 : 0)
-    return this.sendPacket(peer, cmd, encoded.data)
+    let cmd = CMD_SENDMSG | OPT_SENDCHECK | (encoded.utf8 ? OPT_UTF8 : 0)
+    if (options.sealed === true) cmd |= OPT_SECRET
+    return this.sendTracked(peer, cmd, encoded.data)
+  }
+
+  sendReadMessage(peerKey: string, seq: number, withCheck: boolean): void {
+    const peer = this.requirePeer(peerKey)
+    const cmd = CMD_READMSG | (withCheck ? OPT_READCHECK : 0)
+    this.sendPacket(peer, cmd, Buffer.from(`${seq}\u0000`, 'utf8'))
   }
 
   sendFileOffer(peerKey: string, text: string, attachments: Attachment[]): number {
@@ -304,7 +310,7 @@ export class ProtocolEngine {
     const { body, utf8 } = buildFileBody(text, attachments)
     if (body.length > MAX_TEXT_BYTES) throw new Error(`消息与文件名过长: ${body.length} 字节`)
     const cmd = CMD_SENDMSG | OPT_SENDCHECK | OPT_FILEATTACH | (utf8 ? OPT_UTF8 : 0)
-    return this.sendPacket(peer, cmd, body)
+    return this.sendTracked(peer, cmd, body)
   }
 
   sendFileAccept(peerKey: string, packetId: number): void {
@@ -464,6 +470,25 @@ export class ProtocolEngine {
     return seq
   }
 
+  // 需要确认的 SENDMSG 在未收到 RECVMSG/ANSREADMSG 时重发同一份报文。
+  private sendTracked(peer: ProtocolPeer, cmd: number, payload: Buffer): number {
+    const seq = this.nextSeq()
+    const data = encodePacket({
+      seq,
+      user: this.config.account,
+      host: this.config.host,
+      cmd,
+      payload
+    })
+    this.sendRaw(peer.ip, peer.port, data)
+    this.retransmitter.add({
+      seq,
+      peerKey: peer.key,
+      send: () => this.sendRaw(peer.ip, peer.port, data)
+    })
+    return seq
+  }
+
   private sendRaw(ip: string, port: number, data: Buffer, quiet = false): void {
     const socket = this.socket
     if (socket === null) return
@@ -607,6 +632,7 @@ export class ProtocolEngine {
       meta.sealed = true
       meta.opened = false
     }
+    if ((header.cmd & OPT_READCHECK) !== 0) meta.readCheck = true
     if ((header.cmd & OPT_BROADCAST) !== 0) meta.flags = { broadcast: true }
     if ((header.cmd & OPT_MULTICAST) !== 0) meta.flags = { multicast: true }
     if (isOffer) {
@@ -628,12 +654,17 @@ export class ProtocolEngine {
 
   private handleAck(peer: ProtocolPeer, header: PacketHeader, status: MessageStatus): void {
     const seq = this.parseSeq(header.payload)
-    if (seq !== null) this.callbacks.onMessageStatus(peer.key, seq, status)
+    if (seq === null) return
+    this.retransmitter.ack(seq)
+    this.callbacks.onMessageStatus(peer.key, seq, status)
   }
 
   private handleRead(peer: ProtocolPeer, header: PacketHeader): void {
     const seq = this.parseSeq(header.payload)
-    if (seq !== null) this.callbacks.onMessageStatus(peer.key, seq, 'read')
+    if (seq !== null) {
+      this.retransmitter.ack(seq)
+      this.callbacks.onMessageStatus(peer.key, seq, 'read')
+    }
     if ((header.cmd & OPT_READCHECK) !== 0) {
       this.sendPacket(peer, CMD_ANSREADMSG, Buffer.from(`${header.seq}\u0000`, 'utf8'))
     }

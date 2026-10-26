@@ -34,6 +34,16 @@ export interface ConversationInfo {
   lastReadMessageId: number
 }
 
+export interface MessageMeta {
+  sealed?: boolean
+  opened?: boolean
+  readCheck?: boolean
+  flags?: { broadcast?: boolean; multicast?: boolean }
+  files?: string[]
+  images?: string[]
+  channel?: 'standard'
+}
+
 export interface MessageInfo {
   id: number
   conversationId: string
@@ -43,7 +53,7 @@ export interface MessageInfo {
   remoteSeq: number
   status: string
   createdAt: number
-  meta: string
+  meta: MessageMeta
 }
 
 export type FileKind = 'file' | 'dir' | 'image'
@@ -94,6 +104,7 @@ export type AppEvent =
   | { type: 'peers'; peers: PeerInfo[] }
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
+  | { type: 'message-deleted'; conversationId: string; remoteSeq: number }
   | { type: 'file'; file: FileTaskInfo }
   | { type: 'settings'; settings: Settings }
 

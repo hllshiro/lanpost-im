@@ -160,6 +160,15 @@ export const useAppStore = defineStore('app', () => {
       case 'file':
         upsertFile(event.file)
         break
+      case 'message-deleted': {
+        const list = messages.value[event.conversationId]
+        if (list) {
+          messages.value[event.conversationId] = list.filter(
+            (message) => message.remoteSeq !== event.remoteSeq
+          )
+        }
+        break
+      }
       case 'settings':
         break
     }
@@ -269,13 +278,13 @@ export const useAppStore = defineStore('app', () => {
     await markRead(id)
   }
 
-  async function sendText(text: string): Promise<boolean> {
+  async function sendText(text: string, sealed = false): Promise<boolean> {
     const conversationId = currentConversationId.value
     const body = text.trim()
     if (!conversationId || !body || sending.value) return false
     sending.value = true
     try {
-      const result = await window.api.messages.send({ conversationId, text: body })
+      const result = await window.api.messages.send({ conversationId, text: body, sealed })
       upsertMessage(result.message)
       const conversation = conversations.value.find((item) => item.id === conversationId)
       if (conversation) {
@@ -301,6 +310,15 @@ export const useAppStore = defineStore('app', () => {
       return false
     } finally {
       sending.value = false
+    }
+  }
+
+  async function unseal(messageId: number): Promise<void> {
+    try {
+      const result = await window.api.messages.unseal(messageId)
+      upsertMessage(result.message)
+    } catch (reason) {
+      reportError(reason)
     }
   }
 
@@ -402,6 +420,7 @@ export const useAppStore = defineStore('app', () => {
     selectConversation,
     loadMessages,
     sendText,
+    unseal,
     saveDraft,
     markRead,
     markReadCurrent,

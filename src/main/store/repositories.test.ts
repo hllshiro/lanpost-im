@@ -182,13 +182,9 @@ describe('MessageRepository', () => {
     const messages = new MessageRepository(db)
     const conversation = conversations.ensureDirect('1|a', '甲')
 
-    const incoming = messages.insertIncoming(
-      conversation.id,
-      '收到文件',
-      42,
-      'file',
-      '{"fileId":"f1"}'
-    )
+    const incoming = messages.insertIncoming(conversation.id, '收到文件', 42, 'file', {
+      files: ['f1']
+    })
     expect(incoming).toMatchObject({
       conversationId: conversation.id,
       direction: 'in',
@@ -196,7 +192,7 @@ describe('MessageRepository', () => {
       text: '收到文件',
       remoteSeq: 42,
       status: 'delivered',
-      meta: '{"fileId":"f1"}'
+      meta: { files: ['f1'] }
     })
 
     const outgoing = messages.insertOutgoing(conversation.id, '发出', 0)
@@ -204,7 +200,7 @@ describe('MessageRepository', () => {
       direction: 'out',
       kind: 'text',
       status: 'sending',
-      meta: '{}',
+      meta: {},
       remoteSeq: 0
     })
     expect(outgoing.createdAt).toBeGreaterThan(0)

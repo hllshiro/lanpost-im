@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle } from '@lucide/vue'
+import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle, Lock } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, statusLabel } from '../utils/format'
 import FileCard from './FileCard.vue'
+
+const emit = defineEmits<{ unseal: [messageId: number] }>()
 
 const props = defineProps<{
   message: MessageInfo
@@ -27,6 +29,11 @@ const statusIcon = computed(() => {
       return Check
   }
 })
+
+const sealed = computed(() => props.message.meta.sealed === true)
+const masked = computed(
+  () => sealed.value && props.message.direction === 'in' && props.message.meta.opened !== true
+)
 
 const statusClass = computed(() => {
   if (props.message.status === 'failed') return 'failed'
@@ -60,8 +67,23 @@ const statusClass = computed(() => {
           </div>
         </div>
 
-        <div v-else class="bubble text-bubble" :class="{ failed: message.status === 'failed' }">
-          {{ message.text }}
+        <div
+          v-else
+          class="bubble text-bubble"
+          :class="{ failed: message.status === 'failed', masked }"
+        >
+          <template v-if="masked">
+            <button class="unseal" @click="emit('unseal', message.id)">
+              <Lock :size="15" :stroke-width="1.8" />
+              <span>密封消息，点击查看</span>
+            </button>
+          </template>
+          <template v-else>
+            <span v-if="sealed" class="sealed-tag">
+              <Lock :size="11" :stroke-width="1.9" /> 密封
+            </span>
+            {{ message.text }}
+          </template>
         </div>
 
         <div v-if="own" class="meta" :class="statusClass">
@@ -164,6 +186,39 @@ const statusClass = computed(() => {
 
 .row.own .text-bubble {
   background: var(--own-bubble);
+}
+
+.text-bubble.masked {
+  padding: 0;
+  background: transparent;
+}
+
+.unseal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 12px;
+  border-radius: var(--radius-bubble);
+  background: #f0f0f0;
+  color: var(--text-secondary);
+  font-size: var(--chat-font-size);
+}
+
+.unseal:hover {
+  color: var(--accent);
+}
+
+.sealed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.05);
+  font-size: 10px;
+  color: var(--text-secondary);
+  vertical-align: 1px;
 }
 
 .text-bubble.failed {

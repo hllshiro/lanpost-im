@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Paperclip, Send } from '@lucide/vue'
+import { Lock, Paperclip, Send } from '@lucide/vue'
 import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{
@@ -12,11 +12,12 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:draft': [value: string]
-  send: [text: string]
+  send: [text: string, sealed: boolean]
 }>()
 
 const fileBusy = ref(false)
 const fileError = ref('')
+const sealed = ref(false)
 
 async function pickFile(): Promise<void> {
   if (fileBusy.value || props.conversationId === '') return
@@ -52,7 +53,7 @@ function onInput(): void {
 function submit(): void {
   const body = props.draft.trim()
   if (!body || props.sending) return
-  emit('send', body)
+  emit('send', body, sealed.value)
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -107,6 +108,17 @@ onMounted(async () => {
       >
         <Paperclip :size="17" :stroke-width="1.8" />
         <span>文件</span>
+      </button>
+
+      <button
+        class="tool"
+        :class="{ active: sealed }"
+        :title="sealed ? '取消密封发送' : '密封发送'"
+        aria-label="密封发送"
+        @click="sealed = !sealed"
+      >
+        <Lock :size="16" :stroke-width="1.8" />
+        <span>密封</span>
       </button>
 
       <span v-if="fileError" class="file-error">{{ fileError }}</span>

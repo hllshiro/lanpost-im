@@ -6,6 +6,7 @@ import type {
   AppEvent,
   AppSnapshot,
   FileTaskInfo,
+  MessageMeta,
   MessagesPage,
   SendTextResult
 } from '../shared/domain'
@@ -199,6 +200,20 @@ export class AppService {
     this.repos.conversations.markRead(conversationId, messageId)
     this.emitConversation(conversationId)
     this.notifications.setUnread(this.unreadTotal())
+  }
+
+  unseal(messageId: number): SendTextResult {
+    const message = this.repos.messages.getMessage(messageId)
+    if (message === null) throw new Error('消息不存在')
+    const conversation = this.repos.conversations.get(message.conversationId)
+    if (conversation === null || conversation.peerKey === null) throw new Error('会话不存在')
+    const meta: MessageMeta = { ...message.meta, opened: true }
+    this.repos.messages.setMeta(messageId, meta)
+    this.engine.sendReadMessage(conversation.peerKey, message.remoteSeq, meta.readCheck === true)
+    const updated = this.repos.messages.getMessage(messageId)
+    if (updated === null) throw new Error('消息更新后无法读取')
+    this.emit({ type: 'message', message: updated })
+    return { message: updated }
   }
 
   setActiveConversation(conversationId: string | null): void {
@@ -413,7 +428,7 @@ export class AppService {
         peer?.alias || peer?.name || peerKey
       )
       const text = file.name
-      const meta = JSON.stringify({ fileId: file.id })
+      const meta: MessageMeta = { files: [file.id] }
       const message =
         file.direction === 'in'
           ? this.repos.messages.insertIncoming(conversation.id, text, file.packetId, 'file', meta)

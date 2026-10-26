@@ -16,6 +16,7 @@ export const IPC = {
   event: 'state:event',
   messagesList: 'messages:list',
   messageSend: 'messages:send',
+  messageUnseal: 'messages:unseal',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -62,6 +63,7 @@ export interface MessagesListRequest {
 export interface MessagesSendRequest {
   conversationId: string
   text: string
+  sealed?: boolean
 }
 
 export type Api = {
@@ -93,6 +95,7 @@ export type Api = {
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
     send(request: MessagesSendRequest): Promise<SendTextResult>
+    unseal(messageId: number): Promise<SendTextResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }

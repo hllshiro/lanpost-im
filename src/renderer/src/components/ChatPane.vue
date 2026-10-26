@@ -27,9 +27,10 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [text: string]
+  send: [text: string, sealed: boolean]
   draft: [value: string]
   read: []
+  unseal: [messageId: number]
   loadMore: [beforeId: number]
 }>()
 
@@ -96,8 +97,8 @@ function handleDraft(value: string): void {
   emit('draft', value)
 }
 
-function handleSend(text: string): void {
-  emit('send', text)
+function handleSend(text: string, sealed: boolean): void {
+  emit('send', text, sealed)
 }
 
 async function copyAddress(): Promise<void> {
@@ -226,6 +227,7 @@ onBeforeUnmount(() => {
           :loading="loadingMessages"
           @load-more="handleLoadMore"
           @read="emit('read')"
+          @unseal="emit('unseal', $event)"
         />
       </div>
 

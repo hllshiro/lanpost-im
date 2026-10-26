@@ -66,8 +66,12 @@ function handleDraft(value: string): void {
   if (id) store.saveDraft(id, value)
 }
 
-function handleSend(text: string): void {
-  void store.sendText(text)
+function handleSend(text: string, sealed: boolean): void {
+  void store.sendText(text, sealed)
+}
+
+function handleUnseal(messageId: number): void {
+  void store.unseal(messageId)
 }
 
 function handleRead(): void {
@@ -179,6 +183,7 @@ onBeforeUnmount(() => {
             :sending="store.sending"
             :unread-after-id="currentUnreadAfterId"
             @send="handleSend"
+            @unseal="handleUnseal"
             @draft="handleDraft"
             @read="handleRead"
             @load-more="handleLoadMore"

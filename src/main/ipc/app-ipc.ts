@@ -6,6 +6,7 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
   ipcMain.handle(IPC.messagesList, (_event, request) => service.listMessages(request))
   ipcMain.handle(IPC.messageSend, (_event, request) => service.sendText(request))
+  ipcMain.handle(IPC.messageUnseal, (_event, messageId: number) => service.unseal(messageId))
   ipcMain.handle(IPC.conversationRead, (_event, conversationId: string, messageId: number) =>
     service.markRead(conversationId, messageId)
   )
