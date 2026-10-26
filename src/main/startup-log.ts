@@ -23,3 +23,11 @@ export function errorMessage(error: unknown): string {
   }
   return String(error)
 }
+
+// 弹窗只展示业务消息，不把 Error 类型名和堆栈暴露给用户。
+export function friendlyMessage(error: unknown): string {
+  const text = (error instanceof Error ? error.message : String(error))
+    .replace(/^(?:Error:\s*)+/i, '')
+    .trim()
+  return text === '' ? '未知错误' : text
+}

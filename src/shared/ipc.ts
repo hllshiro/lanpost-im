@@ -1,9 +1,11 @@
 import type { AppEvent, AppSnapshot, MessagesPage, SendTextResult } from './domain'
+import type { Settings, SettingsPatch } from './settings'
 
 export const IPC = {
   appInfo: 'app:info',
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
+  settingsDefaults: 'settings:defaults',
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
@@ -14,6 +16,7 @@ export const IPC = {
   messageSend: 'messages:send',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
+  conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
   peersRefresh: 'peers:refresh',
   filesList: 'files:list',
@@ -58,6 +61,14 @@ export type Api = {
   state: {
     snapshot(): Promise<AppSnapshot>
     onEvent(listener: (event: AppEvent) => void): () => void
+  }
+  conversations: {
+    pin(conversationId: string, pinned: boolean): Promise<void>
+  }
+  settings: {
+    get(): Promise<Settings>
+    update(patch: SettingsPatch): Promise<Settings>
+    defaults(): Promise<Settings>
   }
   ui: {
     onOpenSettings(listener: () => void): () => void

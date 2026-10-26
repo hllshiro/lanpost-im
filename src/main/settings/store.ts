@@ -11,7 +11,6 @@ import {
 } from 'node:fs'
 import { dirname } from 'node:path'
 import {
-  defaultSettings,
   SETTINGS_VERSION,
   settingsSchema,
   type Settings,
@@ -38,14 +37,23 @@ function mergeValue(base: unknown, patch: unknown): unknown {
 
 export class SettingsStore {
   private settings: Settings
+  private readonly defaults: Settings
 
-  constructor(private readonly file: string) {
+  constructor(
+    private readonly file: string,
+    identityDefaults: Partial<Settings['identity']> = {}
+  ) {
     mkdirSync(dirname(file), { recursive: true })
+    this.defaults = settingsSchema.parse({ identity: identityDefaults })
     this.settings = this.load()
   }
 
   get(): Settings {
     return structuredClone(this.settings)
+  }
+
+  defaultSettings(): Settings {
+    return structuredClone(this.defaults)
   }
 
   update(patch: SettingsPatch): Settings {
@@ -58,7 +66,7 @@ export class SettingsStore {
 
   private load(): Settings {
     if (!existsSync(this.file)) {
-      return structuredClone(defaultSettings)
+      return structuredClone(this.defaults)
     }
     try {
       const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'))
@@ -68,12 +76,12 @@ export class SettingsStore {
           : undefined
       if (typeof version === 'number' && version > SETTINGS_VERSION) {
         this.backup()
-        return structuredClone(defaultSettings)
+        return structuredClone(this.defaults)
       }
       return settingsSchema.parse(parsed)
     } catch {
       this.backup()
-      return structuredClone(defaultSettings)
+      return structuredClone(this.defaults)
     }
   }
 

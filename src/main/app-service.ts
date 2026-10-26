@@ -211,6 +211,14 @@ export class AppService {
     this.repos.conversations.saveDraft(conversationId, draft)
   }
 
+  setPinned(conversationId: string, pinned: boolean): void {
+    if (this.repos.conversations.get(conversationId) === null) {
+      throw new Error('会话不存在')
+    }
+    this.repos.conversations.setPinned(conversationId, pinned)
+    this.emitConversation(conversationId)
+  }
+
   refreshPeers(): void {
     this.engine.refresh()
     this.handlePeers(this.engine.getPeers())

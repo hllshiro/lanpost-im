@@ -6,6 +6,7 @@ export interface Handlers {
   appInfo(): AppInfo
   settingsGet(): Settings
   settingsUpdate(patch: unknown): Settings
+  settingsDefaults(): Settings
 }
 
 function assertPatch(value: unknown): asserts value is SettingsPatch {
@@ -27,6 +28,7 @@ export function createHandlers(ctx: {
       const next = ctx.settings.update(patch)
       ctx.onSettingsChanged?.(next)
       return next
-    }
+    },
+    settingsDefaults: () => ctx.settings.defaultSettings()
   }
 }
