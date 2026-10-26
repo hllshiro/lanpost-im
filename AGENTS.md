@@ -2,6 +2,13 @@
 
 Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用仓库；pnpm 12.15.0、Node 24 固定，数据库使用 Electron 内置的 `node:sqlite`，没有原生模块。
 
+## 项目目标
+
+- 最终替代内网通桌面客户端。
+- 兼容飞秋、飞鸽等基于 IPMSG 的程序。
+- 与内网通保持最基本的文字收发和文件收发兼容。
+- 基础兼容走 2425 上的 IPMSG；内网通私有 ENet 通道只作为后续扩展，不作为基础发送路径。
+
 ## 命令
 
 - `pnpm install`；只用 pnpm，不要混用 npm 或 yarn。
@@ -24,7 +31,8 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - 端口 2425 同时承载 UDP 和 TCP，启动时两个服务都绑定；修改端口、监听地址、接收目录后需要重启。
 - IPMSG header 的 seq 是 32 位；不要用 `Date.now()*1000` 生成 header 或文件请求 seq。文件任务按 32 位 packetId 匹配。
-- 兼容报文 version 为 `1`，内网通私有报文为 `1@shiyeline`。文本优先 GBK，带 UTF8 标志时用 UTF-8。GETFILEDATA 用 legacy `1` 和十六进制 `packetId:fileId:offset:`。
+- 兼容报文 version 为 `1`，内网通私有报文为 `1@shiyeline`；飞秋还使用 `1_lbt80_0#...#9:` 外层头。不要把某一种写死，解析后归一化，回复时保留对端风格。
+- 文本优先 GBK，带 UTF8 标志时用 UTF-8。GETFILEDATA 扩展域为十六进制 `packetId:fileId:offset:`。版本按对端选择：内网通作为发送方要求 `1`；对飞秋拉取时，内网通实际使用 `1@shiyeline`。
 - 中文搜索使用 `LIKE`；这里的 FTS5 对两字中文查询不可用。
 - SQLite 使用 `node:sqlite`，`SCHEMA_VERSION = 1`，只在 `user_version = 0` 时建表；没有增量迁移。第一版尚未发布，目录或命名变更不要写数据迁移代码。
 - 改协议前对照 Go 参考实现 `../nwt-re/client/internal/`（存在时只读，不要修改）。
