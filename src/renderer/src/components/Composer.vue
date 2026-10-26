@@ -30,6 +30,7 @@ async function pickFile(): Promise<void> {
   }
 }
 
+const INPUT_HEIGHT = 132
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const text = computed({
   get: () => props.draft,
@@ -40,8 +41,7 @@ const canSend = computed(() => props.draft.trim().length > 0 && !props.sending)
 function resize(): void {
   const element = textarea.value
   if (!element) return
-  element.style.height = 'auto'
-  element.style.height = `${Math.min(element.scrollHeight, 132)}px`
+  element.style.height = `${INPUT_HEIGHT}px`
 }
 
 function onInput(): void {
@@ -130,6 +130,7 @@ onMounted(async () => {
 .input {
   display: block;
   width: 100%;
+  height: 132px;
   max-height: 132px;
   padding: 4px 2px;
   border: 0;
