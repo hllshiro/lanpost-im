@@ -242,6 +242,7 @@ pnpm exec vitest run src/main/protocol src/main/files
 ## 参考
 
 - 设计基线：`docs/superpowers/specs/2026-10-23-electron-client-design.md`
+- IPMSG 协议中文版（草案 10）：`docs/ipmsg-protocol_zh.txt`
 - 原始协议记录（同一工作区）：`../../nwt-re/docs/protocol.md`、`../../nwt-re/docs/private-protocol.md`
 - 抓包与解析脚本（同一工作区）：`../../nwt-re/test/dump_payloads.py`、`../../nwt-re/test/frida_*.py`
 - 关键抓包：`../../nwt-re/cap/priv1.pcapng`、`session1.pcapng`、`file1.pcapng`、`msg1.pcapng`
