@@ -73,6 +73,8 @@ export class AppService {
       port: settings.get().network.port,
       receiveDir,
       notifyAccepted: (peerKey, packetId) => this.engine.sendFileAccept(peerKey, packetId),
+      notifyReleased: (peerKey, packetId, fileIds) =>
+        this.engine.releaseFiles(peerKey, packetId, fileIds),
       identity: () => ({
         user: this.settings.get().identity.account,
         host: this.settings.get().identity.hostName,
@@ -329,6 +331,19 @@ export class AppService {
     if (result.canceled || result.filePaths.length === 0) {
       return
     }
+    this.sendFiles(conversationId, result.filePaths)
+  }
+
+  async pickFolderAndSend(conversationId: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const result = await dialog.showOpenDialog({
+      title: '发送文件夹',
+      properties: ['openDirectory']
+    })
+    if (result.canceled || result.filePaths.length === 0) return
     this.sendFiles(conversationId, result.filePaths)
   }
 

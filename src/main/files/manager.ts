@@ -1,9 +1,11 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs'
+import { rename, rm } from 'node:fs/promises'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
 import type { FileKind, FileState, FileTaskInfo } from '../../shared/domain'
 import type { Attachment } from '../protocol/attach'
 import { pullFile } from './client'
+import { pullDirectory } from './dir-receiver'
 import { sanitizeFileName, uniqueName } from './names'
 import { FileServer, type FileServeTarget, type GetFileRequest } from './server'
 
@@ -60,6 +62,7 @@ export interface FileManagerOptions {
   port: number
   receiveDir: string
   notifyAccepted: (peerKey: string, packetId: number) => void
+  notifyReleased: (peerKey: string, packetId: number, fileIds: number[]) => void
   callbacks: FileManagerCallbacks
   // 取文件请求的报文头字段。控制器接入时传入协议账号、主机与递增序号。
   identity?: () => FileManagerIdentity
@@ -71,6 +74,7 @@ export interface OfferIncomingInput {
   peerPort: number
   packetId: number
   attachments: Attachment[]
+  kind?: FileKind
 }
 
 export interface AddOutgoingInput {
@@ -84,6 +88,8 @@ export interface AddOutgoingInput {
   fileId: number
   packetId: number
   path: string
+  kind?: FileKind
+  entryCount?: number
 }
 
 interface QueueEntry {
@@ -162,6 +168,7 @@ export class FileManager {
   offerIncoming(input: OfferIncomingInput): IncomingFile[] {
     const created: IncomingFile[] = []
     for (const attachment of input.attachments) {
+      const kind = input.kind ?? 'file'
       const rawName = sanitizeFileName(attachment.name)
       const now = Date.now()
       this.incomingSeq += 1
@@ -173,7 +180,7 @@ export class FileManager {
       )
       const task: IncomingFile = {
         direction: 'in',
-        kind: 'file',
+        kind,
         id,
         peerKey: input.peerKey,
         peerIp: input.peerIp,
@@ -237,6 +244,7 @@ export class FileManager {
     }
     task.state = 'rejected'
     task.error = ''
+    this.options.notifyReleased(task.peerKey, task.packetId, [task.fileId])
     this.touch(task)
     this.publish(task, true)
   }
@@ -254,7 +262,7 @@ export class FileManager {
     const fallbackName = sanitizeFileName(input.path)
     const task: OutgoingFile = {
       direction: 'out',
-      kind: 'file',
+      kind: input.kind ?? 'file',
       id,
       peerKey: input.peerKey,
       peerIp: input.peerIp,
@@ -267,7 +275,7 @@ export class FileManager {
       path: input.path,
       state: 'offered',
       received: 0,
-      entryCount: 0,
+      entryCount: input.entryCount ?? 0,
       completedCount: 0,
       error: '',
       createdAt: now,
@@ -291,6 +299,9 @@ export class FileManager {
       task.state === 'canceled'
     ) {
       throw new Error(`文件任务已经结束: ${task.name}`)
+    }
+    if (task.direction === 'in') {
+      this.options.notifyReleased(task.peerKey, task.packetId, [task.fileId])
     }
     task.state = 'canceled'
     task.error = ''
@@ -352,6 +363,10 @@ export class FileManager {
 
   private async runPull(entry: QueueEntry): Promise<void> {
     const task = entry.task
+    if (task.kind === 'dir') {
+      await this.runPullDir(entry)
+      return
+    }
     try {
       if (entry.signal.aborted) {
         throw new Error('文件接收已取消')
@@ -410,6 +425,76 @@ export class FileManager {
     }
   }
 
+  private async runPullDir(entry: QueueEntry): Promise<void> {
+    const task = entry.task
+    const temp = join(this.options.receiveDir, `.lanpost-${task.id}`)
+    try {
+      if (entry.signal.aborted) throw new Error('目录接收已取消')
+      const identity = this.identity()
+      const result = await pullDirectory({
+        peerIp: task.peerIp,
+        peerPort: task.peerPort,
+        packetId: task.packetId,
+        fileId: task.fileId,
+        seq: identity.seq,
+        user: identity.user,
+        host: identity.host,
+        path: temp,
+        signal: entry.signal,
+        onProgress: (received, completed) => {
+          task.received = received
+          task.completedCount = completed
+          this.touch(task)
+          this.publish(task, false)
+        }
+      })
+      const name = uniqueName(this.options.receiveDir, task.name, (candidate) =>
+        this.isNameReserved(task.id, candidate)
+      )
+      const finalPath = join(this.options.receiveDir, name)
+      await rename(temp, finalPath)
+      task.name = name
+      task.path = finalPath
+      task.received = result.received
+      task.entryCount = result.entries
+      task.completedCount = result.entries
+      task.state = 'done'
+      task.error = ''
+      this.touch(task)
+      this.publish(task, true)
+    } catch (error) {
+      await rm(temp, { recursive: true, force: true })
+      const failure = toError(error)
+      if (entry.signal.aborted) {
+        task.state = 'canceled'
+        task.error = ''
+      } else {
+        task.state = 'failed'
+        task.error = failure.message
+        this.options.callbacks.onError(failure)
+      }
+      task.path = ''
+      task.received = 0
+      this.touch(task)
+      this.publish(task, true)
+    } finally {
+      this.aborts.delete(task.id)
+      entry.resolve()
+    }
+  }
+
+  markReleased(packetId: number, fileIds: number[]): void {
+    for (const task of this.tasks.values()) {
+      if (task.direction !== 'out') continue
+      if (task.packetId !== packetId && !fileIds.includes(task.fileId)) continue
+      if (task.state === 'done' || task.state === 'canceled') continue
+      task.state = 'rejected'
+      task.error = ''
+      this.touch(task)
+      this.publish(task, true)
+    }
+  }
+
   private resolveOutgoing(request: GetFileRequest): FileServeTarget | null {
     const task = this.findOutgoing(request.packetId, request.fileIds, request.remoteIp)
     if (task === null) {
@@ -417,6 +502,7 @@ export class FileManager {
     }
     return {
       path: task.path,
+      kind: task.kind === 'dir' ? 'dir' : 'file',
       onStart: () => {
         if (task.state === 'canceled') {
           return

@@ -1,7 +1,7 @@
 import { mkdir, open, rm, type FileHandle } from 'node:fs/promises'
 import { connect, type Socket } from 'node:net'
 import { dirname } from 'node:path'
-import { CMD_GETFILEDATA } from '../protocol/commands'
+import { CMD_GETDIRFILES, CMD_GETFILEDATA } from '../protocol/commands'
 import { encodePacket } from '../protocol/packet'
 
 export const CONNECT_TIMEOUT_MS = 10_000
@@ -31,6 +31,22 @@ export function buildGetFilePayload(packetId: number, fileId: number): Buffer {
   )
 }
 
+export function buildGetDirRequest(request: {
+  packetId: number
+  fileId: number
+  seq: number
+  user: string
+  host: string
+}): Buffer {
+  return encodePacket({
+    seq: request.seq,
+    user: request.user,
+    host: request.host,
+    cmd: CMD_GETDIRFILES,
+    payload: Buffer.from(`${request.packetId.toString(16)}:${request.fileId.toString(16)}`, 'ascii')
+  })
+}
+
 export function buildGetFileRequest(request: {
   packetId: number
   fileId: number
@@ -51,7 +67,11 @@ function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
 }
 
-function openConnection(peerIp: string, peerPort: number, signal?: AbortSignal): Promise<Socket> {
+export function openConnection(
+  peerIp: string,
+  peerPort: number,
+  signal?: AbortSignal
+): Promise<Socket> {
   return new Promise<Socket>((resolve, reject) => {
     const socket = connect({ host: peerIp, port: peerPort })
     let settled = false
@@ -105,7 +125,7 @@ function openConnection(peerIp: string, peerPort: number, signal?: AbortSignal):
   })
 }
 
-function writeRequest(socket: Socket, data: Buffer, signal?: AbortSignal): Promise<void> {
+export function writeRequest(socket: Socket, data: Buffer, signal?: AbortSignal): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     if (signal?.aborted === true) {
       reject(new Error('文件接收已取消'))

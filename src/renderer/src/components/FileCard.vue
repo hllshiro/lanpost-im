@@ -131,9 +131,13 @@ function saveAs(): void {
       <div class="file-text">
         <p class="file-name" :title="file.name">{{ file.name }}</p>
         <p class="file-meta">
-          <span>{{ formatSize(file.size) }}</span>
+          <span>{{ file.kind === 'dir' ? `${file.entryCount} 项` : formatSize(file.size) }}</span>
           <span class="dot">·</span>
           <span>{{ stateText }}</span>
+          <template v-if="file.kind === 'dir' && transferring && file.entryCount > 0">
+            <span class="dot">·</span>
+            <span>{{ file.completedCount }}/{{ file.entryCount }}</span>
+          </template>
           <template v-if="transferring && percent > 0">
             <span class="dot">·</span>
             <span>{{ percent }}%</span>
@@ -165,9 +169,13 @@ function saveAs(): void {
         <button class="action" :disabled="busy !== ''" @click="reject">拒绝</button>
       </template>
       <template v-else-if="done">
-        <button class="action" :disabled="busy !== ''" @click="open">打开文件</button>
-        <button class="action" :disabled="busy !== ''" @click="reveal">打开文件夹</button>
-        <button class="action" :disabled="busy !== ''" @click="saveAs">另存为</button>
+        <button class="action" :disabled="busy !== ''" @click="open">
+          {{ file.kind === 'dir' ? '打开文件夹' : '打开文件' }}
+        </button>
+        <button class="action" :disabled="busy !== ''" @click="reveal">打开所在文件夹</button>
+        <button v-if="file.kind !== 'dir'" class="action" :disabled="busy !== ''" @click="saveAs">
+          另存为
+        </button>
       </template>
     </div>
   </div>

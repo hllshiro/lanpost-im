@@ -17,6 +17,7 @@ import {
   CMD_OKGETLIST,
   CMD_READMSG,
   CMD_RECVMSG,
+  CMD_RELEASEFILES,
   CMD_SENDABSENCEINFO,
   CMD_SENDINFO,
   CMD_SENDMSG,
@@ -97,6 +98,7 @@ export interface ProtocolCallbacks {
   onMessageStatus(peerKey: string, seq: number, status: MessageStatus): void
   onMessageDeleted?(peerKey: string, seq: number): void
   onFileOffer?(peer: ProtocolPeer, packetId: number, text: string, attachments: Attachment[]): void
+  onFileRelease?(peerKey: string, packetId: number, fileIds: number[]): void
   onLog(message: string): void
   onError(error: Error): void
 }
@@ -349,6 +351,13 @@ export class ProtocolEngine {
   sendFileAccept(peerKey: string, packetId: number): void {
     const peer = this.requirePeer(peerKey)
     this.sendPacket(peer, CMD_RECVMSG, Buffer.from(`${packetId}\u0000`, 'utf8'))
+  }
+
+  releaseFiles(peerKey: string, packetId: number, fileIds: number[]): void {
+    const peer = this.peers.get(peerKey)
+    if (peer === undefined) return
+    const payload = [packetId, ...fileIds].map((value) => value.toString(16)).join(':')
+    this.sendPacket(peer, CMD_RELEASEFILES, Buffer.from(payload, 'ascii'))
   }
 
   updateStatus(status: number): void {
@@ -656,6 +665,17 @@ export class ProtocolEngine {
     }
     if (mode === CMD_ANSLIST) {
       this.mergeHostList(header.payload)
+      return
+    }
+    if (mode === CMD_RELEASEFILES) {
+      const parts = trimNul(header.payload).toString('ascii').split(':')
+      const packetId = Number.parseInt(parts[0] ?? '', 16)
+      const fileIds = parts
+        .slice(1)
+        .map((part) => Number.parseInt(part, 16))
+        .filter((value) => Number.isSafeInteger(value))
+      if (Number.isSafeInteger(packetId))
+        this.callbacks.onFileRelease?.(peer.key, packetId, fileIds)
       return
     }
     this.log(`忽略未知命令: ${cmd}`)

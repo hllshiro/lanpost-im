@@ -1,7 +1,8 @@
 import { open, type FileHandle } from 'node:fs/promises'
 import { createServer, type Server, type Socket } from 'node:net'
-import { CMD_GETFILEDATA } from '../protocol/commands'
+import { CMD_GETDIRFILES, CMD_GETFILEDATA } from '../protocol/commands'
 import { decodePacket, trimNul, type PacketHeader } from '../protocol/packet'
+import { sendDirectory } from './dir-sender'
 
 const FIRST_BYTE_TIMEOUT_MS = 3000
 const IDLE_TIMEOUT_MS = 300
@@ -15,10 +16,12 @@ export interface GetFileRequest {
   fileIds: number[]
   version: string
   remoteIp: string
+  cmd: number
 }
 
 export interface FileServeTarget {
   path: string
+  kind: 'file' | 'dir'
   onStart?: () => void
   onProgress?: (sent: number) => void
   onDone?: (sent: number) => void
@@ -253,7 +256,8 @@ export class FileServer {
         this.options.onLog(`忽略无法解析的取文件请求: ${toError(error).message}`)
         return
       }
-      if ((header.cmd & 0xff) !== CMD_GETFILEDATA) {
+      const mode = header.cmd & 0xff
+      if (mode !== CMD_GETFILEDATA && mode !== CMD_GETDIRFILES) {
         this.options.onLog(`忽略非取文件命令: ${header.cmd}`)
         return
       }
@@ -261,7 +265,8 @@ export class FileServer {
       const request: GetFileRequest = {
         ...parsed,
         version: header.version,
-        remoteIp: socket.remoteAddress ?? ''
+        remoteIp: socket.remoteAddress ?? '',
+        cmd: header.cmd & 0xff
       }
       const target = this.options.resolve(request)
       if (target === null) {
@@ -270,11 +275,36 @@ export class FileServer {
         )
         return
       }
-      await this.stream(socket, target)
+      if (request.cmd === CMD_GETDIRFILES) {
+        if (target.kind !== 'dir') {
+          this.options.onLog(`目录请求匹配到普通文件: ${request.packetId}`)
+          return
+        }
+        await this.streamDirectory(socket, target)
+      } else {
+        if (target.kind !== 'file') {
+          this.options.onLog(`文件请求匹配到目录: ${request.packetId}`)
+          return
+        }
+        await this.stream(socket, target)
+      }
     } catch (error) {
       this.options.onError(toError(error))
     } finally {
       socket.end()
+    }
+  }
+
+  private async streamDirectory(socket: Socket, target: FileServeTarget): Promise<void> {
+    target.onStart?.()
+    try {
+      const sent = await sendDirectory(socket, target.path, (count) => target.onProgress?.(count))
+      target.onDone?.(sent)
+    } catch (error) {
+      const failure = toError(error)
+      if (target.onError !== undefined) target.onError(failure)
+      else this.options.onError(failure)
+      socket.destroy()
     }
   }
 

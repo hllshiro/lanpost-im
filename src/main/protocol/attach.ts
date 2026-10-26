@@ -1,3 +1,4 @@
+import { parseExtAttrs } from './attrs'
 import { canEncodeGbk, decodeText, encodeGbk } from './encoding'
 
 export const FILE_ATTR_REGULAR = 0x01
@@ -12,6 +13,7 @@ export interface Attachment {
   size: number
   mtime: number
   attr: number
+  ext?: Record<number, string>
 }
 
 export function escapeAttachName(name: string): string {
@@ -24,7 +26,11 @@ export function encodeAttachmentItem(attachment: Attachment): string {
   const size = attachment.size.toString(16)
   const mtime = attachment.mtime.toString(16)
   const attr = attachment.attr.toString(16)
-  return `${id}:${name}:${size}:${mtime}:${attr}:`
+  let ext = ''
+  for (const [key, value] of Object.entries(attachment.ext ?? {})) {
+    ext += `:${Number(key).toString(16)}=${value}`
+  }
+  return `${id}:${name}:${size}:${mtime}:${attr}${ext}:`
 }
 
 export interface FileBody {
@@ -100,7 +106,15 @@ function parseAttachmentItem(data: Buffer, utf8: boolean): Attachment | null {
   if (name === '') {
     return null
   }
-  return { id, name, size, mtime, attr }
+  const ext: Record<number, string> = {}
+  for (const [key, value] of parseExtAttrs(
+    fields.slice(5).map((field) => field.toString('utf8'))
+  )) {
+    ext[key] = value
+  }
+  return Object.keys(ext).length > 0
+    ? { id, name, size, mtime, attr, ext }
+    : { id, name, size, mtime, attr }
 }
 
 export interface ParsedOffer {

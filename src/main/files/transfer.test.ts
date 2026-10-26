@@ -79,6 +79,7 @@ describe('文件服务与拉取客户端', () => {
           return null
         }
         return {
+          kind: 'file',
           path: source,
           onProgress: (sent) => sentProgress.push(sent)
         }
@@ -149,6 +150,7 @@ describe('文件服务与拉取客户端', () => {
       bindAddr: '127.0.0.1',
       port,
       receiveDir,
+      notifyReleased: () => undefined,
       notifyAccepted: (peerKey, packetId) => {
         accepted.push({ peerKey, packetId })
       },
@@ -246,6 +248,7 @@ describe('文件服务与拉取客户端', () => {
       port,
       receiveDir,
       notifyAccepted: () => undefined,
+      notifyReleased: () => undefined,
       callbacks: {
         onUpdate: () => undefined,
         onLog: () => undefined,
@@ -296,6 +299,7 @@ describe('文件服务与拉取客户端', () => {
       port,
       receiveDir,
       notifyAccepted: () => undefined,
+      notifyReleased: () => undefined,
       callbacks: {
         onUpdate: () => undefined,
         onLog: () => undefined,

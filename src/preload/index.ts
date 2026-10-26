@@ -60,6 +60,7 @@ const api: Api = {
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pickAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
+    pickFolderAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePickFolder, conversationId),
     sendPaths: (conversationId, paths) => ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
   },
   settings: {

@@ -38,6 +38,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.filePick, (_event, conversationId: string) =>
     service.pickAndSend(conversationId)
   )
+  ipcMain.handle(IPC.filePickFolder, (_event, conversationId: string) =>
+    service.pickFolderAndSend(conversationId)
+  )
   ipcMain.handle(IPC.fileSend, (_event, conversationId: string, paths: string[]) =>
     service.sendFiles(conversationId, paths)
   )

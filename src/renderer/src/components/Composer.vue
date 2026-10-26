@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Lock, Paperclip, Send } from '@lucide/vue'
+import { Folder, Lock, Paperclip, Send } from '@lucide/vue'
 import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{
@@ -18,6 +18,19 @@ const emit = defineEmits<{
 const fileBusy = ref(false)
 const fileError = ref('')
 const sealed = ref(false)
+
+async function pickFolder(): Promise<void> {
+  if (fileBusy.value || props.conversationId === '') return
+  fileBusy.value = true
+  fileError.value = ''
+  try {
+    await window.api.files.pickFolderAndSend(props.conversationId)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
 
 async function pickFile(): Promise<void> {
   if (fileBusy.value || props.conversationId === '') return
@@ -108,6 +121,17 @@ onMounted(async () => {
       >
         <Paperclip :size="17" :stroke-width="1.8" />
         <span>文件</span>
+      </button>
+
+      <button
+        class="tool"
+        :disabled="fileBusy || conversationId === ''"
+        :title="fileBusy ? '正在选择文件夹' : '发送文件夹'"
+        aria-label="发送文件夹"
+        @click="pickFolder"
+      >
+        <Folder :size="16" :stroke-width="1.8" />
+        <span>文件夹</span>
       </button>
 
       <button
