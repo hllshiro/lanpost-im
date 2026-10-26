@@ -194,6 +194,10 @@ export class ConversationRepository {
     this.db.prepare('UPDATE conversations SET draft = ? WHERE id = ?').run(draft, id)
   }
 
+  setTitle(id: string, title: string): void {
+    this.db.prepare('UPDATE conversations SET title = ? WHERE id = ?').run(title, id)
+  }
+
   setPinned(id: string, pinned: boolean): void {
     this.db.prepare('UPDATE conversations SET pinned = ? WHERE id = ?').run(toInteger(pinned), id)
   }
