@@ -16,6 +16,7 @@ import {
 } from '@lucide/vue'
 import type { AppInfo } from '../../../shared/ipc'
 import { defaultSettings, type Settings, type SettingsPatch } from '../../../shared/settings'
+import { errorMessage } from '../utils/errors'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const emit = defineEmits<{
@@ -59,10 +60,6 @@ const versionText = computed(() => {
   return '正在读取版本…'
 })
 
-function describe(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason)
-}
-
 function syncTextFields(): void {
   subnetsText.value = settings.value.network.subnets.join('\n')
   seedsText.value = settings.value.network.seeds.join('\n')
@@ -77,7 +74,7 @@ async function loadSettings(): Promise<void> {
   try {
     applySettings(await window.api.settings.get())
   } catch (reason) {
-    error.value = describe(reason)
+    error.value = errorMessage(reason)
   }
 }
 
@@ -85,7 +82,7 @@ async function loadAppInfo(): Promise<void> {
   try {
     appInfo.value = await window.api.app.info()
   } catch (reason) {
-    appInfoError.value = describe(reason)
+    appInfoError.value = errorMessage(reason)
   }
 }
 
@@ -102,7 +99,7 @@ async function pushPatch(patch: SettingsPatch): Promise<void> {
       saved.value = false
     }, 1800)
   } catch (reason) {
-    error.value = describe(reason)
+    error.value = errorMessage(reason)
   } finally {
     pending.value -= 1
   }
@@ -136,7 +133,13 @@ function setDensity(density: Settings['appearance']['density']): void {
 }
 
 async function restoreDefaults(): Promise<void> {
-  const next = structuredClone(defaultSettings)
+  let next: Settings
+  try {
+    next = await window.api.settings.defaults()
+  } catch (reason) {
+    error.value = errorMessage(reason)
+    return
+  }
   const patch: SettingsPatch = {
     identity: next.identity,
     network: next.network,
@@ -224,7 +227,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-account">协议账号</label>
-              <p class="hint">IPMSG 协议中的用户名</p>
+              <p class="hint">IPMSG 协议中的用户名，默认取当前计算机名</p>
             </div>
             <div class="control">
               <input
@@ -239,6 +242,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-host">主机名</label>
+              <p class="hint">默认取当前计算机名，避免局域网内冲突</p>
             </div>
             <div class="control">
               <input

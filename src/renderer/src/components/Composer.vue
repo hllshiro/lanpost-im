@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Paperclip, Send } from '@lucide/vue'
+import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{
   draft: string
@@ -24,7 +25,7 @@ async function pickFile(): Promise<void> {
   try {
     await window.api.files.pickAndSend(props.conversationId)
   } catch (reason) {
-    fileError.value = reason instanceof Error ? reason.message : String(reason)
+    fileError.value = errorMessage(reason)
   } finally {
     fileBusy.value = false
   }

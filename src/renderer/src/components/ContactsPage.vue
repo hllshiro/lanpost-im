@@ -4,11 +4,13 @@ import { ChevronRight, Search, Users, X } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
 import { useAppStore } from '../stores/app'
 import { initialOf } from '../utils/format'
+import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
 
 const emit = defineEmits<{ open: [conversationId: string] }>()
 
 const store = useAppStore()
 const query = ref('')
+const activeLetter = ref<string | null>(null)
 
 const keyword = computed(() => query.value.trim().toLowerCase())
 
@@ -45,11 +47,23 @@ function groupText(peer: PeerInfo): string {
 
 const onlineCount = computed(() => store.peers.filter((peer) => peer.online).length)
 
+const ordered = computed(() =>
+  [...store.peers].sort((left, right) => comparePinyin(displayName(left), displayName(right)))
+)
+
+const letters = computed(() => {
+  const set = new Set<string>()
+  for (const peer of store.peers) {
+    set.add(pinyinInfo(displayName(peer)).letter)
+  }
+  return [...set].sort(compareLetters)
+})
+
 const visible = computed(() => {
-  const list = [...store.peers].sort((left, right) => {
-    if (left.online !== right.online) return left.online ? -1 : 1
-    return displayName(left).localeCompare(displayName(right), 'zh-CN')
-  })
+  let list = ordered.value
+  if (activeLetter.value !== null) {
+    list = list.filter((peer) => pinyinInfo(displayName(peer)).letter === activeLetter.value)
+  }
   if (!keyword.value) return list
   return list.filter((peer) => {
     const fields = [
@@ -62,14 +76,36 @@ const visible = computed(() => {
       peer.host,
       peer.sign
     ]
-    return fields.some((field) => field.toLowerCase().includes(keyword.value))
+    if (fields.some((field) => field.toLowerCase().includes(keyword.value))) return true
+    const info = pinyinInfo(displayName(peer))
+    return info.full.includes(keyword.value) || info.initials.includes(keyword.value)
   })
+})
+
+const groups = computed(() => {
+  const map = new Map<string, PeerInfo[]>()
+  for (const peer of visible.value) {
+    const letter = pinyinInfo(displayName(peer)).letter
+    const bucket = map.get(letter)
+    if (bucket === undefined) map.set(letter, [peer])
+    else bucket.push(peer)
+  }
+  return [...map.entries()]
+    .map(([letter, peers]) => ({ letter, peers }))
+    .sort((left, right) => compareLetters(left.letter, right.letter))
 })
 
 const emptyText = computed(() => {
   if (store.peers.length === 0) return '暂无联系人'
+  if (activeLetter.value !== null && keyword.value === '') {
+    return `没有 ${activeLetter.value} 开头的联系人`
+  }
   return '没有匹配的联系人'
 })
+
+function toggleLetter(letter: string): void {
+  activeLetter.value = activeLetter.value === letter ? null : letter
+}
 
 function hasConversation(peer: PeerInfo): boolean {
   return conversationByPeer.value.has(peer.key)
@@ -91,14 +127,17 @@ function openPeer(peer: PeerInfo): void {
     <header class="page-head">
       <div class="title-block">
         <h1>联系人</h1>
-        <p>{{ onlineCount }} 位在线 · 共 {{ store.peers.length }} 位</p>
+        <p>
+          {{ onlineCount }} 位在线 · 共 {{ store.peers.length }} 位
+          <template v-if="activeLetter !== null"> · {{ activeLetter }} 开头</template>
+        </p>
       </div>
       <div class="search">
         <Search :size="14" :stroke-width="1.8" />
         <input
           v-model="query"
           type="text"
-          placeholder="搜索名称、账号、分组或 IP"
+          placeholder="搜索名称、账号、分组、IP 或拼音"
           autocomplete="off"
           spellcheck="false"
           aria-label="搜索联系人"
@@ -112,38 +151,41 @@ function openPeer(peer: PeerInfo): void {
     <div class="scroll">
       <div class="inner">
         <div class="list">
-          <button
-            v-for="peer in visible"
-            :key="peer.key"
-            class="peer"
-            :class="{ current: isCurrent(peer), unavailable: !hasConversation(peer) }"
-            :disabled="!hasConversation(peer)"
-            :title="hasConversation(peer) ? '打开聊天' : '会话尚未建立'"
-            @click="openPeer(peer)"
-          >
-            <span class="avatar-wrap">
-              <span class="avatar">{{ initialOf(displayName(peer)) }}</span>
-              <span class="dot" :class="statusClass(peer)" />
-            </span>
-
-            <span class="main">
-              <span class="line">
-                <span class="name">{{ displayName(peer) }}</span>
-                <span class="status" :class="statusClass(peer)">{{ statusText(peer) }}</span>
+          <template v-for="group in groups" :key="group.letter">
+            <div class="letter-head">{{ group.letter }}</div>
+            <button
+              v-for="peer in group.peers"
+              :key="peer.key"
+              class="peer"
+              :class="{ current: isCurrent(peer), unavailable: !hasConversation(peer) }"
+              :disabled="!hasConversation(peer)"
+              :title="hasConversation(peer) ? '打开聊天' : '会话尚未建立'"
+              @click="openPeer(peer)"
+            >
+              <span class="avatar-wrap">
+                <span class="avatar">{{ initialOf(displayName(peer)) }}</span>
+                <span class="dot" :class="statusClass(peer)" />
               </span>
-              <span v-if="groupText(peer) || peer.sign.trim()" class="meta">
-                <span v-if="groupText(peer)" class="group">{{ groupText(peer) }}</span>
-                <span v-if="groupText(peer) && peer.sign.trim()" class="sep">·</span>
-                <span v-if="peer.sign.trim()" class="sign">{{ peer.sign }}</span>
+
+              <span class="main">
+                <span class="line">
+                  <span class="name">{{ displayName(peer) }}</span>
+                  <span class="status" :class="statusClass(peer)">{{ statusText(peer) }}</span>
+                </span>
+                <span v-if="groupText(peer) || peer.sign.trim()" class="meta">
+                  <span v-if="groupText(peer)" class="group">{{ groupText(peer) }}</span>
+                  <span v-if="groupText(peer) && peer.sign.trim()" class="sep">·</span>
+                  <span v-if="peer.sign.trim()" class="sign">{{ peer.sign }}</span>
+                </span>
               </span>
-            </span>
 
-            <span class="address">
-              <span class="ip">{{ peer.ip }}</span>
-            </span>
+              <span class="address">
+                <span class="ip">{{ peer.ip }}</span>
+              </span>
 
-            <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
-          </button>
+              <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+            </button>
+          </template>
 
           <div v-if="visible.length === 0" class="empty">
             <Users :size="30" :stroke-width="1.4" />
@@ -153,11 +195,24 @@ function openPeer(peer: PeerInfo): void {
         </div>
       </div>
     </div>
+
+    <nav v-if="letters.length > 1" class="letter-index" aria-label="拼音筛选">
+      <button
+        v-for="letter in letters"
+        :key="letter"
+        :class="{ active: activeLetter === letter }"
+        :title="`只看 ${letter} 开头的联系人`"
+        @click="toggleLetter(letter)"
+      >
+        {{ letter }}
+      </button>
+    </nav>
   </section>
 </template>
 
 <style scoped>
 .contacts {
+  position: relative;
   flex: 1;
   min-width: 0;
   height: 100%;
@@ -247,6 +302,18 @@ function openPeer(peer: PeerInfo): void {
   border: 1px solid var(--divider);
   border-radius: var(--radius-card);
   background: var(--card-bg);
+}
+
+.letter-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 6px 16px 4px;
+  border-bottom: 1px solid #f0f0f0;
+  background: var(--card-bg);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 
 .peer {
@@ -448,13 +515,53 @@ function openPeer(peer: PeerInfo): void {
   color: #c2c2c2;
 }
 
+.letter-index {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 2px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+  transform: translateY(-50%);
+}
+
+.letter-index button {
+  width: 18px;
+  height: 17px;
+  border-radius: 4px;
+  font-size: 10px;
+  line-height: 17px;
+  color: var(--text-secondary);
+}
+
+.letter-index button:hover {
+  color: var(--accent);
+  background: var(--hover);
+}
+
+.letter-index button.active {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+@media (max-width: 1100px) {
+  .inner {
+    padding-right: 54px;
+  }
+}
+
 @media (max-width: 960px) {
   .search {
     width: 220px;
   }
 
   .inner {
-    padding: 16px 18px 24px;
+    padding: 16px 54px 24px 18px;
   }
 
   .address {
