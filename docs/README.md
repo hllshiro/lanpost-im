@@ -6,7 +6,8 @@
 
 长期有效的设计基线、架构决策和模块边界。
 
-- [Electron 客户端设计（2026-10-23）](01-设计/2026-10-23-electron-client-design.md)
+- [标准 IPMSG 0.1.0 设计（2026-10-26）](superpowers/specs/2026-10-26-ipmsg-standard-0.1.0-design.md)
+- [Electron 客户端设计（2026-10-23，历史）](01-设计/2026-10-23-electron-client-design.md)（已被 0.1.0 设计取代，仅作历史参考）
 
 ## 02-现状
 
@@ -24,12 +25,11 @@
 
 ## 04-参考资料
 
-协议、兼容性、抓包记录和传输流程等可反复查阅的资料。
+协议、抓包记录和传输流程等可反复查阅的资料。
 
 - [文件传输状态机与故障排查](04-参考资料/file-transfer.md)
-- [内网通兼容矩阵与私有通道](04-参考资料/nwt-compatibility.md)
-- [内网通抓包与协议调试记录](04-参考资料/protocol-debugging.md)
 - [IP Messenger 协议中文版](04-参考资料/ipmsg-protocol-zh.md)
+- [历史抓包与协议调试记录](04-参考资料/protocol-debugging.md)
 
 ## 维护约定
 
