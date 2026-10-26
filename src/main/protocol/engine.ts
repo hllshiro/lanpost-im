@@ -69,7 +69,6 @@ export interface ProtocolPeer {
   group: string
   status: number
   online: boolean
-  legacy: boolean
   capUtf8: boolean
   capFile: boolean
   capClipboard: boolean
@@ -169,17 +168,17 @@ export function toPeerInfo(peer: ProtocolPeer): PeerInfo {
     host: peer.host,
     name: peer.name,
     group: peer.group,
-    corporation: '',
-    department: '',
-    sign: '',
     status: peer.status,
-    corpId: '',
     online: peer.online,
-    ready: true,
-    legacy: peer.legacy,
     lastSeen: peer.lastSeen,
     unread: 0,
-    alias: ''
+    alias: '',
+    capUtf8: peer.capUtf8,
+    capFile: peer.capFile,
+    capClipboard: peer.capClipboard,
+    dialup: peer.dialup,
+    versionInfo: peer.versionInfo,
+    absenceInfo: peer.absenceInfo
   }
 }
 
@@ -482,7 +481,6 @@ export class ProtocolEngine {
         group: '',
         status: 0,
         online: true,
-        legacy: true,
         capUtf8: false,
         capFile: false,
         capClipboard: false,

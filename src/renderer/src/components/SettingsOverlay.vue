@@ -318,44 +318,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="row">
-            <div class="row-text"><label class="label" for="setting-corporation">公司</label></div>
-            <div class="control">
-              <input
-                id="setting-corporation"
-                v-model="settings.identity.corporation"
-                class="input"
-                maxlength="64"
-                @change="saveField('identity', { corporation: settings.identity.corporation })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><label class="label" for="setting-department">部门</label></div>
-            <div class="control">
-              <input
-                id="setting-department"
-                v-model="settings.identity.department"
-                class="input"
-                maxlength="64"
-                @change="saveField('identity', { department: settings.identity.department })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <label class="label" for="setting-sign">个性签名</label>
-            </div>
-            <div class="control">
-              <textarea
-                id="setting-sign"
-                v-model="settings.identity.sign"
-                class="input textarea"
-                maxlength="200"
-                @change="saveField('identity', { sign: settings.identity.sign })"
-              />
-            </div>
-          </div>
-          <div class="row">
             <div class="row-text">
               <label class="label" for="setting-status">在线状态</label>
               <p class="hint">广播给局域网内其他人的状态</p>
@@ -441,6 +403,18 @@ onBeforeUnmount(() => {
                 @change="
                   saveField('network', { broadcastInterval: settings.network.broadcastInterval })
                 "
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">拨号模式</span>
+              <p class="hint">通过单播通知成员，适合跨网段或广播受限的网络</p>
+            </div>
+            <div class="control control-auto">
+              <ToggleSwitch
+                v-model="settings.network.dialup"
+                @update:model-value="saveField('network', { dialup: $event })"
               />
             </div>
           </div>

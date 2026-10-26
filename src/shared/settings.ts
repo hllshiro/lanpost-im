@@ -7,9 +7,6 @@ const identitySchema = z.object({
   account: z.string().min(1).default('lanpost'),
   hostName: z.string().min(1).default('lanpost-pc'),
   group: z.string().default(''),
-  corporation: z.string().default(''),
-  department: z.string().default(''),
-  sign: z.string().default(''),
   status: z.number().int().min(0).max(2).default(0)
 })
 
@@ -18,7 +15,8 @@ const networkSchema = z.object({
   bindAddr: z.string().default('0.0.0.0'),
   subnets: z.array(z.string()).default([]),
   seeds: z.array(z.string()).default([]),
-  broadcastInterval: z.number().int().min(5).max(3600).default(30)
+  broadcastInterval: z.number().int().min(5).max(3600).default(30),
+  dialup: z.boolean().default(false)
 })
 
 const notifySchema = z.object({

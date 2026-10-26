@@ -30,8 +30,24 @@ describe('openDatabase', () => {
       expect.arrayContaining(['conversations', 'messages', 'file_tasks', 'peers', 'group_members'])
     )
     const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
-    expect(version.user_version).toBe(1)
+    expect(version.user_version).toBe(2)
     db.close()
+  })
+
+  it('resets a v1 database instead of migrating it', () => {
+    const file = tempDb()
+    const first = openDatabase(file)
+    first
+      .prepare('INSERT INTO conversations (id, kind, title, created_at) VALUES (?, ?, ?, ?)')
+      .run('old', 'direct', '旧数据', 1)
+    first.exec('PRAGMA user_version = 1')
+    first.close()
+    const reopened = openDatabase(file)
+    const rows = reopened.prepare('SELECT id FROM conversations').all()
+    expect(rows).toHaveLength(0)
+    const version = reopened.prepare('PRAGMA user_version').get() as { user_version: number }
+    expect(version.user_version).toBe(2)
+    reopened.close()
   })
 
   it('finds chinese text with a like query', () => {

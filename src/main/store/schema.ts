@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 2
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS file_tasks (
   message_id INTEGER REFERENCES messages(id),
   conversation_id TEXT NOT NULL,
   direction TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'file',
   name TEXT NOT NULL,
   size INTEGER NOT NULL DEFAULT 0,
   mtime INTEGER NOT NULL DEFAULT 0,
@@ -44,6 +45,8 @@ CREATE TABLE IF NOT EXISTS file_tasks (
   path TEXT NOT NULL DEFAULT '',
   state TEXT NOT NULL,
   received INTEGER NOT NULL DEFAULT 0,
+  entry_count INTEGER NOT NULL DEFAULT 0,
+  completed_count INTEGER NOT NULL DEFAULT 0,
   error TEXT NOT NULL DEFAULT '',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
@@ -59,14 +62,14 @@ CREATE TABLE IF NOT EXISTS peers (
   host TEXT NOT NULL,
   name TEXT NOT NULL,
   group_name TEXT NOT NULL DEFAULT '',
-  corporation TEXT NOT NULL DEFAULT '',
-  department TEXT NOT NULL DEFAULT '',
-  sign TEXT NOT NULL DEFAULT '',
   status INTEGER NOT NULL DEFAULT 0,
-  corp_id TEXT NOT NULL DEFAULT '',
   online INTEGER NOT NULL DEFAULT 0,
-  ready INTEGER NOT NULL DEFAULT 0,
-  legacy INTEGER NOT NULL DEFAULT 0,
+  cap_utf8 INTEGER NOT NULL DEFAULT 0,
+  cap_file INTEGER NOT NULL DEFAULT 0,
+  cap_clipboard INTEGER NOT NULL DEFAULT 0,
+  dialup INTEGER NOT NULL DEFAULT 0,
+  version_info TEXT NOT NULL DEFAULT '',
+  absence_info TEXT NOT NULL DEFAULT '',
   alias TEXT NOT NULL DEFAULT '',
   last_seen INTEGER NOT NULL DEFAULT 0
 );

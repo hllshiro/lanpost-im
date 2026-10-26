@@ -41,14 +41,14 @@ interface PeerRow {
   host: string
   name: string
   group_name: string
-  corporation: string
-  department: string
-  sign: string
   status: number
-  corp_id: string
   online: number
-  ready: number
-  legacy: number
+  cap_utf8: number
+  cap_file: number
+  cap_clipboard: number
+  dialup: number
+  version_info: string
+  absence_info: string
   alias: string
   last_seen: number
   conversation_unread: number | null
@@ -59,6 +59,7 @@ interface FileRow {
   message_id: number | null
   conversation_id: string
   direction: string
+  kind: string
   name: string
   size: number
   mtime: number
@@ -67,6 +68,8 @@ interface FileRow {
   path: string
   state: string
   received: number
+  entry_count: number
+  completed_count: number
   error: string
   created_at: number
   updated_at: number
@@ -118,17 +121,17 @@ function mapPeer(row: PeerRow): PeerInfo {
     host: row.host,
     name: row.name,
     group: row.group_name,
-    corporation: row.corporation,
-    department: row.department,
-    sign: row.sign,
     status: row.status,
-    corpId: row.corp_id,
     online: toBoolean(row.online),
-    ready: toBoolean(row.ready),
-    legacy: toBoolean(row.legacy),
     lastSeen: row.last_seen,
     unread: row.conversation_unread ?? 0,
-    alias: row.alias
+    alias: row.alias,
+    capUtf8: toBoolean(row.cap_utf8),
+    capFile: toBoolean(row.cap_file),
+    capClipboard: toBoolean(row.cap_clipboard),
+    dialup: toBoolean(row.dialup),
+    versionInfo: row.version_info,
+    absenceInfo: row.absence_info
   }
 }
 
@@ -138,6 +141,7 @@ function mapFile(row: FileRow): FileTaskInfo {
     messageId: row.message_id,
     conversationId: row.conversation_id,
     direction: row.direction as FileTaskInfo['direction'],
+    kind: row.kind as FileTaskInfo['kind'],
     name: row.name,
     size: row.size,
     mtime: row.mtime,
@@ -146,6 +150,8 @@ function mapFile(row: FileRow): FileTaskInfo {
     path: row.path,
     state: row.state as FileState,
     received: row.received,
+    entryCount: row.entry_count,
+    completedCount: row.completed_count,
     error: row.error,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -311,7 +317,7 @@ export class PeerRepository {
   upsert(peer: PeerInfo): void {
     this.db
       .prepare(
-        `INSERT INTO peers (key, ip, port, user, host, name, group_name, corporation, department, sign, status, corp_id, online, ready, legacy, alias, last_seen)
+        `INSERT INTO peers (key, ip, port, user, host, name, group_name, status, online, cap_utf8, cap_file, cap_clipboard, dialup, version_info, absence_info, alias, last_seen)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
            ip = excluded.ip,
@@ -320,14 +326,14 @@ export class PeerRepository {
            host = excluded.host,
            name = excluded.name,
            group_name = excluded.group_name,
-           corporation = excluded.corporation,
-           department = excluded.department,
-           sign = excluded.sign,
            status = excluded.status,
-           corp_id = excluded.corp_id,
            online = excluded.online,
-           ready = excluded.ready,
-           legacy = excluded.legacy,
+           cap_utf8 = excluded.cap_utf8,
+           cap_file = excluded.cap_file,
+           cap_clipboard = excluded.cap_clipboard,
+           dialup = excluded.dialup,
+           version_info = excluded.version_info,
+           absence_info = excluded.absence_info,
            last_seen = excluded.last_seen`
       )
       .run(
@@ -338,14 +344,14 @@ export class PeerRepository {
         peer.host,
         peer.name,
         peer.group,
-        peer.corporation,
-        peer.department,
-        peer.sign,
         peer.status,
-        peer.corpId,
         toInteger(peer.online),
-        toInteger(peer.ready),
-        toInteger(peer.legacy),
+        toInteger(peer.capUtf8),
+        toInteger(peer.capFile),
+        toInteger(peer.capClipboard),
+        toInteger(peer.dialup),
+        peer.versionInfo,
+        peer.absenceInfo,
         peer.alias,
         peer.lastSeen
       )
@@ -381,12 +387,13 @@ export class FileRepository {
   upsert(task: FileTaskInfo): void {
     this.db
       .prepare(
-        `INSERT INTO file_tasks (id, message_id, conversation_id, direction, name, size, mtime, file_id, packet_id, path, state, received, error, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO file_tasks (id, message_id, conversation_id, direction, kind, name, size, mtime, file_id, packet_id, path, state, received, entry_count, completed_count, error, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            message_id = excluded.message_id,
            conversation_id = excluded.conversation_id,
            direction = excluded.direction,
+           kind = excluded.kind,
            name = excluded.name,
            size = excluded.size,
            mtime = excluded.mtime,
@@ -395,6 +402,8 @@ export class FileRepository {
            path = excluded.path,
            state = excluded.state,
            received = excluded.received,
+           entry_count = excluded.entry_count,
+           completed_count = excluded.completed_count,
            error = excluded.error,
            created_at = excluded.created_at,
            updated_at = excluded.updated_at`
@@ -404,6 +413,7 @@ export class FileRepository {
         task.messageId,
         task.conversationId,
         task.direction,
+        task.kind,
         task.name,
         task.size,
         task.mtime,
@@ -412,6 +422,8 @@ export class FileRepository {
         task.path,
         task.state,
         task.received,
+        task.entryCount,
+        task.completedCount,
         task.error,
         task.createdAt,
         task.updatedAt

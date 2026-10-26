@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, statSync } from 'node:fs'
 import { hostname } from 'node:os'
 import { join } from 'node:path'
-import type { FileState, FileTaskInfo } from '../../shared/domain'
+import type { FileKind, FileState, FileTaskInfo } from '../../shared/domain'
 import type { Attachment } from '../protocol/attach'
 import { pullFile } from './client'
 import { sanitizeFileName, uniqueName } from './names'
@@ -17,6 +17,7 @@ export interface FileRecordBase {
   peerKey: string
   peerIp: string
   peerPort: number
+  kind: FileKind
   name: string
   size: number
   mtime: number
@@ -25,6 +26,8 @@ export interface FileRecordBase {
   path: string
   state: FileState
   received: number
+  entryCount: number
+  completedCount: number
   error: string
   createdAt: number
   updatedAt: number
@@ -170,6 +173,7 @@ export class FileManager {
       )
       const task: IncomingFile = {
         direction: 'in',
+        kind: 'file',
         id,
         peerKey: input.peerKey,
         peerIp: input.peerIp,
@@ -182,6 +186,8 @@ export class FileManager {
         path: '',
         state: 'waiting',
         received: 0,
+        entryCount: 0,
+        completedCount: 0,
         error: '',
         createdAt: now,
         updatedAt: now
@@ -248,6 +254,7 @@ export class FileManager {
     const fallbackName = sanitizeFileName(input.path)
     const task: OutgoingFile = {
       direction: 'out',
+      kind: 'file',
       id,
       peerKey: input.peerKey,
       peerIp: input.peerIp,
@@ -260,6 +267,8 @@ export class FileManager {
       path: input.path,
       state: 'offered',
       received: 0,
+      entryCount: 0,
+      completedCount: 0,
       error: '',
       createdAt: now,
       updatedAt: now
@@ -510,6 +519,7 @@ export class FileManager {
       conversationId: '',
       peerKey: task.peerKey,
       direction: task.direction,
+      kind: task.kind,
       name: task.name,
       size: task.size,
       mtime: task.mtime,
@@ -518,6 +528,8 @@ export class FileManager {
       path: task.path,
       state: task.state,
       received: task.received,
+      entryCount: task.entryCount,
+      completedCount: task.completedCount,
       error: task.error,
       createdAt: task.createdAt,
       updatedAt: task.updatedAt

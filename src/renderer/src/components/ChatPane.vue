@@ -193,16 +193,8 @@ onBeforeUnmount(() => {
                   </dd>
                 </div>
                 <div v-if="peer" class="info-row">
-                  <dt>部门</dt>
-                  <dd>{{ peer.department || '未填写' }}</dd>
-                </div>
-                <div v-if="peer" class="info-row">
                   <dt>分组</dt>
                   <dd>{{ peer.group || '未填写' }}</dd>
-                </div>
-                <div v-if="peer" class="info-row">
-                  <dt>签名</dt>
-                  <dd class="sign">{{ peer.sign || '未填写' }}</dd>
                 </div>
                 <div class="info-row">
                   <dt>本会话文件</dt>

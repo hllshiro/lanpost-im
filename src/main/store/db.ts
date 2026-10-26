@@ -45,6 +45,21 @@ export function migrate(db: DatabaseSync): void {
   }
 }
 
+const RESET_TABLES = ['group_members', 'file_tasks', 'messages', 'peers', 'conversations']
+
+// 第一版尚未发布，旧结构不提供迁移；版本落后时清空重建。
+function resetSchema(db: DatabaseSync): void {
+  db.exec('PRAGMA foreign_keys = OFF')
+  try {
+    for (const table of RESET_TABLES) {
+      db.exec(`DROP TABLE IF EXISTS ${table}`)
+    }
+    db.exec('PRAGMA user_version = 0')
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON')
+  }
+}
+
 export function openDatabase(file: string, options: OpenDatabaseOptions = {}): DatabaseSync {
   if (file !== ':memory:') {
     mkdirSync(dirname(file), { recursive: true })
@@ -71,7 +86,10 @@ export function openDatabase(file: string, options: OpenDatabaseOptions = {}): D
     if (row.user_version > SCHEMA_VERSION) {
       throw new NewerSchemaError(`数据库由更新版本创建，无法打开 (${file})`)
     }
-    if (row.user_version === 0) {
+    if (row.user_version > 0 && row.user_version < SCHEMA_VERSION) {
+      resetSchema(db)
+    }
+    if (row.user_version === 0 || row.user_version < SCHEMA_VERSION) {
       migrate(db)
     }
     return db

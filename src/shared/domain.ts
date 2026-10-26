@@ -8,17 +8,17 @@ export interface PeerInfo {
   host: string
   name: string
   group: string
-  corporation: string
-  department: string
-  sign: string
   status: number
-  corpId: string
   online: boolean
-  ready: boolean
-  legacy: boolean
   lastSeen: number
   unread: number
   alias: string
+  capUtf8: boolean
+  capFile: boolean
+  capClipboard: boolean
+  dialup: boolean
+  versionInfo: string
+  absenceInfo: string
 }
 
 export interface ConversationInfo {
@@ -46,6 +46,8 @@ export interface MessageInfo {
   meta: string
 }
 
+export type FileKind = 'file' | 'dir' | 'image'
+
 export type FileState =
   'waiting' | 'offered' | 'transferring' | 'done' | 'rejected' | 'failed' | 'canceled'
 
@@ -55,6 +57,7 @@ export interface FileTaskInfo {
   conversationId: string
   peerKey?: string
   direction: 'in' | 'out'
+  kind: FileKind
   name: string
   size: number
   mtime: number
@@ -63,6 +66,8 @@ export interface FileTaskInfo {
   path: string
   state: FileState
   received: number
+  entryCount: number
+  completedCount: number
   error: string
   createdAt: number
   updatedAt: number
