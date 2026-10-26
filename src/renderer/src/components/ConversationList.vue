@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { MessageSquare, Search, X } from '@lucide/vue'
+import { MessageSquare, RefreshCw, Search, X } from '@lucide/vue'
 import type { ConversationInfo, MessageInfo } from '../../../shared/domain'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
@@ -9,9 +9,10 @@ const props = defineProps<{
   previews: Record<string, MessageInfo>
   selectedId: string | null
   loading: boolean
+  refreshing: boolean
 }>()
 
-const emit = defineEmits<{ select: [id: string] }>()
+const emit = defineEmits<{ select: [id: string]; refresh: [] }>()
 
 const query = ref('')
 const filter = ref<'all' | 'unread'>('all')
@@ -57,18 +58,30 @@ function badgeOf(count: number): string {
 <template>
   <section class="list" aria-label="会话列表">
     <header class="head">
-      <div class="search">
-        <Search :size="14" :stroke-width="1.8" class="search-icon" />
-        <input
-          v-model="query"
-          type="text"
-          placeholder="搜索"
-          autocomplete="off"
-          spellcheck="false"
-          aria-label="搜索会话"
-        />
-        <button v-if="query" class="clear" title="清空搜索" @click="query = ''">
-          <X :size="13" />
+      <div class="head-top">
+        <div class="search">
+          <Search :size="14" :stroke-width="1.8" class="search-icon" />
+          <input
+            v-model="query"
+            type="text"
+            placeholder="搜索"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="搜索会话"
+          />
+          <button v-if="query" class="clear" title="清空搜索" @click="query = ''">
+            <X :size="13" />
+          </button>
+        </div>
+        <button
+          class="refresh"
+          :class="{ spinning: refreshing }"
+          :disabled="refreshing"
+          :title="refreshing ? '正在刷新联系人' : '刷新联系人，并重新广播上线状态'"
+          aria-label="刷新联系人"
+          @click="emit('refresh')"
+        >
+          <RefreshCw :size="15" :stroke-width="1.9" />
         </button>
       </div>
       <div class="tabs" role="tablist">
@@ -146,7 +159,15 @@ function badgeOf(count: number): string {
   padding: 14px 12px 6px;
 }
 
+.head-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .search {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -154,6 +175,36 @@ function badgeOf(count: number): string {
   padding: 0 8px;
   border-radius: var(--radius-button);
   background: var(--page-bg);
+}
+
+.refresh {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-button);
+  color: var(--text-secondary);
+  background: var(--page-bg);
+}
+
+.refresh:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.refresh:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.refresh.spinning svg {
+  animation: refresh-spin 0.9s linear infinite;
+}
+
+@keyframes refresh-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .search-icon {

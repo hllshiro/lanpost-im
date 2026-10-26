@@ -307,6 +307,31 @@ export class ProtocolEngine {
     })
   }
 
+  // 手动刷新：重新广播上线通知，并向已知联系人重发上线与状态，促使对端立即更新。
+  refresh(): number {
+    if (this.socket === null) {
+      throw new Error('协议引擎尚未启动')
+    }
+    this.refreshBroadcastTargets()
+    this.announce()
+    const entry = this.entryPayload()
+    const statusPayload = Buffer.from(
+      encodeChangeStatus({ Docver: DOCVER, Status: this.config.status }),
+      'utf8'
+    )
+    for (const peer of this.peers.values()) {
+      this.handshakeAt.delete(peer.key)
+      this.handshakeTries.set(peer.key, 0)
+      this.sendPacket(peer, CMD_ENTRY, entry, true)
+      this.sendPacket(peer, CMD_CHANGE_STATUS, statusPayload, false)
+      if (!peer.legacy) {
+        this.sendHandshake(peer, true)
+      }
+    }
+    this.log(`手动刷新联系人：已广播上线通知，并向 ${this.peers.size} 个联系人重发状态`)
+    return this.peers.size
+  }
+
   getPeers(): ProtocolPeer[] {
     return [...this.peers.values()].map(clonePeer).sort(comparePeers)
   }

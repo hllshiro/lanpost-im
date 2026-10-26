@@ -86,7 +86,8 @@ export class AppService {
     })
     this.engine = new ProtocolEngine(engineConfig(settings.get()), {
       onPeers: (peers) => this.handlePeers(peers),
-      onMessage: (peer, text, remoteSeq) => this.handleIncoming(peer.key, peer.name, text, remoteSeq),
+      onMessage: (peer, text, remoteSeq) =>
+        this.handleIncoming(peer.key, peer.name, text, remoteSeq),
       onFileOffer: (peer, packetId, text, attachments) =>
         this.handleFileOffer(peer, packetId, text, attachments),
       onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
@@ -171,11 +172,7 @@ export class AppService {
   }
 
   listMessages(request: MessagesListRequest): MessagesPage {
-    return this.repos.messages.list(
-      request.conversationId,
-      request.beforeId,
-      request.limit ?? 50
-    )
+    return this.repos.messages.list(request.conversationId, request.beforeId, request.limit ?? 50)
   }
 
   sendText(request: MessagesSendRequest): SendTextResult {
@@ -212,6 +209,11 @@ export class AppService {
 
   saveDraft(conversationId: string, draft: string): void {
     this.repos.conversations.saveDraft(conversationId, draft)
+  }
+
+  refreshPeers(): void {
+    this.engine.refresh()
+    this.handlePeers(this.engine.getPeers())
   }
 
   setAlias(peerKey: string, alias: string): void {
@@ -409,20 +411,8 @@ export class AppService {
       const meta = JSON.stringify({ fileId: file.id })
       const message =
         file.direction === 'in'
-          ? this.repos.messages.insertIncoming(
-              conversation.id,
-              text,
-              file.packetId,
-              'file',
-              meta
-            )
-          : this.repos.messages.insertOutgoing(
-              conversation.id,
-              text,
-              file.packetId,
-              'file',
-              meta
-            )
+          ? this.repos.messages.insertIncoming(conversation.id, text, file.packetId, 'file', meta)
+          : this.repos.messages.insertOutgoing(conversation.id, text, file.packetId, 'file', meta)
       if (file.direction === 'out') {
         this.repos.messages.setStatus(message.id, 'sent')
       }
@@ -476,16 +466,8 @@ export class AppService {
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
   }
 
-  private handleIncoming(
-    peerKey: string,
-    peerName: string,
-    text: string,
-    remoteSeq: number
-  ): void {
-    const conversation = this.repos.conversations.ensureDirect(
-      peerKey,
-      peerName || peerKey
-    )
+  private handleIncoming(peerKey: string, peerName: string, text: string, remoteSeq: number): void {
+    const conversation = this.repos.conversations.ensureDirect(peerKey, peerName || peerKey)
     const message = this.repos.messages.insertIncoming(conversation.id, text, remoteSeq)
     this.repos.conversations.touch(conversation.id, message.createdAt, 1)
     this.emit({ type: 'message', message })

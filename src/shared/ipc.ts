@@ -15,6 +15,7 @@ export const IPC = {
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   peerAlias: 'peer:alias',
+  peersRefresh: 'peers:refresh',
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
@@ -72,6 +73,7 @@ export type Api = {
   }
   peers: {
     setAlias(peerKey: string, alias: string): Promise<void>
+    refresh(): Promise<void>
   }
   files: {
     accept(id: string): Promise<void>
