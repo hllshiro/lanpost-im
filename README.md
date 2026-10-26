@@ -40,8 +40,6 @@ pnpm build:linux   # Linux ARM64，deb 与 AppImage
 
 - 正式环境：Windows `%APPDATA%\lanpost-im`，Linux `~/.config/lanpost-im`。
 - 开发环境：`%APPDATA%\lanpost-im-dev`；无法写入时回退到项目下的 `.dev-data`。
-- 旧的大写目录 `Lanpost-IM`、`Lanpost-IM-dev` 会在启动时自动改名为小写目录。
-- 受限环境使用的 `.dev-data` 历史会在 Roaming 恢复可写后自动复制到 `lanpost-im-dev`。
 
 ### 受限环境
 

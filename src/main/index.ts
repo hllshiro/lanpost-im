@@ -12,7 +12,6 @@ import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
 import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
 import { createTray, destroyTray } from './tray'
-import { copyFallbackData, migrateCaseDirectory } from './data-dir'
 import { errorMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
@@ -35,30 +34,13 @@ function writableDir(dir: string): { ok: boolean; error?: string } {
   }
 }
 
-let dataDirNote = ''
 const dataDirOverride = process.env['LANPOST_DATA_DIR']
 if (dataDirOverride) {
   app.setPath('userData', resolve(dataDirOverride))
 } else {
-  const appData = app.getPath('appData')
-  const targetName = is.dev ? 'lanpost-im-dev' : 'lanpost-im'
-  const legacyName = is.dev ? 'Lanpost-IM-dev' : 'Lanpost-IM'
-  const target = join(appData, targetName)
-  const migration = migrateCaseDirectory(join(appData, legacyName), target)
-  if (migration.migrated) {
-    dataDirNote = `, migrated ${legacyName} -> ${targetName}`
-  } else if (migration.reason !== undefined && migration.reason !== 'legacy directory missing') {
-    dataDirNote = `, data directory migration skipped: ${migration.reason}`
-  }
-
+  const target = join(app.getPath('appData'), is.dev ? 'lanpost-im-dev' : 'lanpost-im')
   if (is.dev) {
     const writable = writableDir(target)
-    if (writable.ok) {
-      const copied = copyFallbackData(resolve('.dev-data'), target)
-      if (copied.length > 0) {
-        dataDirNote += `, copied ${copied.join(', ')} from .dev-data`
-      }
-    }
     app.setPath('userData', writable.ok ? target : resolve('.dev-data'))
     if (!writable.ok) {
       logStartup(
@@ -70,9 +52,7 @@ if (dataDirOverride) {
   }
 }
 
-logStartup(
-  `starting, userData=${app.getPath('userData')}, packaged=${app.isPackaged}${dataDirNote}`
-)
+logStartup(`starting, userData=${app.getPath('userData')}, packaged=${app.isPackaged}`)
 
 process.on('uncaughtException', (error) => {
   logStartup('uncaughtException: ' + errorMessage(error))
