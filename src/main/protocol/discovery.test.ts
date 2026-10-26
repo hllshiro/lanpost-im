@@ -370,6 +370,64 @@ describe('protocol engine over real UDP', () => {
     }
   }, 20000)
 
+  it('sends legacy SENDMSG to a private-version peer without a completed handshake', async () => {
+    const enginePort = await freeUdpPort()
+    const raw = await openRawSocket()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(
+      makeConfig({
+        name: '新客户端',
+        account: 'engine-compat',
+        host: 'host-compat',
+        port: enginePort
+      }),
+      recorder.callbacks
+    )
+    const key = '127.0.0.1|nwt-peer'
+    try {
+      await engine.start()
+      // 内网通的标准报文也带 @shiyeline，但不会完成私有握手。
+      raw.socket.send(
+        Encode({
+          seq: 900,
+          user: 'nwt-peer',
+          host: 'nwt-host',
+          cmd: CMD_ENTRY,
+          payload: entryPayload('内网通用户', '内网通联系人', 'corp-1'),
+          legacy: false
+        }),
+        enginePort,
+        '127.0.0.1'
+      )
+      const peer = await waitFor(() => {
+        const found = recorder.peers.get(key)
+        return found !== undefined && found.online ? found : null
+      })
+      expect(peer.legacy).toBe(false)
+      expect(peer.ready).toBe(false)
+
+      const seq = engine.sendText(key, '兼容消息')
+      const outgoing = await waitFor(() => {
+        for (const packet of raw.packets) {
+          const header = DecodeCompat(packet)
+          if ((header.cmd & 0xff) === CMD_SENDMSG && (header.cmd & CMD_SENDCHECK) !== 0) {
+            return header
+          }
+        }
+        return null
+      })
+      expect(outgoing.version).toBe('1')
+      expect(outgoing.seq).toBe(seq)
+      expect(decodeGbk(outgoing.payload)).toBe('兼容消息')
+      expect(recorder.errors).toEqual([])
+    } finally {
+      await engine.stop()
+      await new Promise<void>((resolve) => {
+        raw.socket.close(() => resolve())
+      })
+    }
+  }, 20000)
+
   it('runs the private handshake and exchanges chat, ack and read receipt', async () => {
     const enginePort = await freeUdpPort()
     const raw = await openRawSocket()
@@ -428,6 +486,7 @@ describe('protocol engine over real UDP', () => {
       expect(handshake?.Info.Department).toBe('部门')
       expect(handshake?.Info.Sign).toBe('私有签名')
       expect(handshake?.Net.FileTranTCPPort).toBe(enginePort)
+      expect(handshake?.Net.FileTranEnetPort).toBe(0)
       expect(handshake?.Feature.Build).toBe('3055')
       expect(handshakePacket.version).toBe('1@shiyeline')
 
