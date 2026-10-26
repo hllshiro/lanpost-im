@@ -341,7 +341,9 @@ export class ProtocolEngine {
     if (peer === undefined) {
       throw new Error(`未知联系人: ${peerKey}`)
     }
-    if (peer.legacy) {
+    // 版本后缀不能作为私有通道的依据：内网通的标准报文同样使用 1@shiyeline，
+    // 但没有完成私有握手时只认 SENDMSG，收不到 X_SEND_MSG。
+    if (!peer.ready) {
       const encoded = encodeText(text)
       const cmd = CMD_SENDMSG | CMD_SENDCHECK | (encoded.utf8 ? CMD_UTF8 : 0)
       return this.sendPacket(peer, cmd, encoded.data, true)
@@ -1010,7 +1012,8 @@ export class ProtocolEngine {
       },
       Net: {
         FileTranTCPPort: config.port,
-        FileTranEnetPort: config.port,
+        // 只实现 TCP 文件传输；广告 Enet 端口会让对端尝试私有 UDP 通道并一直等待连接。
+        FileTranEnetPort: 0,
         FolderTranTCPPort: 0,
         FolderTranEnetPort: 0,
         FileTranTCPReversePort: 0,
