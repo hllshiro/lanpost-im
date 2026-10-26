@@ -233,6 +233,60 @@ describe('文件服务与拉取客户端', () => {
     expect(manager.get(duplicate.id)?.state).toBe('rejected')
   }, 20000)
 
+  it('serves the newest offered task when the peer echoes its own identifiers', async () => {
+    const dir = tempDir()
+    const receiveDir = join(dir, 'receive')
+    const content = payload(64 * 1024 + 7)
+    const source = join(dir, 'fallback.bin')
+    writeFileSync(source, content)
+    const port = await freeTcpPort()
+    const errors: Error[] = []
+    const manager = new FileManager({
+      bindAddr: '127.0.0.1',
+      port,
+      receiveDir,
+      notifyAccepted: () => undefined,
+      callbacks: {
+        onUpdate: () => undefined,
+        onLog: () => undefined,
+        onError: (error) => errors.push(error)
+      },
+      identity: () => ({ user: 'peer', host: 'peer-host', seq: 1 })
+    })
+    managers.push(manager)
+    await manager.start()
+
+    const task = manager.addOutgoing({
+      peerKey: '127.0.0.1|peer',
+      peerIp: '127.0.0.1',
+      peerPort: port,
+      name: 'fallback.bin',
+      size: content.length,
+      mtime: 1700000000,
+      fileId: 0xabc,
+      packetId: 0x111,
+      path: source
+    })
+
+    const target = join(receiveDir, 'fallback.bin')
+    const written = await pullFile({
+      peerIp: '127.0.0.1',
+      peerPort: port,
+      packetId: 0x999,
+      fileId: 0x777,
+      seq: 1,
+      user: 'peer',
+      host: 'peer-host',
+      path: target,
+      size: content.length
+    })
+
+    expect(written).toBe(content.length)
+    expect(readFileSync(target).equals(content)).toBe(true)
+    expect(manager.get(task.id)?.state).toBe('done')
+    expect(errors).toEqual([])
+  }, 20000)
+
   it('cancels a pending incoming task without creating a file', async () => {
     const dir = tempDir()
     const receiveDir = join(dir, 'receive')

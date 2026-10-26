@@ -240,6 +240,7 @@ export class FileServer {
     })
     // 对端中断连接时 write 回调已经能拿到错误，这里只避免未处理的 error 事件。
     socket.on('error', () => undefined)
+    this.options.onLog(`收到取文件连接: ${socket.remoteAddress ?? ''}:${socket.remotePort ?? 0}`)
     try {
       const raw = await readRequest(socket)
       if (raw === null) {
