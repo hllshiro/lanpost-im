@@ -47,3 +47,4 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 ## 参考
 
 - 设计基线：`docs/superpowers/specs/2026-10-23-electron-client-design.md`。
+- 抓包与协议调试记录：`docs/protocol-debugging.md`。
