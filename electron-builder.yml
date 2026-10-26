@@ -49,4 +49,5 @@ deb:
   artifactName: ${name}_${version}_${arch}.${ext}
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
+publish: null
 npmRebuild: false

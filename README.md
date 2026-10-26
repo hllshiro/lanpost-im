@@ -88,6 +88,15 @@ pnpm dev
 
 构建与测试由 GitHub Actions 执行，工作流见 `.github/workflows/build.yml`。
 
+### 发布
+
+推送 `v*` 标签会触发 Windows 和 Linux 构建；两个任务成功后，由 `softprops/action-gh-release` 创建 Release 并上传产物。
+
+- 构建阶段在 `electron-builder.yml` 中设置了 `publish: null`，不会隐式发布，也不需要 `GH_TOKEN`。
+- Release 默认使用仓库自动提供的 `GITHUB_TOKEN`（工作流已声明 `contents: write`）。
+- 如果仓库或组织限制了默认令牌，可以创建 fine-grained PAT，权限只需 `Contents: Read and write`，并在 Settings → Secrets and variables → Actions 中添加为 `RELEASE_TOKEN`；工作流会优先使用它。
+- PAT 只放在 Actions secret 中，不要写进仓库或 `electron-builder.yml`。
+
 ## 技术
 
 Electron 44、electron-vite 6、Vue 3、TypeScript、Pinia、`node:sqlite`（Electron 内置 Node 24，无需原生模块）。

@@ -56,6 +56,8 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - 发布前更新 `CHANGELOG.md`：以**上一个 tag 到当前 HEAD** 的提交为输入，按“新增 / 修复 / 兼容性 / 文档 / 已知限制”浓缩主要变更，不逐条照抄提交信息。
 - 同步 `package.json` 的版本号，提交后创建 `vX.Y.Z` 标签并推送；标签会触发 CI 打包和 Release。
+- CI 构建阶段使用 `publish: null`，不会隐式发布；Release 由 `softprops/action-gh-release` 使用 `RELEASE_TOKEN`（可选）或内置 `GITHUB_TOKEN` 创建。
+- 如需 PAT，使用 fine-grained token，仅授予 `Contents: Read and write`，保存为 Actions secret `RELEASE_TOKEN`；不要写进仓库或构建配置。
 - 不在已有 tag 上追加强制修改；需要修正时发布新版本。
 
 ## 参考
