@@ -33,6 +33,7 @@ export const IPC = {
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
   filePickFolder: 'files:pick-folder',
+  filePickImages: 'files:pick-images',
   fileSend: 'files:send'
 } as const
 
@@ -131,6 +132,7 @@ export type Api = {
     saveAs(id: string): Promise<void>
     pickAndSend(conversationId: string): Promise<void>
     pickFolderAndSend(conversationId: string): Promise<void>
+    pickImagesAndSend(conversationId: string): Promise<void>
     sendPaths(conversationId: string, paths: string[]): Promise<void>
   }
 }

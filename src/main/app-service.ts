@@ -1,5 +1,5 @@
 import { basename, join } from 'node:path'
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
@@ -16,12 +16,40 @@ import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/engine'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
+import { fileType } from './protocol/attrs'
+import { canSendAsClipboard } from './protocol/clipboard'
+import {
+  EXT_CLIPBOARDPOS,
+  EXT_MTIME,
+  FILE_ATTR_CLIPBOARD,
+  FILE_ATTR_DIR
+} from './protocol/commands'
 import { FileManager } from './files/manager'
 import { NotificationManager } from './notify/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { logStartup } from './startup-log'
+
+function measureDirectory(path: string): { bytes: number; entries: number } {
+  let bytes = 0
+  let entries = 0
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isSymbolicLink()) continue
+      const target = `${dir}/${entry.name}`
+      if (entry.isDirectory()) {
+        entries += 1
+        walk(target)
+      } else if (entry.isFile()) {
+        bytes += statSync(target).size
+        entries += 1
+      }
+    }
+  }
+  walk(path)
+  return { bytes, entries }
+}
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
   return {
@@ -361,18 +389,18 @@ export class AppService {
     }
     for (const path of paths) {
       const stats = statSync(path)
-      if (!stats.isFile()) {
-        continue
-      }
       const fileId = this.nextFileId()
       const name = basename(path)
       const mtime = Math.floor(stats.mtimeMs / 1000)
+      const isDir = stats.isDirectory()
+      const measured = isDir ? measureDirectory(path) : { bytes: stats.size, entries: 0 }
       const attachment: Attachment = {
         id: fileId,
         name,
-        size: stats.size,
+        size: measured.bytes,
         mtime,
-        attr: FILE_ATTR_REGULAR
+        attr: isDir ? FILE_ATTR_DIR : FILE_ATTR_REGULAR,
+        ext: { [EXT_MTIME]: mtime.toString(16) }
       }
       const packetId = this.engine.sendFileOffer(conversation.peerKey, text, [attachment])
       this.fileManager.addOutgoing({
@@ -380,11 +408,13 @@ export class AppService {
         peerIp: peer.ip,
         peerPort: peer.port,
         name,
-        size: stats.size,
+        size: measured.bytes,
         mtime,
         fileId,
         packetId,
-        path
+        path,
+        kind: isDir ? 'dir' : 'file',
+        entryCount: measured.entries
       })
       text = ''
     }
@@ -448,20 +478,41 @@ export class AppService {
   private handleFileOffer(
     peer: ProtocolPeer,
     packetId: number,
-    _text: string,
+    text: string,
     attachments: Attachment[]
   ): void {
     if (!this.filesStarted) {
       logStartup('file offer ignored: file service not started')
       return
     }
+    const type = attachments.length > 0 ? fileType(attachments[0].attr) : 0
+    const kind = type === FILE_ATTR_DIR ? 'dir' : type === FILE_ATTR_CLIPBOARD ? 'image' : 'file'
     const created = this.fileManager.offerIncoming({
       peerKey: peer.key,
       peerIp: peer.ip,
       peerPort: peer.port,
       packetId,
-      attachments
+      attachments,
+      kind
     })
+    if (kind === 'image') {
+      this.createImageMessage(
+        peer.key,
+        peer.name,
+        text,
+        packetId,
+        created.map((file) => file.id),
+        'in'
+      )
+      for (const file of created) {
+        void this.fileManager.accept(file.id).catch((error: unknown) => {
+          logStartup(
+            'image accept failed: ' + (error instanceof Error ? error.message : String(error))
+          )
+        })
+      }
+      return
+    }
     const settings = this.settings.get()
     for (const file of created) {
       const limit = settings.files.autoAcceptMaxMB
@@ -475,6 +526,100 @@ export class AppService {
     }
   }
 
+  private createImageMessage(
+    peerKey: string,
+    peerName: string,
+    text: string,
+    packetId: number,
+    fileIds: string[],
+    direction: 'in' | 'out'
+  ): void {
+    const peer = this.repos.peers.get(peerKey)
+    const conversation = this.repos.conversations.ensureDirect(
+      peerKey,
+      peer?.alias || peer?.name || peerName || peerKey
+    )
+    const meta: MessageMeta = { images: fileIds }
+    const message =
+      direction === 'in'
+        ? this.repos.messages.insertIncoming(conversation.id, text, packetId, 'text', meta)
+        : this.repos.messages.insertOutgoing(conversation.id, text, packetId, 'text', meta)
+    if (direction === 'out') this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.conversations.touch(conversation.id, message.createdAt, direction === 'in' ? 1 : 0)
+    for (const id of fileIds) {
+      this.fileLinks.set(id, { conversationId: conversation.id, messageId: message.id })
+    }
+    this.emit({ type: 'message', message })
+    this.emitConversation(conversation.id)
+    if (direction === 'in') {
+      this.notifications.notify({
+        conversationId: conversation.id,
+        title: peer?.alias || peer?.name || conversation.title,
+        body: '收到图片',
+        kind: 'file',
+        muted: conversation.muted,
+        unread: this.unreadTotal()
+      })
+    }
+  }
+
+  async pickImagesAndSend(conversationId: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const result = await dialog.showOpenDialog({
+      title: '发送图片',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
+    })
+    if (result.canceled || result.filePaths.length === 0) return
+    this.sendImages(conversationId, result.filePaths)
+  }
+
+  sendImages(conversationId: string, paths: string[], text = ''): void {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) throw new Error('会话不存在')
+    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (peer === undefined || !peer.online) throw new Error('联系人不在线')
+    const stats = paths.map((path) => statSync(path))
+    if (
+      paths.length === 0 ||
+      paths.length > 10 ||
+      stats.some((item) => !canSendAsClipboard(item.size, 1))
+    ) {
+      this.sendFiles(conversationId, paths, text)
+      return
+    }
+    const attachments: Attachment[] = paths.map((path, index) => ({
+      id: this.nextFileId(),
+      name: basename(path),
+      size: stats[index].size,
+      mtime: Math.floor(stats[index].mtimeMs / 1000),
+      attr: FILE_ATTR_CLIPBOARD,
+      ext: { [EXT_CLIPBOARDPOS]: (text.length + index).toString(16) }
+    }))
+    const packetId = this.engine.sendFileOffer(conversation.peerKey, text, attachments)
+    const ids: string[] = []
+    for (let index = 0; index < attachments.length; index++) {
+      const attachment = attachments[index]
+      const task = this.fileManager.addOutgoing({
+        peerKey: conversation.peerKey,
+        peerIp: peer.ip,
+        peerPort: peer.port,
+        kind: 'image',
+        name: attachment.name,
+        size: attachment.size,
+        mtime: attachment.mtime,
+        fileId: attachment.id,
+        packetId,
+        path: paths[index]
+      })
+      ids.push(task.id)
+    }
+    this.createImageMessage(conversation.peerKey, peer.name, text, packetId, ids, 'out')
+  }
+
   private handleFileUpdate(file: FileTaskInfo): void {
     const peerKey = file.peerKey
     if (peerKey === undefined || peerKey === '') {
@@ -482,6 +627,11 @@ export class AppService {
       return
     }
     let link = this.fileLinks.get(file.id)
+    if (link === undefined && file.kind === 'image') {
+      this.repos.files.upsert(file)
+      this.emit({ type: 'file', file })
+      return
+    }
     if (link === undefined) {
       const peer = this.repos.peers.get(peerKey)
       const conversation = this.repos.conversations.ensureDirect(
@@ -524,6 +674,14 @@ export class AppService {
     }
     this.repos.files.upsert(persisted)
     this.emit({ type: 'file', file: persisted })
+  }
+
+  resolveMedia(taskId: string): string | null {
+    const task = this.repos.files.get(taskId)
+    if (task === null || task.kind !== 'image' || task.state !== 'done' || task.path === '') {
+      return null
+    }
+    return task.path
   }
 
   private nextFileId(): number {

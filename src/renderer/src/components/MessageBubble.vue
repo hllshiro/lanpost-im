@@ -11,7 +11,7 @@ const props = defineProps<{
   message: MessageInfo
   own: boolean
   showTime: boolean
-  file: FileTaskInfo | null
+  files: FileTaskInfo[]
   ownInitial: string
   otherInitial: string
 }>()
@@ -31,9 +31,17 @@ const statusIcon = computed(() => {
 })
 
 const sealed = computed(() => props.message.meta.sealed === true)
+const flags = computed(() => props.message.meta.flags ?? {})
+const images = computed(() =>
+  props.files.filter((file) => file.kind === 'image' && file.state === 'done' && file.path !== '')
+)
 const masked = computed(
   () => sealed.value && props.message.direction === 'in' && props.message.meta.opened !== true
 )
+
+function openImage(file: FileTaskInfo): void {
+  void window.api.files.open(file.id)
+}
 
 const statusClass = computed(() => {
   if (props.message.status === 'failed') return 'failed'
@@ -56,9 +64,12 @@ const statusClass = computed(() => {
       </span>
 
       <div class="content">
+        <span v-if="flags.broadcast || flags.multicast" class="group-tag">
+          {{ flags.broadcast ? '广播' : '多播' }}
+        </span>
         <div v-if="message.kind === 'file'" class="bubble file-bubble">
-          <FileCard v-if="file" :file="file" />
-          <div v-else class="file-missing">
+          <FileCard v-for="task in files" :key="task.id" :file="task" />
+          <div v-if="files.length === 0" class="file-missing">
             <FileText :size="20" :stroke-width="1.6" />
             <div>
               <p class="missing-name">{{ message.text || '文件' }}</p>
@@ -83,6 +94,20 @@ const statusClass = computed(() => {
               <Lock :size="11" :stroke-width="1.9" /> 密封
             </span>
             {{ message.text }}
+            <div v-if="images.length > 0" class="image-grid">
+              <button
+                v-for="image in images"
+                :key="image.id"
+                class="image-item"
+                :title="image.name"
+                @click="openImage(image)"
+              >
+                <img
+                  :src="`lanpost-media://file/${encodeURIComponent(image.id)}`"
+                  :alt="image.name"
+                />
+              </button>
+            </div>
           </template>
         </div>
 
@@ -157,6 +182,20 @@ const statusClass = computed(() => {
   background: #7f8f9f;
 }
 
+.group-tag {
+  align-self: flex-start;
+  margin-bottom: 3px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: #eef3f0;
+  color: var(--accent);
+  font-size: 10.5px;
+}
+
+.row.own .group-tag {
+  align-self: flex-end;
+}
+
 .content {
   display: flex;
   flex-direction: column;
@@ -223,6 +262,27 @@ const statusClass = computed(() => {
 
 .text-bubble.failed {
   box-shadow: 0 0 0 1px rgba(250, 81, 81, 0.55);
+}
+
+.image-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.image-item {
+  overflow: hidden;
+  padding: 0;
+  border-radius: 6px;
+  background: #f4f4f4;
+}
+
+.image-item img {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
 }
 
 .file-bubble {

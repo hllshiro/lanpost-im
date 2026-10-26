@@ -133,6 +133,7 @@ export class FileManager {
 
   async start(): Promise<void> {
     mkdirSync(this.options.receiveDir, { recursive: true })
+    mkdirSync(join(this.options.receiveDir, 'images'), { recursive: true })
     this.stopping = false
     await this.server.start()
     const address = this.server.address()
@@ -173,10 +174,10 @@ export class FileManager {
       const now = Date.now()
       this.incomingSeq += 1
       const id = `in-${now.toString(36)}-${this.incomingSeq.toString(36)}`
-      const name = uniqueName(
-        this.options.receiveDir,
-        rawName === '' ? 'file' : rawName,
-        (candidate) => this.isNameReserved(id, candidate)
+      const folder =
+        kind === 'image' ? join(this.options.receiveDir, 'images') : this.options.receiveDir
+      const name = uniqueName(folder, rawName === '' ? 'file' : rawName, (candidate) =>
+        this.isNameReserved(id, candidate)
       )
       const task: IncomingFile = {
         direction: 'in',
@@ -371,11 +372,13 @@ export class FileManager {
       if (entry.signal.aborted) {
         throw new Error('文件接收已取消')
       }
-      const name = uniqueName(this.options.receiveDir, task.name, (candidate) =>
+      const folder =
+        task.kind === 'image' ? join(this.options.receiveDir, 'images') : this.options.receiveDir
+      const name = uniqueName(folder, task.name, (candidate) =>
         this.isNameReserved(task.id, candidate)
       )
       task.name = name
-      task.path = join(this.options.receiveDir, name)
+      task.path = join(folder, name)
       const identity = this.identity()
       const written = await pullFile({
         peerIp: task.peerIp,

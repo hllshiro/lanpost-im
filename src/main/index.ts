@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, net, protocol } from 'electron'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
@@ -12,11 +13,16 @@ import { currentIdentityDefaults } from './identity'
 import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
+import { parseMediaRequest } from './files/media'
 import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
 import { createTray, destroyTray } from './tray'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'lanpost-media', privileges: { standard: true, secure: true } }
+])
 
 // 远程桌面、虚拟机与部分安全策略下 GPU 进程会启动失败并导致 Chromium 退出。
 app.disableHardwareAcceleration()
@@ -102,6 +108,13 @@ if (!gotLock) {
       }
       const appService = new AppService(database, settings, appInfo)
       service = appService
+
+      protocol.handle('lanpost-media', async (request) => {
+        const taskId = parseMediaRequest(request.url)
+        const path = taskId === null ? null : appService.resolveMedia(taskId)
+        if (path === null) return new Response('Not found', { status: 404 })
+        return net.fetch(pathToFileURL(path).toString())
+      })
 
       const handlers = createHandlers({
         settings,

@@ -61,6 +61,7 @@ const api: Api = {
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pickAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
     pickFolderAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePickFolder, conversationId),
+    pickImagesAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePickImages, conversationId),
     sendPaths: (conversationId, paths) => ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
   },
   settings: {
