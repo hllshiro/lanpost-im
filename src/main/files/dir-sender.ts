@@ -29,12 +29,13 @@ async function sendFile(
   socket: Socket,
   path: string,
   name: string,
+  utf8: boolean,
   sent: (n: number) => void
 ): Promise<void> {
   const info = await stat(path)
   const attr = FILE_ATTR_REGULAR | (info.mode & 0o200 ? 0 : FILE_OPT_RONLY)
   const ext = new Map<number, string>([[EXT_MTIME, Math.floor(info.mtimeMs / 1000).toString(16)]])
-  await writeAll(socket, encodeDirHeader({ name, size: info.size, attr, ext }))
+  await writeAll(socket, encodeDirHeader({ name, size: info.size, attr, ext }, utf8))
   const handle: FileHandle = await open(path, 'r')
   try {
     const buffer = Buffer.alloc(CHUNK_SIZE)
@@ -54,12 +55,13 @@ async function sendDir(
   path: string,
   name: string,
   root: boolean,
+  utf8: boolean,
   sent: (n: number) => void
 ): Promise<void> {
   const info = await stat(path)
   const attr = FILE_ATTR_DIR | (info.mode & 0o200 ? 0 : FILE_OPT_RONLY)
   const ext = new Map<number, string>([[EXT_MTIME, Math.floor(info.mtimeMs / 1000).toString(16)]])
-  await writeAll(socket, encodeDirHeader({ name, size: 0, attr, ext }))
+  await writeAll(socket, encodeDirHeader({ name, size: 0, attr, ext }, utf8))
 
   const entries = await readdir(path, { withFileTypes: true })
   entries.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0))
@@ -67,20 +69,23 @@ async function sendDir(
     if (entry.isSymbolicLink()) continue
     const target = join(path, entry.name)
     if (entry.isDirectory()) {
-      await sendDir(socket, target, entry.name, false, sent)
+      await sendDir(socket, target, entry.name, false, utf8, sent)
     } else if (entry.isFile()) {
-      await sendFile(socket, target, entry.name, sent)
+      await sendFile(socket, target, entry.name, utf8, sent)
     }
   }
 
   await writeAll(
     socket,
-    encodeDirHeader({
-      name: '.',
-      size: 0,
-      attr: FILE_ATTR_RETPARENT,
-      ext
-    })
+    encodeDirHeader(
+      {
+        name: '.',
+        size: 0,
+        attr: FILE_ATTR_RETPARENT,
+        ext
+      },
+      utf8
+    )
   )
   if (root) return
 }
@@ -89,10 +94,11 @@ async function sendDir(
 export async function sendDirectory(
   socket: Socket,
   rootPath: string,
+  utf8: boolean,
   onProgress?: (sent: number) => void
 ): Promise<number> {
   let sent = 0
-  await sendDir(socket, rootPath, basename(rootPath), true, (count) => {
+  await sendDir(socket, rootPath, basename(rootPath), true, utf8, (count) => {
     sent += count
     onProgress?.(sent)
   })

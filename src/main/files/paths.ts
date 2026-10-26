@@ -4,6 +4,7 @@
 const SEPARATORS = /[\\/]+/
 const DRIVE = /^[A-Za-z]:/
 const MAX_SEGMENT = 200
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
 function hasControlChar(value: string): boolean {
   for (const char of value) {
@@ -28,7 +29,7 @@ function cleanSegment(raw: string): string | null {
       .join('')
       .replace(/[. ]+$/, '')
   }
-  if (segment === '' || segment === '.' || segment === '..') {
+  if (segment === '' || segment === '.' || segment === '..' || RESERVED.test(segment)) {
     return null
   }
   return segment

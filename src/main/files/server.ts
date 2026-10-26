@@ -14,6 +14,7 @@ const HEX = /^[0-9a-fA-F]+$/
 export interface GetFileRequest {
   packetId: number
   fileIds: number[]
+  offset: number
   version: string
   remoteIp: string
   cmd: number
@@ -22,6 +23,8 @@ export interface GetFileRequest {
 export interface FileServeTarget {
   path: string
   kind: 'file' | 'dir'
+  utf8?: boolean
+  offset?: number
   onStart?: () => void
   onProgress?: (sent: number) => void
   onDone?: (sent: number) => void
@@ -55,28 +58,35 @@ function parseHex(text: string, max: number): number | null {
 
 // GETFILEDATA 的扩展域是 “包编号:文件ID:偏移:”，全部十六进制，结尾冒号可以省略。
 // 标准 IPMSG 只回传文件标识，因此单字段请求也作为文件标识候选。
-export function parseGetFileRequest(payload: Buffer): { packetId: number; fileIds: number[] } {
+export function parseGetFileRequest(payload: Buffer): {
+  packetId: number
+  fileIds: number[]
+  offset: number
+} {
   const raw = trimNul(payload).toString('ascii')
   const parts = raw.split(':')
   const first = parts.length > 0 ? parts[0] : ''
   const packetId = parseHex(first, 0xffffffff) ?? 0
   const fileIds: number[] = []
+  let offset = 0
   if (parts.length === 1) {
     const single = parseHex(first, Number.MAX_SAFE_INTEGER)
     if (single !== null && single !== 0) {
       fileIds.push(single)
     }
-  }
-  for (const part of parts.slice(1)) {
-    if (part.trim() === '') {
-      continue
+  } else {
+    const fileId = parseHex(parts[1] ?? '', Number.MAX_SAFE_INTEGER)
+    if (fileId !== null && fileId !== 0) fileIds.push(fileId)
+    if (parts.length >= 3) {
+      offset = parseHex(parts[2] ?? '', Number.MAX_SAFE_INTEGER) ?? 0
     }
-    const value = parseHex(part, Number.MAX_SAFE_INTEGER)
-    if (value !== null && value !== 0) {
-      fileIds.push(value)
+    for (const part of parts.slice(3)) {
+      if (part.trim() === '') continue
+      const value = parseHex(part, Number.MAX_SAFE_INTEGER)
+      if (value !== null && value !== 0) fileIds.push(value)
     }
   }
-  return { packetId, fileIds }
+  return { packetId, fileIds, offset }
 }
 
 function toError(value: unknown): Error {
@@ -298,7 +308,9 @@ export class FileServer {
   private async streamDirectory(socket: Socket, target: FileServeTarget): Promise<void> {
     target.onStart?.()
     try {
-      const sent = await sendDirectory(socket, target.path, (count) => target.onProgress?.(count))
+      const sent = await sendDirectory(socket, target.path, target.utf8 === true, (count) =>
+        target.onProgress?.(count)
+      )
       target.onDone?.(sent)
     } catch (error) {
       const failure = toError(error)
@@ -315,13 +327,15 @@ export class FileServer {
       handle = await open(target.path, 'r')
       target.onStart?.()
       const buffer = Buffer.alloc(CHUNK_SIZE)
-      let sent = 0
+      let sent = target.offset ?? 0
+      let position = sent
       for (;;) {
-        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
         if (bytesRead === 0) {
           break
         }
         await writeAll(socket, buffer.subarray(0, bytesRead))
+        position += bytesRead
         sent += bytesRead
         target.onProgress?.(sent)
       }

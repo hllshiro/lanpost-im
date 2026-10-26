@@ -1,8 +1,9 @@
 import { parseExtAttrs } from './attrs'
+import { decodeText, encodeGbkLossy } from './encoding'
 
 // 目录流头部：headerSize:name:size:attr[:key=value...]:
 // 所有数值与扩展属性都是十六进制；name 里的 ':' 转义为 '::'。
-// headerSize 是从 headerSize 字段开头到最后一个冒号的 UTF-8 字节数，
+// headerSize 是从 headerSize 字段开头到最后一个冒号的字节数，
 // 包含自身与末尾冒号，至少 4 位十六进制。
 
 const COLON = 0x3a
@@ -32,69 +33,64 @@ function hexField(value: number): string {
   return value.toString(16)
 }
 
-export function encodeDirHeader(entry: DirHeaderInput): Buffer {
-  const name = entry.name.replaceAll(':', '::')
-  const size = hexField(entry.size)
-  const attr = hexField(entry.attr)
-  let ext = ''
-  if (entry.ext !== undefined) {
-    for (const [key, value] of entry.ext) {
-      ext += `:${key.toString(16)}=${value}`
-    }
-  }
-
-  const build = (sizeField: string): string => `${sizeField}:${name}:${size}:${attr}${ext}:`
+export function encodeDirHeader(entry: DirHeaderInput, utf8 = true): Buffer {
+  const encodedName = utf8
+    ? Buffer.from(entry.name.replaceAll(':', '::'), 'utf8')
+    : encodeGbkLossy(entry.name.replaceAll(':', '::'))
+  const tail = Buffer.from(
+    `:${hexField(entry.size)}:${hexField(entry.attr)}${extFields(entry.ext)}:`,
+    'ascii'
+  )
   let sizeField = '0000'
-  // 长度字段的位数会改变自身长度，迭代到稳定（最多从 4 位涨到 5 位）。
   for (let attempt = 0; attempt < 4; attempt++) {
-    const header = build(sizeField)
-    const length = Buffer.byteLength(header, 'utf8')
-    const next = length.toString(16).padStart(4, '0')
-    if (next === sizeField) {
-      return Buffer.from(header, 'utf8')
-    }
+    const prefix = Buffer.from(`${sizeField}:`, 'ascii')
+    const header = Buffer.concat([prefix, encodedName, tail])
+    const next = header.length.toString(16).padStart(4, '0')
+    if (next === sizeField) return header
     sizeField = next
   }
   throw new Error('无法确定目录头长度')
 }
 
-function parseHexField(text: string, max: number): number | null {
-  if (!HEX.test(text)) {
-    return null
-  }
-  const value = Number.parseInt(text, 16)
-  if (!Number.isSafeInteger(value) || value < 0 || value > max) {
-    return null
+function extFields(ext?: Map<number, string>): string {
+  let value = ''
+  if (ext !== undefined) {
+    for (const [key, item] of ext) value += `:${key.toString(16)}=${item}`
   }
   return value
 }
 
-// 按未转义的 ':' 切分字段，'::' 还原成一个冒号。
-function splitFields(header: string, start: number): string[] {
+function parseHexField(text: string, max: number): number | null {
+  if (!HEX.test(text)) return null
+  const value = Number.parseInt(text, 16)
+  if (!Number.isSafeInteger(value) || value < 0 || value > max) return null
+  return value
+}
+
+// 按未转义的 ':' 切分字节，'::' 还原成一个冒号。
+function splitFields(header: Buffer, start: number): Buffer[] {
   const end = header.length - 1
-  const fields: string[] = []
-  let current = ''
+  const fields: Buffer[] = []
+  let current: number[] = []
   for (let i = start; i < end; i++) {
-    const char = header[i]
-    if (char !== ':') {
-      current += char
+    const byte = header[i]
+    if (byte !== COLON) {
+      current.push(byte)
       continue
     }
-    if (header[i + 1] === ':' && i + 1 < end) {
-      current += ':'
+    if (header[i + 1] === COLON && i + 1 < end) {
+      current.push(COLON)
       i++
       continue
     }
-    fields.push(current)
-    current = ''
+    fields.push(Buffer.from(current))
+    current = []
   }
-  if (current !== '') {
-    fields.push(current)
-  }
+  if (current.length > 0) fields.push(Buffer.from(current))
   return fields
 }
 
-export function parseDirHeader(buffer: Buffer): DirHeader | null {
+export function parseDirHeader(buffer: Buffer, utf8 = true): DirHeader | null {
   let separator = -1
   for (let i = 0; i < buffer.length && i <= 8; i++) {
     const byte = buffer[i]
@@ -102,41 +98,27 @@ export function parseDirHeader(buffer: Buffer): DirHeader | null {
       separator = i
       break
     }
-    if (!HEX.test(String.fromCharCode(byte))) {
-      return null
-    }
+    if (!HEX.test(String.fromCharCode(byte))) return null
   }
-  if (separator < 0) {
-    return null
-  }
+  if (separator < 0) return null
 
   const headerSize = parseHexField(buffer.subarray(0, separator).toString('ascii'), 0xffffffff)
-  if (headerSize === null || headerSize < 6 || headerSize > MAX_HEADER_SIZE) {
-    return null
-  }
-  if (headerSize > buffer.length || buffer[headerSize - 1] !== COLON) {
-    return null
-  }
+  if (headerSize === null || headerSize < 6 || headerSize > MAX_HEADER_SIZE) return null
+  if (headerSize > buffer.length || buffer[headerSize - 1] !== COLON) return null
 
-  const header = buffer.subarray(0, headerSize).toString('utf8')
-  const fields = splitFields(header, separator + 1)
-  if (fields.length < 3) {
-    return null
-  }
-
-  const name = fields[0]
-  const size = parseHexField(fields[1], Number.MAX_SAFE_INTEGER)
-  const attr = parseHexField(fields[2], 0xffffffff)
-  if (name === '' || size === null || attr === null) {
-    return null
-  }
+  const fields = splitFields(buffer.subarray(0, headerSize), separator + 1)
+  if (fields.length < 3) return null
+  const name = decodeText(fields[0], utf8)
+  const size = parseHexField(fields[1].toString('ascii'), Number.MAX_SAFE_INTEGER)
+  const attr = parseHexField(fields[2].toString('ascii'), 0xffffffff)
+  if (name === '' || size === null || attr === null) return null
 
   return {
     headerSize,
     name,
     size,
     attr,
-    ext: parseExtAttrs(fields.slice(3)),
+    ext: parseExtAttrs(fields.slice(3).map((field) => field.toString('ascii'))),
     contentOffset: headerSize
   }
 }

@@ -16,6 +16,7 @@ export interface PullDirRequest {
   user: string
   host: string
   path: string
+  utf8?: boolean
   signal?: AbortSignal
   onProgress?: (received: number, completed: number) => void
 }
@@ -170,7 +171,8 @@ export async function pullDirectory(request: PullDirRequest): Promise<PullDirRes
         fileId: request.fileId,
         seq: request.seq,
         user: request.user,
-        host: request.host
+        host: request.host,
+        utf8: request.utf8 === true
       }),
       request.signal
     )
@@ -182,7 +184,7 @@ export async function pullDirectory(request: PullDirRequest): Promise<PullDirRes
         throw new Error('目录头长度无效')
       }
       const rest = await reader.readExactly(size - prefix.length)
-      const header = parseDirHeader(Buffer.concat([prefix, rest]))
+      const header = parseDirHeader(Buffer.concat([prefix, rest]), request.utf8 === true)
       if (header === null) throw new Error('目录头无法解析')
 
       const type = fileType(header.attr)
@@ -190,7 +192,6 @@ export async function pullDirectory(request: PullDirRequest): Promise<PullDirRes
 
       if (type === FILE_ATTR_DIR) {
         if (stack.length === 0) {
-          entries += 1
           stack.push({ path: root, attrs: header })
         } else {
           const relative = safeRelativePath(header.name)
@@ -210,7 +211,6 @@ export async function pullDirectory(request: PullDirRequest): Promise<PullDirRes
           applyFileAttrs(finished.path, finished.attrs.attr, finished.attrs.ext)
         }
         if (stack.length === 0) {
-          entries += 1
           return { received, entries }
         }
         continue

@@ -40,9 +40,13 @@ export interface FileBody {
 
 // SENDMSG 正文：消息文本 + NUL + 附件表，多项附件之间用 \a 分隔。
 // 整段正文统一编码：只要有一处无法用 GBK 表示，就全部改用 UTF-8。
-export function buildFileBody(text: string, attachments: Attachment[]): FileBody {
+export function buildFileBody(
+  text: string,
+  attachments: Attachment[],
+  preferUtf8 = false
+): FileBody {
   const items = attachments.map((attachment) => encodeAttachmentItem(attachment))
-  const utf8 = !canEncodeGbk(text) || items.some((item) => !canEncodeGbk(item))
+  const utf8 = preferUtf8 || !canEncodeGbk(text) || items.some((item) => !canEncodeGbk(item))
   const encode = utf8 ? (value: string) => Buffer.from(value, 'utf8') : encodeGbk
   const pieces: Buffer[] = [encode(text), Buffer.from([NUL])]
   for (let i = 0; i < items.length; i++) {

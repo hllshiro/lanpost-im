@@ -1,7 +1,7 @@
 import { mkdir, open, rm, type FileHandle } from 'node:fs/promises'
 import { connect, type Socket } from 'node:net'
 import { dirname } from 'node:path'
-import { CMD_GETDIRFILES, CMD_GETFILEDATA } from '../protocol/commands'
+import { CMD_GETDIRFILES, CMD_GETFILEDATA, OPT_UTF8 } from '../protocol/commands'
 import { encodePacket } from '../protocol/packet'
 
 export const CONNECT_TIMEOUT_MS = 10_000
@@ -37,12 +37,13 @@ export function buildGetDirRequest(request: {
   seq: number
   user: string
   host: string
+  utf8?: boolean
 }): Buffer {
   return encodePacket({
     seq: request.seq,
     user: request.user,
     host: request.host,
-    cmd: CMD_GETDIRFILES,
+    cmd: CMD_GETDIRFILES | (request.utf8 === true ? OPT_UTF8 : 0),
     payload: Buffer.from(`${request.packetId.toString(16)}:${request.fileId.toString(16)}`, 'ascii')
   })
 }

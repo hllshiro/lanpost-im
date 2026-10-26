@@ -26,4 +26,9 @@ describe('packet', () => {
     expect(() => decodePacket(Buffer.from('2:1:a:b:1:'))).toThrow(PacketError)
     expect(() => decodePacket(Buffer.from('1:1:a'))).toThrow(PacketError)
   })
+
+  it('accepts legacy version tokens with a leading 1', () => {
+    expect(decodePacket(Buffer.from('1@shiyeline:1:a:b:1:')).version).toBe('1')
+    expect(decodePacket(Buffer.from('1_lbt80_0#123#9:1:a:b:1:')).version).toBe('1')
+  })
 })

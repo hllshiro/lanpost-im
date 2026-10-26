@@ -404,6 +404,10 @@ export class PeerRepository {
       .run(toInteger(online), lastSeen, key)
   }
 
+  markAllOffline(): void {
+    this.db.prepare('UPDATE peers SET online = 0').run()
+  }
+
   get(key: string): PeerInfo | null {
     const row = this.db.prepare(`${PEER_SELECT} WHERE peers.key = ?`).get(key) as
       PeerRow | undefined

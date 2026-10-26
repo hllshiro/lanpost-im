@@ -20,6 +20,7 @@ export interface FileRecordBase {
   peerIp: string
   peerPort: number
   kind: FileKind
+  utf8: boolean
   name: string
   size: number
   mtime: number
@@ -75,6 +76,7 @@ export interface OfferIncomingInput {
   packetId: number
   attachments: Attachment[]
   kind?: FileKind
+  utf8?: boolean
 }
 
 export interface AddOutgoingInput {
@@ -89,6 +91,7 @@ export interface AddOutgoingInput {
   packetId: number
   path: string
   kind?: FileKind
+  utf8?: boolean
   entryCount?: number
 }
 
@@ -182,6 +185,7 @@ export class FileManager {
       const task: IncomingFile = {
         direction: 'in',
         kind,
+        utf8: input.utf8 ?? false,
         id,
         peerKey: input.peerKey,
         peerIp: input.peerIp,
@@ -251,8 +255,13 @@ export class FileManager {
   }
 
   addOutgoing(input: AddOutgoingInput): OutgoingFile {
-    if (!existsSync(input.path) || !statSync(input.path).isFile()) {
+    if (!existsSync(input.path)) {
       throw new Error(`发送文件不存在: ${input.path}`)
+    }
+    const info = statSync(input.path)
+    const kind = input.kind ?? 'file'
+    if (kind === 'dir' ? !info.isDirectory() : !info.isFile()) {
+      throw new Error(`发送路径类型不匹配: ${input.path}`)
     }
     const now = Date.now()
     const id = input.id ?? `out-${now.toString(36)}-${input.fileId.toString(16)}`
@@ -263,7 +272,8 @@ export class FileManager {
     const fallbackName = sanitizeFileName(input.path)
     const task: OutgoingFile = {
       direction: 'out',
-      kind: input.kind ?? 'file',
+      kind,
+      utf8: input.utf8 ?? false,
       id,
       peerKey: input.peerKey,
       peerIp: input.peerIp,
@@ -443,6 +453,7 @@ export class FileManager {
         user: identity.user,
         host: identity.host,
         path: temp,
+        utf8: task.utf8,
         signal: entry.signal,
         onProgress: (received, completed) => {
           task.received = received
@@ -506,6 +517,8 @@ export class FileManager {
     return {
       path: task.path,
       kind: task.kind === 'dir' ? 'dir' : 'file',
+      utf8: task.utf8,
+      offset: request.offset,
       onStart: () => {
         if (task.state === 'canceled') {
           return
@@ -558,16 +571,14 @@ export class FileManager {
         continue
       }
       const samePeer = remote === '' || normalizeIp(task.peerIp) === remote
-      if (packetId !== 0 && task.packetId === packetId && samePeer) {
+      if (fileIds.includes(task.fileId) && samePeer) {
         return task
       }
-      if (fileIds.includes(task.fileId)) {
-        if (samePeer) {
-          return task
-        }
-        if (fileFallback === null) {
-          fileFallback = task
-        }
+      if (packetId !== 0 && task.packetId === packetId && samePeer && fileIds.length === 0) {
+        return task
+      }
+      if (fileIds.includes(task.fileId) && fileFallback === null) {
+        fileFallback = task
       }
       if ((task.state === 'offered' || task.state === 'transferring') && samePeer) {
         if (newest === null || task.createdAt > newest.createdAt) {

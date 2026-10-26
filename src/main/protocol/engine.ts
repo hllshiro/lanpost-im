@@ -97,7 +97,13 @@ export interface ProtocolCallbacks {
   onMessage(peer: ProtocolPeer, text: string, remoteSeq: number, meta: MessageMeta): void
   onMessageStatus(peerKey: string, seq: number, status: MessageStatus): void
   onMessageDeleted?(peerKey: string, seq: number): void
-  onFileOffer?(peer: ProtocolPeer, packetId: number, text: string, attachments: Attachment[]): void
+  onFileOffer?(
+    peer: ProtocolPeer,
+    packetId: number,
+    text: string,
+    attachments: Attachment[],
+    utf8: boolean
+  ): void
   onFileRelease?(peerKey: string, packetId: number, fileIds: number[]): void
   onLog(message: string): void
   onError(error: Error): void
@@ -210,11 +216,12 @@ export class ProtocolEngine {
     Pick<EngineOptions, 'announceBurstMs' | 'offlineTimeoutMs' | 'sweepIntervalMs' | 'random'>
   >
   private readonly peers = new Map<string, ProtocolPeer>()
-  private readonly ansEntryAt = new Map<string, number>()
   private readonly hostListAt = new Map<string, number>()
+  private readonly hostListBatch = new Map<string, number>()
   private readonly recentMessages = new Map<string, number>()
   private socket: Socket | null = null
   private broadcastTargets: string[] = []
+  private localAddresses = new Set<string>(['127.0.0.1', '::1'])
   private seq = Math.floor(Date.now() / 1000) >>> 0
   private announceTimer: ReturnType<typeof setInterval> | null = null
   private sweepTimer: ReturnType<typeof setInterval> | null = null
@@ -260,6 +267,7 @@ export class ProtocolEngine {
     })
     socket.setBroadcast(true)
     this.refreshBroadcastTargets()
+    this.refreshLocalAddresses()
     this.log(`协议引擎启动: ${this.config.account}@${this.config.host} UDP ${this.config.port}`)
     this.announce()
     for (const delay of this.options.announceBurstMs) {
@@ -342,7 +350,7 @@ export class ProtocolEngine {
   sendFileOffer(peerKey: string, text: string, attachments: Attachment[]): number {
     const peer = this.requirePeer(peerKey)
     if (attachments.length === 0) throw new Error('文件邀请必须包含附件')
-    const { body, utf8 } = buildFileBody(text, attachments)
+    const { body, utf8 } = buildFileBody(text, attachments, peer.capUtf8)
     if (body.length > MAX_TEXT_BYTES) throw new Error(`消息与文件名过长: ${body.length} 字节`)
     const cmd = CMD_SENDMSG | OPT_SENDCHECK | OPT_FILEATTACH | (utf8 ? OPT_UTF8 : 0)
     return this.sendTracked(peer, cmd, body)
@@ -412,6 +420,17 @@ export class ProtocolEngine {
 
   private log(message: string): void {
     this.callbacks.onLog(message)
+  }
+
+  private refreshLocalAddresses(): void {
+    const addresses = new Set<string>(['127.0.0.1', '::1'])
+    for (const infos of Object.values(networkInterfaces())) {
+      for (const info of infos ?? []) {
+        if (info.internal) continue
+        addresses.add(info.address)
+      }
+    }
+    this.localAddresses = addresses
   }
 
   private refreshBroadcastTargets(): void {
@@ -552,7 +571,14 @@ export class ProtocolEngine {
       this.log(`忽略无法解析的报文: ${(error as Error).message}`)
       return
     }
-    if (header.user === this.config.account && header.host === this.config.host) return
+    if (
+      header.user === this.config.account &&
+      header.host === this.config.host &&
+      rinfo.port === this.config.port &&
+      this.localAddresses.has(rinfo.address)
+    ) {
+      return
+    }
     const key = `${rinfo.address}|${header.user}`
     const now = Date.now()
     let peer = this.peers.get(key)
@@ -626,10 +652,13 @@ export class ProtocolEngine {
       return
     }
     if (mode === CMD_GETINFO) {
-      this.sendPacket(peer, CMD_SENDINFO, buildInfo('0.1.0'))
+      if ((header.cmd & OPT_AUTORET) === 0) {
+        this.sendPacket(peer, CMD_SENDINFO, buildInfo('0.1.0'))
+      }
       return
     }
     if (mode === CMD_GETABSENCEINFO) {
+      if ((header.cmd & OPT_AUTORET) !== 0) return
       const absent = this.config.status !== 0
       this.sendPacket(
         peer,
@@ -664,7 +693,7 @@ export class ProtocolEngine {
       return
     }
     if (mode === CMD_ANSLIST) {
-      this.mergeHostList(header.payload)
+      this.mergeHostList(peer, header.payload)
       return
     }
     if (mode === CMD_RELEASEFILES) {
@@ -696,10 +725,6 @@ export class ProtocolEngine {
   }
 
   private sendAnsEntry(peer: ProtocolPeer): void {
-    const now = Date.now()
-    const last = this.ansEntryAt.get(peer.key)
-    if (last !== undefined && now - last < 30_000) return
-    this.ansEntryAt.set(peer.key, now)
     const delay = Math.floor(this.options.random() * 200)
     const timer = setTimeout(() => {
       this.burstTimers.delete(timer)
@@ -732,7 +757,7 @@ export class ProtocolEngine {
     if ((header.cmd & OPT_MULTICAST) !== 0) meta.flags = { multicast: true }
     if (isOffer) {
       const offer = parseOffer(trimNul(header.payload), utf8)
-      this.callbacks.onFileOffer?.(clonePeer(peer), header.seq, offer.text, offer.attachments)
+      this.callbacks.onFileOffer?.(clonePeer(peer), header.seq, offer.text, offer.attachments, utf8)
     } else {
       const body = trimNul(header.payload)
       const nul = body.indexOf(0)
@@ -760,7 +785,7 @@ export class ProtocolEngine {
       this.retransmitter.ack(seq)
       this.callbacks.onMessageStatus(peer.key, seq, 'read')
     }
-    if ((header.cmd & OPT_READCHECK) !== 0) {
+    if ((header.cmd & OPT_READCHECK) !== 0 && (header.cmd & OPT_AUTORET) === 0) {
       this.sendPacket(peer, CMD_ANSREADMSG, Buffer.from(`${header.seq}\u0000`, 'utf8'))
     }
   }
@@ -806,7 +831,7 @@ export class ProtocolEngine {
     this.sendPacket(peer, CMD_ANSLIST, buildHostList(next, hosts))
   }
 
-  private mergeHostList(payload: Buffer): void {
+  private mergeHostList(peer: ProtocolPeer, payload: Buffer): void {
     const parsed = parseHostList(payload)
     for (const entry of parsed.hosts) {
       const peer = [...this.peers.values()].find(
@@ -815,7 +840,13 @@ export class ProtocolEngine {
       if (peer === undefined) continue
       if (entry.nickname !== '') peer.name = entry.nickname
       if (entry.group !== '') peer.group = entry.group
-      peer.status = entry.status & OPT_ABSENCE ? 2 : 0
+    }
+    const batch = (this.hostListBatch.get(peer.key) ?? 0) + 1
+    this.hostListBatch.set(peer.key, batch)
+    if (parsed.next > 0 && batch <= 3) {
+      this.sendPacket(peer, CMD_GETLIST, Buffer.from(String(parsed.next)))
+    } else {
+      this.hostListBatch.delete(peer.key)
     }
   }
 

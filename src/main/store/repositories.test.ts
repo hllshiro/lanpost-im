@@ -254,6 +254,8 @@ describe('PeerRepository', () => {
       alias: '老爱'
     })
 
+    peers.markAllOffline()
+    expect(peers.get('10.0.0.1|alice')?.online).toBe(false)
     peers.setOnline('10.0.0.1|alice', false, 60)
     const offline = peers.get('10.0.0.1|alice')
     expect(offline?.online).toBe(false)

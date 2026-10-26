@@ -62,7 +62,9 @@ export function decodePacket(data: Buffer): PacketHeader {
     throw new PacketError('报文头字段不足')
   }
   const version = parts[0].toString('ascii')
-  if (version.split('@')[0] !== '1') {
+  // 允许 1、1@shiyeline、1_lbt80_0#...#9 等历史外层头，但版本号必须是 1。
+  const numeric = version.match(/^(\d+)/)
+  if (numeric === null || numeric[1] !== '1') {
     throw new PacketError(`不支持的报文版本: ${JSON.stringify(version)}`)
   }
   const seq = parseDecimal(parts[1], 'seq', 0xffffffff)

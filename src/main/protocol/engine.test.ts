@@ -234,4 +234,87 @@ describe('engine discovery', () => {
     expect(cCallbacks.messages).not.toContain('only bob')
     expect(bCallbacks.metas.at(-1)?.flags).toEqual({ multicast: true })
   }, 10000)
+
+  it('sees another instance with the same account and host on a different port', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const base = { ...config('same', portA, []), account: 'same', host: 'same-host' }
+    const a = new ProtocolEngine(
+      { ...base, port: portA, seeds: [`127.0.0.1:${portB}`] },
+      callbacks()
+    )
+    const b = new ProtocolEngine(
+      { ...base, port: portB, seeds: [`127.0.0.1:${portA}`] },
+      callbacks()
+    )
+    engines.push(a, b)
+    await a.start()
+    await b.start()
+    await waitFor(() => (a.getPeers().some((item) => item.user === 'same') ? true : null))
+    await waitFor(() => (b.getPeers().some((item) => item.user === 'same') ? true : null))
+  }, 10000)
+
+  it('surfaces DELMSG and RELEASEFILES callbacks', async () => {
+    const port = await freeUdpPort()
+    const deleted: Array<[string, number]> = []
+    const released: Array<[string, number, number[]]> = []
+    const engine = new ProtocolEngine(config('alice', port, []), {
+      ...callbacks(),
+      onMessageDeleted: (peerKey, seq) => deleted.push([peerKey, seq]),
+      onFileRelease: (peerKey, packetId, fileIds) => released.push([peerKey, packetId, fileIds])
+    })
+    engines.push(engine)
+    await engine.start()
+    await new Promise<void>((resolve, reject) => {
+      const raw = createSocket('udp4')
+      raw.once('error', reject)
+      raw.bind(0, '127.0.0.1', () => resolve())
+      raw.send(
+        encodePacket({
+          seq: 1,
+          user: 'peer',
+          host: 'peer-host',
+          cmd: 0x01,
+          payload: encodeEntry({
+            name: 'p',
+            group: '',
+            account: 'peer',
+            host: 'peer-host',
+            version: 'v'
+          })
+        }),
+        port,
+        '127.0.0.1'
+      )
+      setTimeout(() => {
+        raw.send(
+          encodePacket({
+            seq: 2,
+            user: 'peer',
+            host: 'peer-host',
+            cmd: 0x31,
+            payload: Buffer.from('119')
+          }),
+          port,
+          '127.0.0.1'
+        )
+        raw.send(
+          encodePacket({
+            seq: 3,
+            user: 'peer',
+            host: 'peer-host',
+            cmd: 0x61,
+            payload: Buffer.from('2:1f')
+          }),
+          port,
+          '127.0.0.1'
+        )
+        setTimeout(() => raw.close(), 100)
+      }, 100)
+    })
+    await waitFor(() => (deleted.length > 0 && released.length > 0 ? true : null))
+    expect(deleted[0][1]).toBe(119)
+    expect(released[0][1]).toBe(2)
+    expect(released[0][2]).toEqual([0x1f])
+  }, 10000)
 })

@@ -116,10 +116,15 @@ export class AppService {
     })
     this.engine = new ProtocolEngine(engineConfig(settings.get()), {
       onPeers: (peers) => this.handlePeers(peers),
-      onMessage: (peer, text, remoteSeq) =>
-        this.handleIncoming(peer.key, peer.name, text, remoteSeq),
-      onFileOffer: (peer, packetId, text, attachments) =>
-        this.handleFileOffer(peer, packetId, text, attachments),
+      onMessage: (peer, text, remoteSeq, meta) =>
+        this.handleIncoming(peer.key, peer.name, text, remoteSeq, meta),
+      onMessageDeleted: (peerKey, remoteSeq) => this.handleMessageDeleted(peerKey, remoteSeq),
+      onFileOffer: (peer, packetId, text, attachments, utf8) =>
+        this.handleFileOffer(peer, packetId, text, attachments, utf8),
+      onFileRelease: (peerKey, packetId, fileIds) => {
+        void peerKey
+        this.fileManager.markReleased(packetId, fileIds)
+      },
       onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
       onLog: (message) => logStartup('protocol: ' + message),
       onError: (error) => logStartup('protocol error: ' + error.message)
@@ -133,6 +138,7 @@ export class AppService {
 
   async start(): Promise<void> {
     this.importLegacyHistory()
+    this.repos.peers.markAllOffline()
     try {
       await this.fileManager.start()
       this.filesStarted = true
@@ -214,8 +220,15 @@ export class AppService {
     if (peer === undefined || !peer.online) {
       throw new Error('联系人不在线')
     }
-    const seq = this.engine.sendText(peer.key, request.text)
-    const message = this.repos.messages.insertOutgoing(conversation.id, request.text, seq)
+    const meta: MessageMeta = request.sealed === true ? { sealed: true } : {}
+    const seq = this.engine.sendText(peer.key, request.text, { sealed: request.sealed === true })
+    const message = this.repos.messages.insertOutgoing(
+      conversation.id,
+      request.text,
+      seq,
+      'text',
+      meta
+    )
     this.repos.messages.setStatus(message.id, 'sent')
     const updated = this.repos.messages.getMessage(message.id)
     if (updated === null) {
@@ -403,7 +416,7 @@ export class AppService {
         ext: { [EXT_MTIME]: mtime.toString(16) }
       }
       const packetId = this.engine.sendFileOffer(conversation.peerKey, text, [attachment])
-      this.fileManager.addOutgoing({
+      const task = this.fileManager.addOutgoing({
         peerKey: conversation.peerKey,
         peerIp: peer.ip,
         peerPort: peer.port,
@@ -414,8 +427,10 @@ export class AppService {
         packetId,
         path,
         kind: isDir ? 'dir' : 'file',
+        utf8: peer.capUtf8,
         entryCount: measured.entries
       })
+      this.createFileMessage(conversation.peerKey, peer.name, text, packetId, [task], 'out')
       text = ''
     }
   }
@@ -479,7 +494,8 @@ export class AppService {
     peer: ProtocolPeer,
     packetId: number,
     text: string,
-    attachments: Attachment[]
+    attachments: Attachment[],
+    utf8 = false
   ): void {
     if (!this.filesStarted) {
       logStartup('file offer ignored: file service not started')
@@ -493,7 +509,8 @@ export class AppService {
       peerPort: peer.port,
       packetId,
       attachments,
-      kind
+      kind,
+      utf8
     })
     if (kind === 'image') {
       this.createImageMessage(
@@ -523,6 +540,51 @@ export class AppService {
           )
         })
       }
+    }
+  }
+
+  private createFileMessage(
+    peerKey: string,
+    peerName: string,
+    text: string,
+    packetId: number,
+    files: Array<{ id: string; name: string }>,
+    direction: 'in' | 'out'
+  ): void {
+    const peer = this.repos.peers.get(peerKey)
+    const conversation = this.repos.conversations.ensureDirect(
+      peerKey,
+      peer?.alias || peer?.name || peerName || peerKey
+    )
+    const body = text.trim() !== '' ? text : (files[0]?.name ?? '文件')
+    const meta: MessageMeta = { files: files.map((file) => file.id) }
+    const message =
+      direction === 'in'
+        ? this.repos.messages.insertIncoming(conversation.id, body, packetId, 'file', meta)
+        : this.repos.messages.insertOutgoing(conversation.id, body, packetId, 'file', meta)
+    if (direction === 'out') this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.conversations.touch(conversation.id, message.createdAt, direction === 'in' ? 1 : 0)
+    for (const file of files) {
+      this.fileLinks.set(file.id, { conversationId: conversation.id, messageId: message.id })
+    }
+    this.emit({ type: 'message', message })
+    this.emitConversation(conversation.id)
+    if (direction === 'in') {
+      this.notifications.notify({
+        conversationId: conversation.id,
+        title: peer?.alias || peer?.name || conversation.title,
+        body: `收到文件：${body}`,
+        kind: 'file',
+        muted: conversation.muted,
+        unread: this.unreadTotal()
+      })
+    }
+  }
+
+  private handleMessageDeleted(peerKey: string, remoteSeq: number): void {
+    const conversationId = directConversationId(peerKey)
+    if (this.repos.messages.deleteByRemoteSeq(conversationId, remoteSeq)) {
+      this.emit({ type: 'message-deleted', conversationId, remoteSeq })
     }
   }
 
@@ -608,6 +670,7 @@ export class AppService {
         peerIp: peer.ip,
         peerPort: peer.port,
         kind: 'image',
+        utf8: peer.capUtf8,
         name: attachment.name,
         size: attachment.size,
         mtime: attachment.mtime,
@@ -627,6 +690,15 @@ export class AppService {
       return
     }
     let link = this.fileLinks.get(file.id)
+    if (
+      link === undefined &&
+      (file.state === 'waiting' || file.state === 'offered') &&
+      file.kind !== 'image'
+    ) {
+      this.repos.files.upsert(file)
+      this.emit({ type: 'file', file })
+      return
+    }
     if (link === undefined && file.kind === 'image') {
       this.repos.files.upsert(file)
       this.emit({ type: 'file', file })
@@ -685,8 +757,8 @@ export class AppService {
   }
 
   private nextFileId(): number {
-    this.fileSeq += 1
-    return Date.now() * 1000 + (this.fileSeq % 1000)
+    this.fileSeq = (this.fileSeq + 1) >>> 0
+    return (Date.now() ^ this.fileSeq) >>> 0
   }
 
   private handlePeers(peers: ReturnType<ProtocolEngine['getPeers']>): void {
@@ -708,9 +780,21 @@ export class AppService {
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
   }
 
-  private handleIncoming(peerKey: string, peerName: string, text: string, remoteSeq: number): void {
+  private handleIncoming(
+    peerKey: string,
+    peerName: string,
+    text: string,
+    remoteSeq: number,
+    meta: MessageMeta = {}
+  ): void {
     const conversation = this.repos.conversations.ensureDirect(peerKey, peerName || peerKey)
-    const message = this.repos.messages.insertIncoming(conversation.id, text, remoteSeq)
+    const message = this.repos.messages.insertIncoming(
+      conversation.id,
+      text,
+      remoteSeq,
+      'text',
+      meta
+    )
     this.repos.conversations.touch(conversation.id, message.createdAt, 1)
     this.emit({ type: 'message', message })
     this.emitConversation(conversation.id)
@@ -719,7 +803,7 @@ export class AppService {
       this.notifications.notify({
         conversationId: current.id,
         title: peerName || current.title,
-        body: text,
+        body: meta.sealed === true && meta.opened !== true ? '收到一条密封消息' : text,
         kind: 'message',
         muted: current.muted,
         unread: this.unreadTotal()

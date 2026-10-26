@@ -102,3 +102,11 @@ describe('parseDirHeader', () => {
     expect(parseDirHeader(Buffer.from('000c:a:1:zz:'))).toBeNull()
   })
 })
+
+describe('directory header encoding', () => {
+  it('round-trips GBK names when utf8 is disabled', () => {
+    const header = encodeDirHeader({ name: '中文目录', size: 0, attr: 2 }, false)
+    const parsed = parseDirHeader(header, false)
+    expect(parsed?.name).toBe('中文目录')
+  })
+})
