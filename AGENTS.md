@@ -48,3 +48,6 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - 设计基线：`docs/superpowers/specs/2026-10-23-electron-client-design.md`。
 - 抓包与协议调试记录：`docs/protocol-debugging.md`。
+- 内网通兼容矩阵：`docs/nwt-compatibility.md`。
+- 文件传输状态机与故障排查：`docs/file-transfer.md`。
+- 已知限制：`docs/known-limits.md`。
