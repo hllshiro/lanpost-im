@@ -6,11 +6,19 @@ import {
   CMD_ABSENCE,
   CMD_ANSENTRY,
   CMD_ANSREADMSG,
+  CMD_ANSLIST,
   CMD_DELMSG,
   CMD_ENTRY,
   CMD_EXIT,
+  CMD_GETABSENCEINFO,
+  CMD_GETINFO,
+  CMD_GETLIST,
+  CMD_ISGETLIST,
+  CMD_OKGETLIST,
   CMD_READMSG,
   CMD_RECVMSG,
+  CMD_SENDABSENCEINFO,
+  CMD_SENDINFO,
   CMD_SENDMSG,
   OPT_ABSENCE,
   OPT_AUTORET,
@@ -25,6 +33,8 @@ import {
   OPT_SENDCHECK,
   OPT_UTF8
 } from './commands'
+import { buildAbsenceInfo, buildInfo, parseInfo } from './info'
+import { buildHostList, parseHostList, type HostListEntry } from './host-list'
 import { Retransmitter } from './retransmit'
 import { decodeMessageText, encodeMessageText } from './text'
 import { encodeEntry, parseEntry } from './entry'
@@ -199,6 +209,7 @@ export class ProtocolEngine {
   >
   private readonly peers = new Map<string, ProtocolPeer>()
   private readonly ansEntryAt = new Map<string, number>()
+  private readonly hostListAt = new Map<string, number>()
   private readonly recentMessages = new Map<string, number>()
   private socket: Socket | null = null
   private broadcastTargets: string[] = []
@@ -583,6 +594,48 @@ export class ProtocolEngine {
       if (seq !== null) this.callbacks.onMessageDeleted?.(peer.key, seq)
       return
     }
+    if (mode === CMD_GETINFO) {
+      this.sendPacket(peer, CMD_SENDINFO, buildInfo('0.1.0'))
+      return
+    }
+    if (mode === CMD_GETABSENCEINFO) {
+      const absent = this.config.status !== 0
+      this.sendPacket(
+        peer,
+        CMD_SENDABSENCEINFO,
+        buildAbsenceInfo(absent, this.config.status === 1 ? 'Busy' : 'Away')
+      )
+      return
+    }
+    if (mode === CMD_SENDINFO) {
+      peer.versionInfo = parseInfo(header.payload)
+      return
+    }
+    if (mode === CMD_SENDABSENCEINFO) {
+      peer.absenceInfo = parseInfo(header.payload)
+      return
+    }
+    if (mode === CMD_ISGETLIST) {
+      if ((header.cmd & OPT_AUTORET) === 0 && this.getPeers().length > 0) {
+        this.sendPacket(peer, CMD_OKGETLIST, Buffer.alloc(0))
+      }
+      return
+    }
+    if (mode === CMD_OKGETLIST) {
+      const last = this.hostListAt.get(peer.key) ?? 0
+      if (Date.now() - last < 5000) return
+      this.hostListAt.set(peer.key, Date.now())
+      this.sendPacket(peer, CMD_GETLIST, Buffer.from('0'))
+      return
+    }
+    if (mode === CMD_GETLIST) {
+      this.sendHostList(peer, header.payload)
+      return
+    }
+    if (mode === CMD_ANSLIST) {
+      this.mergeHostList(header.payload)
+      return
+    }
     this.log(`忽略未知命令: ${cmd}`)
   }
 
@@ -675,6 +728,53 @@ export class ProtocolEngine {
     if (!/^\d+$/.test(text)) return null
     const value = Number(text)
     return Number.isSafeInteger(value) && value <= 0xffffffff ? value : null
+  }
+
+  requestInfo(peerKey: string): void {
+    const peer = this.requirePeer(peerKey)
+    this.sendPacket(peer, CMD_GETINFO, Buffer.alloc(0))
+    this.sendPacket(peer, CMD_GETABSENCEINFO, Buffer.alloc(0))
+  }
+
+  requestHostList(): void {
+    if (this.socket === null) return
+    this.broadcast(CMD_ISGETLIST, Buffer.alloc(0))
+  }
+
+  getHostList(): HostListEntry[] {
+    return this.getPeers()
+      .filter((peer) => peer.online)
+      .map((peer) => ({
+        user: peer.user,
+        host: peer.host,
+        status: peer.status,
+        addr: peer.ip,
+        port: peer.port,
+        nickname: peer.name,
+        group: peer.group
+      }))
+  }
+
+  private sendHostList(peer: ProtocolPeer, payload: Buffer): void {
+    const startText = trimNul(payload).toString('ascii').trim()
+    const start = /^\d+$/.test(startText) ? Number(startText) : 0
+    const all = this.getHostList()
+    const hosts = all.slice(start, start + 50)
+    const next = start + hosts.length < all.length ? start + hosts.length : 0
+    this.sendPacket(peer, CMD_ANSLIST, buildHostList(next, hosts))
+  }
+
+  private mergeHostList(payload: Buffer): void {
+    const parsed = parseHostList(payload)
+    for (const entry of parsed.hosts) {
+      const peer = [...this.peers.values()].find(
+        (item) => item.ip === entry.addr && item.user === entry.user
+      )
+      if (peer === undefined) continue
+      if (entry.nickname !== '') peer.name = entry.nickname
+      if (entry.group !== '') peer.group = entry.group
+      peer.status = entry.status & OPT_ABSENCE ? 2 : 0
+    }
   }
 
   private sweep(): void {

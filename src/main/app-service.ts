@@ -8,6 +8,7 @@ import type {
   FileTaskInfo,
   MessageMeta,
   MessagesPage,
+  PeerInfo,
   SendTextResult
 } from '../shared/domain'
 import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
@@ -235,6 +236,15 @@ export class AppService {
   refreshPeers(): void {
     this.engine.refresh()
     this.handlePeers(this.engine.getPeers())
+  }
+
+  async requestPeerInfo(peerKey: string): Promise<PeerInfo> {
+    this.engine.requestInfo(peerKey)
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    const peer = this.repos.peers.get(peerKey)
+    if (peer === null) throw new Error('联系人不存在')
+    this.emit({ type: 'peer', peer })
+    return peer
   }
 
   setAlias(peerKey: string, alias: string): void {

@@ -1,4 +1,4 @@
-import type { AppEvent, AppSnapshot, MessagesPage, SendTextResult } from './domain'
+import type { AppEvent, AppSnapshot, MessagesPage, PeerInfo, SendTextResult } from './domain'
 import type { Settings, SettingsPatch } from './settings'
 
 export const IPC = {
@@ -21,6 +21,7 @@ export const IPC = {
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
+  peerInfo: 'peer:info',
   peersRefresh: 'peers:refresh',
   filesList: 'files:list',
   fileAccept: 'files:accept',
@@ -102,6 +103,7 @@ export type Api = {
   peers: {
     setAlias(peerKey: string, alias: string): Promise<void>
     refresh(): Promise<void>
+    requestInfo(peerKey: string): Promise<PeerInfo>
   }
   files: {
     accept(id: string): Promise<void>

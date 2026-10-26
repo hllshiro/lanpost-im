@@ -48,7 +48,8 @@ const api: Api = {
   },
   peers: {
     setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias),
-    refresh: () => ipcRenderer.invoke(IPC.peersRefresh)
+    refresh: () => ipcRenderer.invoke(IPC.peersRefresh),
+    requestInfo: (peerKey) => ipcRenderer.invoke(IPC.peerInfo, peerKey)
   },
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),

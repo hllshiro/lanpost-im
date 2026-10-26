@@ -10,9 +10,12 @@ import type {
   PeerInfo
 } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
+import { useAppStore } from '../stores/app'
 import { initialOf } from '../utils/format'
 import Composer from './Composer.vue'
 import MessageList from './MessageList.vue'
+
+const store = useAppStore()
 
 const props = defineProps<{
   conversation: ConversationInfo | null
@@ -39,6 +42,8 @@ const infoOpen = ref(false)
 const infoAnchor = ref<HTMLElement | null>(null)
 const copied = ref(false)
 const copyError = ref('')
+const infoBusy = ref(false)
+const infoError = ref('')
 let copyTimer: number | undefined
 
 const keyword = computed(() => search.value.trim().toLowerCase())
@@ -99,6 +104,19 @@ function handleDraft(value: string): void {
 
 function handleSend(text: string, sealed: boolean): void {
   emit('send', text, sealed)
+}
+
+async function refreshInfo(): Promise<void> {
+  if (!props.peer || infoBusy.value) return
+  infoBusy.value = true
+  infoError.value = ''
+  try {
+    await store.requestPeerInfo(props.peer.key)
+  } catch (reason) {
+    infoError.value = errorMessage(reason)
+  } finally {
+    infoBusy.value = false
+  }
 }
 
 async function copyAddress(): Promise<void> {
@@ -197,12 +215,41 @@ onBeforeUnmount(() => {
                   <dt>分组</dt>
                   <dd>{{ peer.group || '未填写' }}</dd>
                 </div>
+                <div v-if="peer" class="info-row">
+                  <dt>版本</dt>
+                  <dd class="info-actions">
+                    <span>{{ peer.versionInfo || '未知' }}</span>
+                    <button class="copy" :disabled="infoBusy" @click="refreshInfo">
+                      {{ infoBusy ? '查询中' : '刷新' }}
+                    </button>
+                  </dd>
+                </div>
+                <div v-if="peer && peer.absenceInfo" class="info-row">
+                  <dt>离开信息</dt>
+                  <dd>{{ peer.absenceInfo }}</dd>
+                </div>
+                <div v-if="peer" class="info-row">
+                  <dt>能力</dt>
+                  <dd>
+                    {{
+                      [
+                        peer.capUtf8 ? 'UTF-8' : '',
+                        peer.capFile ? '文件' : '',
+                        peer.capClipboard ? '图片' : '',
+                        peer.dialup ? '拨号' : ''
+                      ]
+                        .filter(Boolean)
+                        .join(' · ') || '未知'
+                    }}
+                  </dd>
+                </div>
                 <div class="info-row">
                   <dt>本会话文件</dt>
                   <dd>{{ files.length }} 个</dd>
                 </div>
               </dl>
               <p v-if="copyError" class="copy-error">{{ copyError }}</p>
+              <p v-if="infoError" class="copy-error">{{ infoError }}</p>
             </div>
           </div>
         </div>
@@ -475,6 +522,12 @@ h2 {
 
 .copy:hover {
   text-decoration: underline;
+}
+
+.info-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .sign {

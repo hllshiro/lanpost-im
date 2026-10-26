@@ -20,6 +20,7 @@ export function registerAppIpc(service: AppService): void {
     service.setAlias(peerKey, alias)
   )
   ipcMain.handle(IPC.peersRefresh, () => service.refreshPeers())
+  ipcMain.handle(IPC.peerInfo, (_event, peerKey: string) => service.requestPeerInfo(peerKey))
   ipcMain.handle(IPC.filesList, (_event, conversationId?: string) =>
     service.listFiles(conversationId)
   )

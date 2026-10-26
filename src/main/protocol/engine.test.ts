@@ -185,4 +185,21 @@ describe('engine discovery', () => {
         : null
     )
   }, 10000)
+
+  it('asks a peer for its version information', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const a = new ProtocolEngine(config('alice', portA, [`127.0.0.1:${portB}`]), callbacks())
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), callbacks())
+    engines.push(a, b)
+    await a.start()
+    await b.start()
+    const peer = await waitFor(() => a.getPeers().find((item) => item.user === 'bob') ?? null)
+    a.requestInfo(peer.key)
+    await waitFor(() => {
+      const updated = a.getPeers().find((item) => item.user === 'bob')
+      return updated && updated.versionInfo !== '' ? true : null
+    })
+    expect(a.getPeers().find((item) => item.user === 'bob')?.versionInfo).toContain('lanpost-im')
+  }, 10000)
 })
