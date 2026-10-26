@@ -14,9 +14,9 @@ add_ufw() {
   command -v ufw >/dev/null 2>&1 || return 0
   systemctl is-active --quiet ufw 2>/dev/null || return 0
   for proto in tcp udp; do
-    if ! ufw status 2>/dev/null | grep -q "^${PORT}/${proto}"; then
-      if ufw allow "${PORT}/${proto}" >/dev/null 2>&1; then
-        record "ufw ${proto} ${PORT}"
+    if ! ufw status 2>/dev/null | grep -q "^$PORT/$proto"; then
+      if ufw allow "$PORT/$proto" >/dev/null 2>&1; then
+        record "ufw $proto $PORT"
       fi
     fi
   done
@@ -27,9 +27,9 @@ add_firewalld() {
   firewall-cmd --state >/dev/null 2>&1 || return 0
   changed=0
   for proto in tcp udp; do
-    if ! firewall-cmd --permanent --query-port="${PORT}/${proto}" >/dev/null 2>&1; then
-      if firewall-cmd --permanent --add-port="${PORT}/${proto}" >/dev/null 2>&1; then
-        record "firewalld ${proto} ${PORT}"
+    if ! firewall-cmd --permanent --query-port="$PORT/$proto" >/dev/null 2>&1; then
+      if firewall-cmd --permanent --add-port="$PORT/$proto" >/dev/null 2>&1; then
+        record "firewalld $proto $PORT"
         changed=1
       fi
     fi

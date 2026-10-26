@@ -12,12 +12,12 @@ remove_rules() {
     case "$backend" in
       ufw)
         if command -v ufw >/dev/null 2>&1; then
-          ufw delete allow "${port}/${proto}" >/dev/null 2>&1 || true
+          ufw delete allow "$port/$proto" >/dev/null 2>&1 || true
         fi
         ;;
       firewalld)
         if command -v firewall-cmd >/dev/null 2>&1; then
-          firewall-cmd --permanent --remove-port="${port}/${proto}" >/dev/null 2>&1 || true
+          firewall-cmd --permanent --remove-port="$port/$proto" >/dev/null 2>&1 || true
           reload_firewalld=1
         fi
         ;;
