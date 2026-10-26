@@ -37,4 +37,12 @@ describe('ipc handlers', () => {
     const next = handlers.settingsUpdate({ files: { autoAccept: true } })
     expect(next.files.autoAccept).toBe(true)
   })
+
+  it('returns defaults without exposing the internal settings object', () => {
+    const handlers = context()
+    const defaults = handlers.settingsDefaults()
+    expect(defaults.version).toBe(1)
+    defaults.identity.displayName = '改过的默认值'
+    expect(handlers.settingsDefaults().identity.displayName).not.toBe('改过的默认值')
+  })
 })

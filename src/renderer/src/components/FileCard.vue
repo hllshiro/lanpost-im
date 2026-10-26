@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { File, FileArchive, FileText, Image } from '@lucide/vue'
 import type { FileTaskInfo } from '../../../shared/domain'
+import { errorMessage } from '../utils/errors'
 import { formatSize, formatSpeed } from '../utils/format'
 
 const props = defineProps<{ file: FileTaskInfo }>()
@@ -94,7 +95,7 @@ async function run(action: Action, task: () => Promise<void>): Promise<void> {
   try {
     await task()
   } catch (reason) {
-    error.value = reason instanceof Error ? reason.message : String(reason)
+    error.value = errorMessage(reason)
   } finally {
     busy.value = ''
   }

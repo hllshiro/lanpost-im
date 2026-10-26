@@ -1,14 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type Api, type NotifyPayload } from '../shared/ipc'
 import type { AppEvent } from '../shared/domain'
-import type { Settings, SettingsPatch } from '../shared/settings'
 
-const api: Api & {
-  settings: {
-    get(): Promise<Settings>
-    update(patch: SettingsPatch): Promise<Settings>
-  }
-} = {
+const api: Api = {
   app: {
     info: () => ipcRenderer.invoke(IPC.appInfo)
   },
@@ -19,6 +13,9 @@ const api: Api & {
       ipcRenderer.on(IPC.event, handler)
       return () => ipcRenderer.removeListener(IPC.event, handler)
     }
+  },
+  conversations: {
+    pin: (conversationId, pinned) => ipcRenderer.invoke(IPC.conversationPin, conversationId, pinned)
   },
   ui: {
     onOpenSettings: (listener: () => void) => {
@@ -59,12 +56,12 @@ const api: Api & {
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pickAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
-    sendPaths: (conversationId, paths) =>
-      ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
+    sendPaths: (conversationId, paths) => ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
-    update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch)
+    update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
+    defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
   }
 }
 

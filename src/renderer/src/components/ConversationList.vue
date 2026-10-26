@@ -1,31 +1,89 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { MessageSquare, RefreshCw, Search, X } from '@lucide/vue'
-import type { ConversationInfo, MessageInfo } from '../../../shared/domain'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { useEventListener } from '@vueuse/core'
+import { MessageSquare, Pin, RefreshCw, Search, X } from '@lucide/vue'
+import type { ConversationInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
 const props = defineProps<{
   conversations: ConversationInfo[]
+  peers: PeerInfo[]
   previews: Record<string, MessageInfo>
   selectedId: string | null
   loading: boolean
   refreshing: boolean
 }>()
 
-const emit = defineEmits<{ select: [id: string]; refresh: [] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  refresh: []
+  pin: [id: string, pinned: boolean]
+}>()
+
+const MENU_WIDTH = 148
+const MENU_HEIGHT = 38
+const MENU_MARGIN = 8
 
 const query = ref('')
-const filter = ref<'all' | 'unread'>('all')
+const menu = ref<{ x: number; y: number; conversation: ConversationInfo } | null>(null)
 
 const keyword = computed(() => query.value.trim().toLowerCase())
-const unreadCount = computed(() => props.conversations.filter((item) => item.unread > 0).length)
+
+const peerByKey = computed(() => {
+  const map = new Map<string, PeerInfo>()
+  for (const peer of props.peers) {
+    map.set(peer.key, peer)
+  }
+  return map
+})
+
+function peerOf(conversation: ConversationInfo): PeerInfo | null {
+  if (conversation.peerKey === null) return null
+  return peerByKey.value.get(conversation.peerKey) ?? null
+}
+
+function presenceClass(conversation: ConversationInfo): string {
+  const peer = peerOf(conversation)
+  if (peer === null || !peer.online) return 'offline'
+  if (peer.status === 1) return 'busy'
+  if (peer.status === 2) return 'away'
+  return 'online'
+}
+
+function presenceText(conversation: ConversationInfo): string {
+  const peer = peerOf(conversation)
+  if (peer === null || !peer.online) return '离线'
+  if (peer.status === 1) return '忙碌'
+  if (peer.status === 2) return '离开'
+  return '在线'
+}
 
 const visible = computed(() => {
-  const list = props.conversations.filter((conversation) => {
-    if (filter.value === 'unread' && conversation.unread === 0) return false
+  return props.conversations.filter((conversation) => {
     if (!keyword.value) return true
     if (conversation.title.toLowerCase().includes(keyword.value)) return true
     return previewOf(conversation).toLowerCase().includes(keyword.value)
+  })
+})
+
+const pinnedItems = computed(() => visible.value.filter((conversation) => conversation.pinned))
+const otherItems = computed(() => visible.value.filter((conversation) => !conversation.pinned))
+
+const sections = computed(() => {
+  const list: Array<{
+    key: 'pinned' | 'others'
+    label: string
+    items: ConversationInfo[]
+    showHeader: boolean
+  }> = []
+  if (pinnedItems.value.length > 0) {
+    list.push({ key: 'pinned', label: '置顶', items: pinnedItems.value, showHeader: true })
+  }
+  list.push({
+    key: 'others',
+    label: '其他',
+    items: otherItems.value,
+    showHeader: pinnedItems.value.length > 0 && otherItems.value.length > 0
   })
   return list
 })
@@ -33,9 +91,37 @@ const visible = computed(() => {
 const emptyText = computed(() => {
   if (props.loading && props.conversations.length === 0) return '正在加载会话…'
   if (props.conversations.length === 0) return '暂无会话'
-  if (filter.value === 'unread') return '没有未读会话'
   return '没有匹配的会话'
 })
+
+function openMenu(event: MouseEvent, conversation: ConversationInfo): void {
+  event.preventDefault()
+  menu.value = {
+    x: Math.min(event.clientX, window.innerWidth - MENU_WIDTH - MENU_MARGIN),
+    y: Math.min(event.clientY, window.innerHeight - MENU_HEIGHT - MENU_MARGIN),
+    conversation
+  }
+}
+
+function closeMenu(): void {
+  menu.value = null
+}
+
+function togglePin(): void {
+  const current = menu.value
+  if (current === null) return
+  emit('pin', current.conversation.id, !current.conversation.pinned)
+  closeMenu()
+}
+
+useEventListener(window, 'click', closeMenu)
+useEventListener(window, 'scroll', closeMenu, true)
+useEventListener(window, 'resize', closeMenu)
+useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+  if (event.key === 'Escape') closeMenu()
+})
+
+onBeforeUnmount(closeMenu)
 
 const emptyHint = computed(() => {
   if (props.conversations.length === 0 && !props.loading) return '收到新消息后会显示在这里'
@@ -84,60 +170,73 @@ function badgeOf(count: number): string {
           <RefreshCw :size="15" :stroke-width="1.9" />
         </button>
       </div>
-      <div class="tabs" role="tablist">
-        <button
-          class="tab"
-          :class="{ active: filter === 'all' }"
-          role="tab"
-          :aria-selected="filter === 'all'"
-          @click="filter = 'all'"
-        >
-          全部
-        </button>
-        <button
-          class="tab"
-          :class="{ active: filter === 'unread' }"
-          role="tab"
-          :aria-selected="filter === 'unread'"
-          @click="filter = 'unread'"
-        >
-          未读<span v-if="unreadCount > 0" class="tab-count">{{ unreadCount }}</span>
-        </button>
-      </div>
     </header>
 
     <div class="rows" role="listbox" aria-label="会话">
-      <button
-        v-for="conversation in visible"
-        :key="conversation.id"
-        class="row"
-        :class="{ selected: conversation.id === selectedId }"
-        role="option"
-        :aria-selected="conversation.id === selectedId"
-        @click="emit('select', conversation.id)"
-      >
-        <span class="avatar">{{ initialOf(conversation.title) }}</span>
-        <span class="body">
-          <span class="line">
-            <span class="title">{{ conversation.title }}</span>
-            <span class="time">{{ formatConversationTime(conversation.lastMessageAt) }}</span>
+      <template v-for="section in sections" :key="section.key">
+        <div v-if="section.showHeader" class="section-title">{{ section.label }}</div>
+        <button
+          v-for="conversation in section.items"
+          :key="conversation.id"
+          class="row"
+          :class="{ selected: conversation.id === selectedId }"
+          role="option"
+          :aria-selected="conversation.id === selectedId"
+          @click="emit('select', conversation.id)"
+          @contextmenu.prevent="openMenu($event, conversation)"
+        >
+          <span class="avatar-wrap">
+            <span class="avatar">{{ initialOf(conversation.title) }}</span>
+            <span
+              v-if="peerOf(conversation)"
+              class="presence-dot"
+              :class="presenceClass(conversation)"
+              :title="presenceText(conversation)"
+            />
           </span>
-          <span class="line">
-            <span class="preview" :class="{ draft: conversation.draft.trim() }">
-              {{ previewOf(conversation) }}
+          <span class="body">
+            <span class="line">
+              <span class="title">{{ conversation.title }}</span>
+              <span
+                v-if="peerOf(conversation)"
+                class="presence-text"
+                :class="presenceClass(conversation)"
+              >
+                {{ presenceText(conversation) }}
+              </span>
+              <Pin v-if="conversation.pinned" class="pin" :size="11" :stroke-width="2" />
+              <span class="time">{{ formatConversationTime(conversation.lastMessageAt) }}</span>
             </span>
-            <span v-if="conversation.unread > 0" class="badge">
-              {{ badgeOf(conversation.unread) }}
+            <span class="line">
+              <span class="preview" :class="{ draft: conversation.draft.trim() }">
+                {{ previewOf(conversation) }}
+              </span>
+              <span v-if="conversation.unread > 0" class="badge">
+                {{ badgeOf(conversation.unread) }}
+              </span>
             </span>
           </span>
-        </span>
-      </button>
+        </button>
+      </template>
 
       <div v-if="visible.length === 0" class="empty">
         <MessageSquare :size="26" :stroke-width="1.4" />
         <p>{{ emptyText }}</p>
         <small v-if="emptyHint">{{ emptyHint }}</small>
       </div>
+    </div>
+
+    <div
+      v-if="menu"
+      class="context-menu"
+      :style="{ left: `${menu.x}px`, top: `${menu.y}px`, width: `${MENU_WIDTH}px` }"
+      role="menu"
+      @click.stop
+    >
+      <button class="context-item" role="menuitem" @click="togglePin">
+        <Pin :size="13" :stroke-width="1.9" />
+        <span>{{ menu.conversation.pinned ? '取消置顶' : '置顶会话' }}</span>
+      </button>
     </div>
   </section>
 </template>
@@ -236,30 +335,12 @@ function badgeOf(count: number): string {
   background: #adadad;
 }
 
-.tabs {
-  display: flex;
-  gap: 14px;
-  padding: 8px 2px 2px;
-}
-
-.tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 2px 0;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-}
-
-.tab.active {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.tab-count {
-  font-size: 10px;
+.section-title {
+  padding: 8px 12px 4px;
+  font-size: 11px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--text-muted);
+  letter-spacing: 0.02em;
 }
 
 .rows {
@@ -289,8 +370,14 @@ function badgeOf(count: number): string {
   background: var(--selected);
 }
 
-.avatar {
+.avatar-wrap {
+  position: relative;
   flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+}
+
+.avatar {
   display: grid;
   place-items: center;
   width: 40px;
@@ -300,6 +387,55 @@ function badgeOf(count: number): string {
   color: #4c5a68;
   font-size: 15px;
   font-weight: 500;
+}
+
+.presence-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--list-bg);
+  border-radius: 50%;
+  background: #b8b8b8;
+}
+
+.presence-dot.online {
+  background: var(--accent);
+}
+
+.presence-dot.busy {
+  background: var(--warning);
+}
+
+.presence-dot.away {
+  background: #d9c04a;
+}
+
+.presence-dot.offline {
+  background: #b8b8b8;
+}
+
+.presence-text {
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.presence-text.online {
+  color: var(--accent);
+}
+
+.presence-text.busy {
+  color: var(--warning);
+}
+
+.presence-text.away {
+  color: #b39a16;
+}
+
+.presence-text.offline {
+  color: var(--text-muted);
 }
 
 .row.selected .avatar {
@@ -329,6 +465,11 @@ function badgeOf(count: number): string {
   white-space: nowrap;
   font-size: 14px;
   color: var(--text);
+}
+
+.pin {
+  flex: 0 0 auto;
+  color: var(--text-muted);
 }
 
 .time {
@@ -362,6 +503,33 @@ function badgeOf(count: number): string {
   font-size: 10.5px;
   line-height: 17px;
   text-align: center;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 40;
+  padding: 4px;
+  border: 1px solid #e2e2e2;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14);
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  color: var(--text);
+  text-align: left;
+}
+
+.context-item:hover {
+  background: var(--hover);
 }
 
 .empty {

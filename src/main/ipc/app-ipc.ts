@@ -12,11 +12,16 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.conversationDraft, (_event, conversationId: string, draft: string) =>
     service.saveDraft(conversationId, draft)
   )
+  ipcMain.handle(IPC.conversationPin, (_event, conversationId: string, pinned: boolean) =>
+    service.setPinned(conversationId, pinned)
+  )
   ipcMain.handle(IPC.peerAlias, (_event, peerKey: string, alias: string) =>
     service.setAlias(peerKey, alias)
   )
   ipcMain.handle(IPC.peersRefresh, () => service.refreshPeers())
-  ipcMain.handle(IPC.filesList, (_event, conversationId?: string) => service.listFiles(conversationId))
+  ipcMain.handle(IPC.filesList, (_event, conversationId?: string) =>
+    service.listFiles(conversationId)
+  )
   ipcMain.handle(IPC.fileAccept, (_event, id: string) => service.acceptFile(id))
   ipcMain.handle(IPC.fileReject, (_event, id: string) => service.rejectFile(id))
   ipcMain.handle(IPC.fileOpen, (_event, id: string) => service.openFile(id))
@@ -25,9 +30,8 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.filePick, (_event, conversationId: string) =>
     service.pickAndSend(conversationId)
   )
-  ipcMain.handle(
-    IPC.fileSend,
-    (_event, conversationId: string, paths: string[]) => service.sendFiles(conversationId, paths)
+  ipcMain.handle(IPC.fileSend, (_event, conversationId: string, paths: string[]) =>
+    service.sendFiles(conversationId, paths)
   )
   ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
     service.setActiveConversation(conversationId)

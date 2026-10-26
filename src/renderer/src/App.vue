@@ -158,12 +158,14 @@ onBeforeUnmount(() => {
         <template v-if="view === 'chat'">
           <ConversationList
             :conversations="store.sortedConversations"
+            :peers="store.peers"
             :previews="store.previews"
             :selected-id="store.currentConversationId"
             :loading="store.loading"
             :refreshing="store.refreshing"
             @refresh="store.refreshPeers"
             @select="store.selectConversation($event)"
+            @pin="store.setPinned"
           />
 
           <ChatPane
