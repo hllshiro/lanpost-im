@@ -32,7 +32,8 @@ function engineConfig(settings: Settings): ConstructorParameters<typeof Protocol
     bindAddr: settings.network.bindAddr,
     subnets: settings.network.subnets,
     seeds: settings.network.seeds,
-    broadcastInterval: settings.network.broadcastInterval
+    broadcastInterval: settings.network.broadcastInterval,
+    dialup: settings.network.dialup
   }
 }
 
@@ -362,7 +363,8 @@ export class AppService {
       status: settings.identity.status,
       subnets: settings.network.subnets,
       seeds: settings.network.seeds,
-      broadcastInterval: settings.network.broadcastInterval
+      broadcastInterval: settings.network.broadcastInterval,
+      dialup: settings.network.dialup
     })
     this.engine.updateStatus(settings.identity.status)
   }

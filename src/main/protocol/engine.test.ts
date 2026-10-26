@@ -1,5 +1,7 @@
 import { createSocket } from 'node:dgram'
 import { afterEach, describe, expect, it } from 'vitest'
+import { encodeEntry } from './entry'
+import { encodePacket } from './packet'
 import {
   ProtocolEngine,
   type ProtocolCallbacks,
@@ -92,5 +94,60 @@ describe('engine discovery', () => {
     const peer = await waitFor(() => a.getPeers().find((item) => item.user === 'bob') ?? null)
     a.sendText(peer.key, 'hello')
     await waitFor(() => (bCallbacks.messages.includes('hello') ? true : null))
+  }, 10000)
+
+  it('keeps away status across periodic announces', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const a = new ProtocolEngine(
+      { ...config('alice', portA, [`127.0.0.1:${portB}`]), broadcastInterval: 0.3 },
+      callbacks()
+    )
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), callbacks())
+    engines.push(a, b)
+    await a.start()
+    await b.start()
+    await waitFor(() => (b.getPeers().some((item) => item.user === 'alice') ? true : null))
+    a.updateStatus(2)
+    await waitFor(() =>
+      b.getPeers().find((item) => item.user === 'alice')?.status === 2 ? true : null
+    )
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    expect(b.getPeers().find((item) => item.user === 'alice')?.status).toBe(2)
+  }, 10000)
+
+  it('marks a silent peer offline after the timeout', async () => {
+    const port = await freeUdpPort()
+    const engine = new ProtocolEngine(config('alice', port, []), callbacks(), {
+      offlineTimeoutMs: 300,
+      sweepIntervalMs: 50,
+      announceBurstMs: []
+    })
+    const raw = createSocket('udp4')
+    engines.push(engine)
+    await new Promise<void>((resolve, reject) => {
+      raw.once('error', reject)
+      raw.bind(0, '127.0.0.1', () => resolve())
+    })
+    await engine.start()
+    const payload = encodeEntry({
+      name: '沉默用户',
+      group: '',
+      account: 'silent',
+      host: 'silent-host',
+      version: 'v'
+    })
+    raw.send(
+      encodePacket({ seq: 1, user: 'silent', host: 'silent-host', cmd: 0x01, payload }),
+      port,
+      '127.0.0.1'
+    )
+    await waitFor(() => engine.getPeers().find((item) => item.user === 'silent') ?? null)
+    await waitFor(
+      () =>
+        engine.getPeers().find((item) => item.user === 'silent')?.online === false ? true : null,
+      2000
+    )
+    raw.close()
   }, 10000)
 })

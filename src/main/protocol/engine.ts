@@ -32,6 +32,7 @@ import { decodePacket, encodePacket, trimNul, type PacketHeader } from './packet
 const ANNOUNCE_INTERVAL_FALLBACK = 30
 const OFFLINE_TIMEOUT_MS = 120_000
 const SWEEP_INTERVAL_MS = 5_000
+const ANNOUNCE_BURST_MS = [1_000, 3_000]
 const MAX_TEXT_BYTES = 60_000
 
 export type MessageStatus = 'delivered' | 'read' | 'failed'
@@ -77,6 +78,13 @@ export interface ProtocolPeer {
   absenceInfo: string
   firstSeen: number
   lastSeen: number
+}
+
+export interface EngineOptions {
+  announceBurstMs?: number[]
+  offlineTimeoutMs?: number
+  sweepIntervalMs?: number
+  random?: () => number
 }
 
 export interface ProtocolCallbacks {
@@ -192,6 +200,9 @@ function comparePeers(a: ProtocolPeer, b: ProtocolPeer): number {
 export class ProtocolEngine {
   private config: ProtocolConfig
   private readonly callbacks: ProtocolCallbacks
+  private readonly options: Required<
+    Pick<EngineOptions, 'announceBurstMs' | 'offlineTimeoutMs' | 'sweepIntervalMs' | 'random'>
+  >
   private readonly peers = new Map<string, ProtocolPeer>()
   private readonly ansEntryAt = new Map<string, number>()
   private readonly recentMessages = new Map<string, number>()
@@ -203,9 +214,15 @@ export class ProtocolEngine {
   private readonly burstTimers = new Set<ReturnType<typeof setTimeout>>()
   private readonly pendingSends = new Set<Promise<void>>()
 
-  constructor(config: ProtocolConfig, callbacks: ProtocolCallbacks) {
+  constructor(config: ProtocolConfig, callbacks: ProtocolCallbacks, options: EngineOptions = {}) {
     this.config = normalizeConfig(config)
     this.callbacks = callbacks
+    this.options = {
+      announceBurstMs: options.announceBurstMs ?? ANNOUNCE_BURST_MS,
+      offlineTimeoutMs: options.offlineTimeoutMs ?? OFFLINE_TIMEOUT_MS,
+      sweepIntervalMs: options.sweepIntervalMs ?? SWEEP_INTERVAL_MS,
+      random: options.random ?? Math.random
+    }
   }
 
   async start(): Promise<void> {
@@ -234,14 +251,15 @@ export class ProtocolEngine {
     this.refreshBroadcastTargets()
     this.log(`协议引擎启动: ${this.config.account}@${this.config.host} UDP ${this.config.port}`)
     this.announce()
-    for (const delay of [1000, 3000]) {
+    for (const delay of this.options.announceBurstMs) {
+      if (delay <= 0) continue
       const timer = setTimeout(() => this.announce(), delay)
       timer.unref()
       this.burstTimers.add(timer)
     }
     this.announceTimer = setInterval(() => this.announce(), this.config.broadcastInterval * 1000)
     this.announceTimer.unref()
-    this.sweepTimer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS)
+    this.sweepTimer = setInterval(() => this.sweep(), this.options.sweepIntervalMs)
     this.sweepTimer.unref()
   }
 
@@ -561,7 +579,7 @@ export class ProtocolEngine {
     const last = this.ansEntryAt.get(peer.key)
     if (last !== undefined && now - last < 30_000) return
     this.ansEntryAt.set(peer.key, now)
-    const delay = Math.floor(Math.random() * 200)
+    const delay = Math.floor(this.options.random() * 200)
     const timer = setTimeout(() => {
       this.burstTimers.delete(timer)
       this.sendPacket(peer, CMD_ANSENTRY | this.entryCommand(), this.entryPayload())
@@ -631,7 +649,7 @@ export class ProtocolEngine {
     const now = Date.now()
     let changed = false
     for (const peer of this.peers.values()) {
-      if (peer.online && now - peer.lastSeen >= OFFLINE_TIMEOUT_MS) {
+      if (peer.online && now - peer.lastSeen >= this.options.offlineTimeoutMs) {
         peer.online = false
         changed = true
       }
