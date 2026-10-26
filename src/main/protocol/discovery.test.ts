@@ -239,6 +239,54 @@ describe('protocol engine over real UDP', () => {
     }
   }, 20000)
 
+  it('re-announces presence and status to known peers on manual refresh', async () => {
+    const [portA, portB] = await twoFreePorts()
+    const a = createRecorder()
+    const b = createRecorder()
+    const engineA = new ProtocolEngine(
+      makeConfig({
+        name: '甲',
+        account: 'account-a',
+        host: 'host-a',
+        port: portA,
+        seeds: [`127.0.0.1:${portB}`]
+      }),
+      a.callbacks
+    )
+    const engineB = new ProtocolEngine(
+      makeConfig({
+        name: '乙',
+        account: 'account-b',
+        host: 'host-b',
+        port: portB
+      }),
+      b.callbacks
+    )
+    const keyA = '127.0.0.1|account-a'
+    try {
+      await Promise.all([engineA.start(), engineB.start()])
+      await waitFor(() => {
+        const peer = b.peers.get(keyA)
+        return peer !== undefined && peer.online ? true : null
+      })
+      const before = b.peers.get(keyA)?.lastSeen ?? 0
+      await new Promise((resolve) => setTimeout(resolve, 1100))
+      const count = engineA.refresh()
+      expect(count).toBeGreaterThanOrEqual(1)
+      const refreshed = await waitFor(() => {
+        const peer = b.peers.get(keyA)
+        return peer !== undefined && peer.lastSeen > before ? peer : null
+      })
+      expect(refreshed.online).toBe(true)
+      expect(refreshed.name).toBe('甲')
+      expect(a.errors).toEqual([])
+      expect(b.errors).toEqual([])
+    } finally {
+      await engineA.stop()
+      await engineB.stop()
+    }
+  }, 20000)
+
   it('answers a legacy SENDMSG with a NUL terminated RECVMSG and sends legacy text', async () => {
     const enginePort = await freeUdpPort()
     const raw = await openRawSocket()

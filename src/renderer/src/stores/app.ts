@@ -31,6 +31,7 @@ export const useAppStore = defineStore('app', () => {
   const loadingMessages = ref<Record<string, boolean>>({})
   const readMarks = ref<Record<string, number>>({})
   const loading = ref(false)
+  const refreshing = ref(false)
   const sending = ref(false)
   const error = ref('')
 
@@ -177,6 +178,21 @@ export const useAppStore = defineStore('app', () => {
       loading.value = false
     }
     void refreshPreviews()
+  }
+
+  async function refreshPeers(): Promise<void> {
+    if (refreshing.value) return
+    refreshing.value = true
+    try {
+      await window.api.peers.refresh()
+      // 给对端留出应答时间，再拉一次完整快照。
+      await new Promise((resolve) => setTimeout(resolve, 700))
+      await loadSnapshot()
+    } catch (reason) {
+      reportError(reason)
+    } finally {
+      refreshing.value = false
+    }
   }
 
   async function refreshPreviews(): Promise<void> {
@@ -360,6 +376,7 @@ export const useAppStore = defineStore('app', () => {
     loadingMessages,
     readMarks,
     loading,
+    refreshing,
     sending,
     error,
     unreadTotal,
@@ -370,6 +387,7 @@ export const useAppStore = defineStore('app', () => {
     currentFiles,
     initialize,
     loadSnapshot,
+    refreshPeers,
     selectConversation,
     loadMessages,
     sendText,

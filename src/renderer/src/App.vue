@@ -161,6 +161,8 @@ onBeforeUnmount(() => {
             :previews="store.previews"
             :selected-id="store.currentConversationId"
             :loading="store.loading"
+            :refreshing="store.refreshing"
+            @refresh="store.refreshPeers"
             @select="store.selectConversation($event)"
           />
 

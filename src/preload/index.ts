@@ -49,7 +49,8 @@ const api: Api & {
       ipcRenderer.invoke(IPC.conversationDraft, conversationId, draft)
   },
   peers: {
-    setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias)
+    setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias),
+    refresh: () => ipcRenderer.invoke(IPC.peersRefresh)
   },
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
