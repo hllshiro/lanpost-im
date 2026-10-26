@@ -7,6 +7,7 @@
 第一版核心功能已实现；主动外发文件的入站防火墙问题已修复并实机验证。当前在补安装包/Linux 回归和少量边界项。文档按“设计 / 现状 / 计划 / 参考资料”分类，入口见：
 
 - 文档索引：`docs/README.md`
+- 变更记录：`CHANGELOG.md`
 - 设计基线：`docs/01-设计/2026-10-23-electron-client-design.md`
 - 已知限制：`docs/02-现状/known-limits.md`
 - 文件传输、兼容矩阵、抓包与 IPMSG 标准：`docs/04-参考资料/`

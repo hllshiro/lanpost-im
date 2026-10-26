@@ -52,6 +52,12 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 端到端验证用两个实例，各自设置 `LANPOST_DATA_DIR`，并使用不同的 `network.port` 和 `seeds`。
 - CI `.github/workflows/build.yml`：Windows x64 + Linux ARM64；只有 `v*` 标签或手动 dispatch 才打包，Release 只在标签触发。
 
+## 发布
+
+- 发布前更新 `CHANGELOG.md`：以**上一个 tag 到当前 HEAD** 的提交为输入，按“新增 / 修复 / 兼容性 / 文档 / 已知限制”浓缩主要变更，不逐条照抄提交信息。
+- 同步 `package.json` 的版本号，提交后创建 `vX.Y.Z` 标签并推送；标签会触发 CI 打包和 Release。
+- 不在已有 tag 上追加强制修改；需要修正时发布新版本。
+
 ## 参考
 
 - 文档索引：`docs/README.md`。
