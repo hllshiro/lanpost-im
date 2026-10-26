@@ -6,6 +6,8 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsDefaults: 'settings:defaults',
+  firewallCheck: 'firewall:check',
+  firewallRepair: 'firewall:repair',
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
@@ -43,6 +45,14 @@ export interface NotifyPayload {
   sound: boolean
 }
 
+export type FirewallState = 'allowed' | 'blocked' | 'missing' | 'manual' | 'unsupported' | 'unknown'
+
+export interface FirewallStatus {
+  state: FirewallState
+  executable: string
+  detail: string
+}
+
 export interface MessagesListRequest {
   conversationId: string
   beforeId?: number
@@ -69,6 +79,10 @@ export type Api = {
     get(): Promise<Settings>
     update(patch: SettingsPatch): Promise<Settings>
     defaults(): Promise<Settings>
+  }
+  firewall: {
+    check(): Promise<FirewallStatus>
+    repair(): Promise<FirewallStatus>
   }
   ui: {
     onOpenSettings(listener: () => void): () => void

@@ -62,6 +62,10 @@ const api: Api = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
     defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
+  },
+  firewall: {
+    check: () => ipcRenderer.invoke(IPC.firewallCheck),
+    repair: () => ipcRenderer.invoke(IPC.firewallRepair)
   }
 }
 

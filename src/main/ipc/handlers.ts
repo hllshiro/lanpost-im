@@ -1,5 +1,6 @@
-import type { AppInfo } from '../../shared/ipc'
+import type { AppInfo, FirewallStatus } from '../../shared/ipc'
 import type { Settings, SettingsPatch } from '../../shared/settings'
+import { checkFirewall, repairFirewall } from '../firewall'
 import type { SettingsStore } from '../settings/store'
 
 export interface Handlers {
@@ -7,6 +8,8 @@ export interface Handlers {
   settingsGet(): Settings
   settingsUpdate(patch: unknown): Settings
   settingsDefaults(): Settings
+  firewallCheck(): Promise<FirewallStatus>
+  firewallRepair(): Promise<FirewallStatus>
 }
 
 function assertPatch(value: unknown): asserts value is SettingsPatch {
@@ -29,6 +32,8 @@ export function createHandlers(ctx: {
       ctx.onSettingsChanged?.(next)
       return next
     },
-    settingsDefaults: () => ctx.settings.defaultSettings()
+    settingsDefaults: () => ctx.settings.defaultSettings(),
+    firewallCheck: () => checkFirewall(ctx.settings.get().network.port),
+    firewallRepair: () => repairFirewall(ctx.settings.get().network.port)
   }
 }

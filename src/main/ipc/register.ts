@@ -11,4 +11,6 @@ export function registerIpc(handlers: Handlers): void {
   ipcMain.handle(IPC.settingsGet, () => handlers.settingsGet())
   ipcMain.handle(IPC.settingsUpdate, (_event, patch: unknown) => handlers.settingsUpdate(patch))
   ipcMain.handle(IPC.settingsDefaults, () => handlers.settingsDefaults())
+  ipcMain.handle(IPC.firewallCheck, () => handlers.firewallCheck())
+  ipcMain.handle(IPC.firewallRepair, () => handlers.firewallRepair())
 }

@@ -5,6 +5,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
 import { AppService } from './app-service'
+import { checkFirewall } from './firewall'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
 import { currentIdentityDefaults } from './identity'
@@ -138,6 +139,10 @@ if (!gotLock) {
           `协议服务启动失败：\n${friendlyMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
         )
       }
+
+      void checkFirewall(settings.get().network.port).then((status) => {
+        logStartup(`firewall: ${status.state} (${status.executable})`)
+      })
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
