@@ -109,6 +109,9 @@ describe('ConversationRepository', () => {
     conversations.saveDraft(third.id, '还没发出去的字')
     expect(conversations.get(third.id)?.draft).toBe('还没发出去的字')
 
+    conversations.setTitle(third.id, '丙的新名字')
+    expect(conversations.get(third.id)?.title).toBe('丙的新名字')
+
     db.close()
   })
 

@@ -229,9 +229,10 @@ export class AppService {
     const conversationId = directConversationId(peerKey)
     const peer = this.repos.peers.get(peerKey)
     if (peer !== null) {
-      this.db
-        .prepare('UPDATE conversations SET title = ? WHERE id = ?')
-        .run(alias.trim() === '' ? peer.name : alias, conversationId)
+      this.repos.conversations.setTitle(
+        conversationId,
+        alias.trim() === '' ? peer.name || peer.user || peer.ip : alias
+      )
       this.emitConversation(conversationId)
     }
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
@@ -459,16 +460,19 @@ export class AppService {
   }
 
   private handlePeers(peers: ReturnType<ProtocolEngine['getPeers']>): void {
+    const aliases = new Map(this.repos.peers.list().map((peer) => [peer.key, peer.alias]))
     for (const peer of peers) {
       this.repos.peers.upsert(toPeerInfo(peer))
       const conversationId = directConversationId(peer.key)
-      const existed = this.repos.conversations.get(conversationId) !== null
-      const conversation = this.repos.conversations.ensureDirect(
-        peer.key,
-        peer.name || peer.user || peer.ip
-      )
-      if (!existed) {
+      const title = aliases.get(peer.key)?.trim() || peer.name || peer.user || peer.ip
+      const existing = this.repos.conversations.get(conversationId)
+      if (existing === null) {
+        const conversation = this.repos.conversations.ensureDirect(peer.key, title)
         this.emit({ type: 'conversation', conversation })
+      } else if (existing.title !== title) {
+        // 昵称、别名或账号在握手后变化时，会话标题跟着联系人一起更新。
+        this.repos.conversations.setTitle(conversationId, title)
+        this.emitConversation(conversationId)
       }
     }
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
