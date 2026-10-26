@@ -570,7 +570,7 @@ Linux 桌面没有通知守护进程或者托盘宿主时，设置页面显示�
 - Windows 构建不签名，安装时会出现 SmartScreen 提示；后续可以增加代码签名。
 - 防火墙: NSIS 安装脚本添加 TCP 与 UDP 2425 的入站规则，需要管理员权限；静默安装时跳过，并在首次启动检测后提示。
 - 产物: `lanpost-im-setup-<版本>.exe`、`lanpost-im-portable-<版本>.zip`、`lanpost-im_<版本>_arm64.deb`、`lanpost-im-<版本>-arm64.AppImage`。
-- 应用标识: `productName: Lanpost-IM`，`appId: com.lanpost.im`，显示名称“内网传书”。
+- 应用标识: `productName: lanpost-im`，`appId: com.lanpost.im`，显示名称“内网传书”。
 - 数据目录为 `userData`，不写安装目录。
 
 ## 16. 测试与验收

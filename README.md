@@ -36,9 +36,16 @@ pnpm build:win     # Windows x64，NSIS 安装包与 zip
 pnpm build:linux   # Linux ARM64，deb 与 AppImage
 ```
 
+### 数据目录
+
+- 正式环境：Windows `%APPDATA%\lanpost-im`，Linux `~/.config/lanpost-im`。
+- 开发环境：`%APPDATA%\lanpost-im-dev`；无法写入时回退到项目下的 `.dev-data`。
+- 旧的大写目录 `Lanpost-IM`、`Lanpost-IM-dev` 会在启动时自动改名为小写目录。
+- 受限环境使用的 `.dev-data` 历史会在 Roaming 恢复可写后自动复制到 `lanpost-im-dev`。
+
 ### 受限环境
 
-如果终端运行在沙箱中，无法写入 `%APPDATA%`，开发模式会自动退回到项目下的 `.dev-data` 目录；也可以手动指定：
+如果终端运行在沙箱中，无法写入 `%APPDATA%\lanpost-im-dev`，开发模式会自动退回到项目下的 `.dev-data` 目录；也可以手动指定：
 
 ```powershell
 $env:LANPOST_DATA_DIR="D:\wlr\ai\lanpost-im\.tmp-data"
