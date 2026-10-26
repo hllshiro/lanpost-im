@@ -89,6 +89,10 @@ interface QueueEntry {
   resolve: () => void
 }
 
+function normalizeIp(ip: string): string {
+  return ip.toLowerCase().replace(/^::ffff:/, '')
+}
+
 function toError(value: unknown): Error {
   return value instanceof Error ? value : new Error(String(value))
 }
@@ -398,7 +402,7 @@ export class FileManager {
   }
 
   private resolveOutgoing(request: GetFileRequest): FileServeTarget | null {
-    const task = this.findOutgoing(request.packetId, request.fileIds)
+    const task = this.findOutgoing(request.packetId, request.fileIds, request.remoteIp)
     if (task === null) {
       return null
     }
@@ -444,8 +448,10 @@ export class FileManager {
     }
   }
 
-  private findOutgoing(packetId: number, fileIds: number[]): OutgoingFile | null {
-    let fallback: OutgoingFile | null = null
+  private findOutgoing(packetId: number, fileIds: number[], remoteIp: string): OutgoingFile | null {
+    const remote = normalizeIp(remoteIp)
+    let fileFallback: OutgoingFile | null = null
+    let newest: OutgoingFile | null = null
     for (const task of this.tasks.values()) {
       if (task.direction !== 'out') {
         continue
@@ -453,14 +459,26 @@ export class FileManager {
       if (task.state === 'canceled' || task.state === 'rejected' || task.state === 'failed') {
         continue
       }
-      if (packetId !== 0 && task.packetId === packetId) {
+      const samePeer = remote === '' || normalizeIp(task.peerIp) === remote
+      if (packetId !== 0 && task.packetId === packetId && samePeer) {
         return task
       }
-      if (fallback === null && fileIds.includes(task.fileId)) {
-        fallback = task
+      if (fileIds.includes(task.fileId)) {
+        if (samePeer) {
+          return task
+        }
+        if (fileFallback === null) {
+          fileFallback = task
+        }
+      }
+      if ((task.state === 'offered' || task.state === 'transferring') && samePeer) {
+        if (newest === null || task.createdAt > newest.createdAt) {
+          newest = task
+        }
       }
     }
-    return fallback
+    // 内网通部分版本会回传自己的文件标识。按对端取最新的待发送任务作为兜底。
+    return newest ?? fileFallback
   }
 
   private identity(): FileManagerIdentity {
