@@ -1,5 +1,7 @@
 # 内网通兼容矩阵与私有通道
 
+更新：2026-10-26
+
 目标对端是真实内网通 3.4.3055。当前客户端只走 2425 上的 IPMSG 兼容通道；内网通的 9011/ENet 私有通道没有实现，也不应该和兼容通道混用。
 
 ## 兼容矩阵
@@ -32,6 +34,7 @@
 - 真实内网通可能回传自己的文件标识。发送端匹配顺序是 packetID + 对端 IP、文件 ID、该对端最新的 `offered`/`transferring` 任务；最后一种是为兼容对端标识不一致准备的兜底。
 - 文件邀请和文字都优先使用 GBK；只有 GBK 不可用时才使用 UTF-8 并设置 `IPMSG_UTF8OPT(0x800000)`。
 - 广播 `BR_ENTRY` 的头部是 `1@shiyeline`，种子单播使用版本 `1`；抓包时不要只过滤版本 `1`。
+- 入站 TCP 2425 必须被防火墙放行。Windows 安装包按程序路径注册规则，开发版用 `pnpm firewall:dev`；Linux deb 处理 ufw/firewalld。未放行时表现为对端停在“正在连接”，本机没有 `收到取文件连接`。
 
 ## 私有通道结论（未实现）
 
@@ -49,10 +52,10 @@
 - 真实内网通回归重点：发现、文字、文字回执、双向文件、文件拒绝表现。
 - 文件发送方看 `startup.log` 是否有 `收到取文件连接: IP:端口`；没有这一行说明 TCP SYN 没有到达文件服务，优先查防火墙或安全软件入站规则。
 - 有连接但出现 `忽略未知的取文件请求` 时，检查 `GETFILEDATA` 的版本、十六进制字段和 32 位 seq。
-- 抓包和报文示例见 `docs/protocol-debugging.md`，标准协议见 `docs/ipmsg-protocol-zh.md`。
+- 抓包和报文示例见 `docs/04-参考资料/protocol-debugging.md`，标准协议见 `docs/04-参考资料/ipmsg-protocol-zh.md`。
 
 ## 参考
 
-- `docs/protocol-debugging.md`
-- `docs/ipmsg-protocol-zh.md`
+- `docs/04-参考资料/protocol-debugging.md`
+- `docs/04-参考资料/ipmsg-protocol-zh.md`
 - 私有通道原始记录（同一工作区）：`../../nwt-re/docs/private-protocol.md`

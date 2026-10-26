@@ -1,5 +1,7 @@
 # 内网通抓包与协议调试记录
 
+更新：2026-10-26
+
 本文记录 2026-10-23 对真实内网通 3.4.3055 的抓包、探针联调结论，以及当前 Electron 客户端在协议和文件传输上实际踩过的坑。目标是下次遇到发现、文字或文件问题时，能直接从 2425 的报文定位，不重复逆向。
 
 ## 已确认的互通路径
@@ -9,6 +11,23 @@
 - 文字使用 `SENDMSG(32) | SENDCHECK(0x100)`，接收方回 `RECVMSG(33)`，正文是原包序号的十进制字符串，末尾带 NUL。
 - 文件邀请是 `SENDMSG | SENDCHECK | FILEATTACH(0x200000)`，正文后接 NUL 和附件表；拉取使用 TCP 2425 的 `GETFILEDATA(96)`，版本必须是 `1`。
 - 内网通还有 9011/UDP 的私有发现和 ENet 私有会话，聊天载荷加密，当前客户端没有实现，也不应该拿它做兼容。
+
+## 2026-10-26 主动外发文件：入站防火墙
+
+现象：我们 → NWT/飞秋发送文件时，对端停在“正在连接”，本机没有 `收到取文件连接`；反向正常。两个对端都在同一处失败，说明不是对端报文格式差异。
+
+定位：
+
+- TCP 2425 已监听在 `0.0.0.0`，占用进程是客户端本身。
+- Windows 防火墙里 `electron.exe` 在“公用”网络配置下存在显式阻止规则；当前以太网被归为“公用”，而显式阻止优先于允许。
+- 对端 SYN 被拦在文件服务之外，连接没有到达，`GETFILEDATA` 和文件数据都不会出现，因此不需要修改邀请头或拉取版本。
+
+修复：
+
+- Windows 安装包按程序路径放行入站连接（不限端口），卸载时删除；开发版运行 `pnpm firewall:dev`；设置 → 网络 → 防火墙可查看状态并修复。
+- Linux deb 安装时检测 ufw/firewalld 并放行默认端口；AppImage、zip 或修改端口后用设置页修复（`pkexec`）。
+
+结果：放行后外发文件恢复，`GETFILEDATA` 继续使用版本 `1`。安装包和 Linux deb 的全新安装回归仍待补，相关边界见 `docs/02-现状/known-limits.md`。
 
 ## 抓包环境
 
@@ -149,6 +168,24 @@ Wireshark 显示过滤器用 `udp.port == 2425 || tcp.port == 2425`，需要只�
 - 部分内网通版本会在第一个字段回传自己的任务标识，包编号和文件 ID 都对不上。发送端需要按对端 IP 取最新的 `offered`/`transferring` 任务兜底；Go 版本已经这样做，Electron 版本也补上了这一层。
 - 接收文件必须保存 TCP 响应里的原始字节，不能把 UDP 邀请里的文本当成文件内容。
 
+### 飞秋抓包结论
+
+已抓到一次成功的飞秋 → 真实 NWT 文件传输（206,770 字节 JPG）：
+
+```text
+飞秋邀请：1_lbt80_0#131200#9262DDF58171#3415#33107#0#4000#9:1793023679:xqkj:DESKTOP-505STIV:2097440:<NUL>0:355f...jpg:0327b2:69fbeeb9:1:<BEL><NUL>
+NWT 确认：1@shiyeline:16559:xqkj:DESKTOP-SM:33:1793023679<NUL>
+NWT 拉取：1@shiyeline:16560:xqkj:DESKTOP-SM:96:6adf5ebf:0:0:
+```
+
+要点：
+
+- 飞秋邀请带 `1_lbt80_0#...#9:` 外层头，标准字段在后面。
+- 当前实现不引入 `headerStyle`：解析时把 `lbt80` 外层当作 version token，发送继续使用标准 `SENDMSG`。
+- NWT 拉取飞秋文件时使用 `1@shiyeline`，不是 `1`。
+- 文件数据是 TCP 原始字节。
+- 抓包文件未提交仓库，新环境需要重新抓。
+
 ## 私有通道（未实现）
 
 如果以后要做群聊、私有文件通道或远程协助，需要知道这些结论：
@@ -176,9 +213,23 @@ Wireshark 显示过滤器用 `udp.port == 2425 || tcp.port == 2425`，需要只�
 3. 看对端是否回了 `RECVMSG(33)`；没有 ACK 时先查序号和 NUL。
 4. 如果发的是 `X_SEND_MSG(1004)`，这是私有通道，真实内网通兼容层不会回。
 
+### 外发文件入站链路检查
+
+对端停在“正在连接”、本机没有 `收到取文件连接` 时，按顺序检查：
+
+1. `startup.log` 是否有 `文件服务启动: TCP ...:2425`，发送后是否出现 `收到取文件连接: IP:端口`，是否有 `file service start failed`。
+2. TCP 2425 是否监听在 `0.0.0.0`，不能被 `127.0.0.1` 或另一个程序占用。
+3. 从对端执行 `Test-NetConnection <本机IP> -Port 2425`。
+4. 检查防火墙：Windows 安装版会自动按程序放行，开发版运行 `pnpm firewall:dev`；Linux deb 自动处理 ufw/firewalld；其他情况在设置 → 网络 → 防火墙修复或手动放行。
+5. 抓 `tcp port 2425 and host <对端IP>`，区分：
+   - 没有 SYN：对端没有连过来，查 IP、端口、路由或握手声明。
+   - 有 SYN 没有 SYN-ACK：本机防火墙或安全软件拦截。
+   - 有 SYN-ACK 没有 `GETFILEDATA`：对端在等待其他通道。
+   - 有 `GETFILEDATA` 没有数据：查 packetId/fileId、32 位 seq 和服务端匹配。
+
 ### 文件邀请到了但传不动
 
-1. 对端界面一直显示等待建立链接、本机 `startup.log` 里没有 `收到取文件连接`，说明 TCP SYN 没有到达文件服务。优先检查 Windows 防火墙、安全软件的入站 TCP 2425 规则，以及当前 `electron.exe` / `lanpost-im.exe` 是否在白名单里。Go 版本可能已经有放行规则，Electron 是另一个可执行文件。
+1. 对端界面一直显示等待建立链接、本机 `startup.log` 里没有 `收到取文件连接`，说明 TCP SYN 没有到达文件服务。优先检查防火墙：Windows 安装版会自动按程序放行，开发版运行 `pnpm firewall:dev`，设置 → 网络 → 防火墙可查看和修复；Linux deb 自动处理 ufw/firewalld，其他防火墙需手动放行。检查 Windows 防火墙时注意显式阻止规则会覆盖允许规则。
 2. 看 UDP 邀请里的包序号和附件表是否解析正确。
 3. 看是否先发了 `RECVMSG(33)`，正文是否为十进制包序号加 NUL。
 4. 看 `GETFILEDATA` 的版本是不是 `1`，扩展域是不是十六进制且以冒号结尾。
@@ -241,11 +292,11 @@ pnpm exec vitest run src/main/protocol src/main/files
 
 ## 参考
 
-- 设计基线：`docs/superpowers/specs/2026-10-23-electron-client-design.md`
-- IPMSG 协议中文版（草案 10）：`docs/ipmsg-protocol-zh.md`
-- 内网通兼容矩阵：`docs/nwt-compatibility.md`
-- 文件传输状态机与故障排查：`docs/file-transfer.md`
-- 已知限制：`docs/known-limits.md`
+- 设计基线：`docs/01-设计/2026-10-23-electron-client-design.md`
+- IPMSG 协议中文版（草案 10）：`docs/04-参考资料/ipmsg-protocol-zh.md`
+- 内网通兼容矩阵：`docs/04-参考资料/nwt-compatibility.md`
+- 文件传输状态机与故障排查：`docs/04-参考资料/file-transfer.md`
+- 已知限制：`docs/02-现状/known-limits.md`
 - 原始协议记录（同一工作区）：`../../nwt-re/docs/protocol.md`、`../../nwt-re/docs/private-protocol.md`
 - 抓包与解析脚本（同一工作区）：`../../nwt-re/test/dump_payloads.py`、`../../nwt-re/test/frida_*.py`
 - 关键抓包：`../../nwt-re/cap/priv1.pcapng`、`session1.pcapng`、`file1.pcapng`、`msg1.pcapng`

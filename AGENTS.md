@@ -22,7 +22,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - `src/main/index.ts`：启动、数据目录、窗口、托盘、IPC 注册。
 - `src/main/app-service.ts`：主进程编排（协议、仓储、文件、通知）；新业务接这里，不要再塞回 `index.ts`。
-- `src/main/protocol/`：IPMSG 发现、文字、私有 XML、GBK；`src/main/files/`：TCP 文件收发；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
+- `src/main/protocol/`：IPMSG 发现、文字、私有 XML、GBK；`src/main/files/`：TCP 文件收发；`src/main/firewall.ts`：Windows/Linux 防火墙检测与修复；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
 - `src/shared/`：main/preload/renderer 的三方契约（`domain.ts`、`ipc.ts`、`settings.ts`），保持不依赖 Electron/Node。新增 IPC 必须同时改 shared 的 `Api`、preload、main handler 和 renderer 调用。
 - `src/renderer/src/`：Vue 3 + Pinia；`App.vue` 是外壳，`stores/app.ts` 管快照、事件、当前会话。
 - `out/`、`dist/` 是生成物，不要手改；图标、托盘和提示音由 `scripts/gen-assets.py` 生成。
@@ -54,10 +54,9 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 ## 参考
 
-- 设计基线：`docs/superpowers/specs/2026-10-23-electron-client-design.md`。
-- 开发交接与环境切换：`docs/handoff.md`。
-- 文件发送兼容 TODO：`docs/TODO-file-send-compat.md`。
-- 抓包与协议调试记录：`docs/protocol-debugging.md`。
-- 内网通兼容矩阵：`docs/nwt-compatibility.md`。
-- 文件传输状态机与故障排查：`docs/file-transfer.md`。
-- 已知限制：`docs/known-limits.md`。
+- 文档索引：`docs/README.md`。
+- 设计基线：`docs/01-设计/2026-10-23-electron-client-design.md`。
+- 抓包与协议调试记录：`docs/04-参考资料/protocol-debugging.md`。
+- 内网通兼容矩阵：`docs/04-参考资料/nwt-compatibility.md`。
+- 文件传输状态机与故障排查：`docs/04-参考资料/file-transfer.md`。
+- 已知限制：`docs/02-现状/known-limits.md`。

@@ -1,7 +1,7 @@
 # 内网传书（Lanpost-IM）Electron 客户端重构设计
 
 - 日期: 2026-10-23
-- 状态: 待确认
+- 状态: 已实施（第一版核心功能已落地，2026-10-26 更新）
 - 项目名称: 内网传书（Lanpost-IM）
 - 一句话简介: 基于 IPMSG 的跨平台局域网即时通信，无需服务器，文字与文件直传。
 
@@ -43,19 +43,19 @@
 
 ## 5. 技术选型
 
-| 项 | 选择 | 理由 |
-|---|---|---|
-| 壳 | Electron（electron-vite 模板） | 跨平台窗口一致，官方提供 arm64 构建 |
-| 渲染 | Vue 3 + TypeScript + Pinia | 组合式 API，类型完整 |
-| 构建 | electron-vite + electron-builder | 主进程、预加载、渲染进程三入口，安装包 |
-| 数据库 | node:sqlite（Electron 44 / Node 24，WAL） | 同步 API、事务、单文件、无需原生模块 |
-| 编码 | iconv-lite | GBK 双向转换 |
-| XML | fast-xml-parser | 私有消息解析 |
-| 校验 | zod | 设置与 IPC 入参校验 |
-| 图标 | lucide-vue-next | 线性图标，接近微信桌面版的观感 |
-| 测试 | vitest + Playwright | 单元、集成、窗口冒烟 |
-| 构建 | GitHub Actions | Windows x64 与 Linux ARM64 分开构建，产物随 Release 发布 |
-| 样式 | 原生 CSS + CSS 变量 | 微信风格需要定制，避免组件库覆盖 |
+| 项     | 选择                                      | 理由                                                     |
+| ------ | ----------------------------------------- | -------------------------------------------------------- |
+| 壳     | Electron（electron-vite 模板）            | 跨平台窗口一致，官方提供 arm64 构建                      |
+| 渲染   | Vue 3 + TypeScript + Pinia                | 组合式 API，类型完整                                     |
+| 构建   | electron-vite + electron-builder          | 主进程、预加载、渲染进程三入口，安装包                   |
+| 数据库 | node:sqlite（Electron 44 / Node 24，WAL） | 同步 API、事务、单文件、无需原生模块                     |
+| 编码   | iconv-lite                                | GBK 双向转换                                             |
+| XML    | fast-xml-parser                           | 私有消息解析                                             |
+| 校验   | zod                                       | 设置与 IPC 入参校验                                      |
+| 图标   | lucide-vue-next                           | 线性图标，接近微信桌面版的观感                           |
+| 测试   | vitest + Playwright                       | 单元、集成、窗口冒烟                                     |
+| 构建   | GitHub Actions                            | Windows x64 与 Linux ARM64 分开构建，产物随 Release 发布 |
+| 样式   | 原生 CSS + CSS 变量                       | 微信风格需要定制，避免组件库覆盖                         |
 
 不使用 Element Plus、Naive UI 这类整包组件库；弹窗、菜单、开关等基础组件自建，配合 `@vueuse/core`。
 
@@ -81,29 +81,29 @@ flowchart LR
 
 主进程模块：
 
-| 模块 | 职责 |
-|---|---|
-| `core/proto/packet.ts` | 报文头编解码、Legacy 判定、NUL 处理 |
-| `core/proto/commands.ts` | 命令号与标志位常量 |
-| `core/proto/xml.ts` | 私有 XML 消息类型与序列化 |
-| `core/proto/attach.ts` | 附件表编解码 |
-| `core/protocol/adapter.ts` | 协议适配接口与能力模型 |
-| `core/protocol/adapters/nwt.ts` | 内网通兼容通道实现 |
-| `core/net/discovery.ts` | UDP 套接字、广播、种子、应答、心跳、9011 信标 |
-| `core/net/transport.ts` | 发送队列、广播地址 |
-| `core/peer/registry.ts` | 联系人表、在线状态、资料更新 |
-| `core/chat/send.ts` | 文字发送、回执、已读 |
-| `core/file/manager.ts` | 任务队列、接收目录、去重、进度 |
-| `core/file/server.ts` | TCP 2425 监听、GETFILEDATA 匹配 |
-| `core/file/client.ts` | 主动拉取、超时、校验 |
-| `core/store/db.ts` | 数据库连接、迁移 |
-| `core/store/messages.ts` | 消息读写、分页、搜索 |
-| `core/store/files.ts` | 文件任务持久化 |
-| `core/settings/store.ts` | 设置读写、默认值、迁移 |
-| `core/notify/` | 系统通知、声音、闪烁、徽标 |
-| `ipc/handlers.ts` | 通道注册、zod 校验、事件推送 |
-| `window/main-window.ts` | 窗口、标题栏、关闭行为 |
-| `window/tray.ts` | 托盘、菜单、单实例 |
+| 模块                            | 职责                                          |
+| ------------------------------- | --------------------------------------------- |
+| `core/proto/packet.ts`          | 报文头编解码、Legacy 判定、NUL 处理           |
+| `core/proto/commands.ts`        | 命令号与标志位常量                            |
+| `core/proto/xml.ts`             | 私有 XML 消息类型与序列化                     |
+| `core/proto/attach.ts`          | 附件表编解码                                  |
+| `core/protocol/adapter.ts`      | 协议适配接口与能力模型                        |
+| `core/protocol/adapters/nwt.ts` | 内网通兼容通道实现                            |
+| `core/net/discovery.ts`         | UDP 套接字、广播、种子、应答、心跳、9011 信标 |
+| `core/net/transport.ts`         | 发送队列、广播地址                            |
+| `core/peer/registry.ts`         | 联系人表、在线状态、资料更新                  |
+| `core/chat/send.ts`             | 文字发送、回执、已读                          |
+| `core/file/manager.ts`          | 任务队列、接收目录、去重、进度                |
+| `core/file/server.ts`           | TCP 2425 监听、GETFILEDATA 匹配               |
+| `core/file/client.ts`           | 主动拉取、超时、校验                          |
+| `core/store/db.ts`              | 数据库连接、迁移                              |
+| `core/store/messages.ts`        | 消息读写、分页、搜索                          |
+| `core/store/files.ts`           | 文件任务持久化                                |
+| `core/settings/store.ts`        | 设置读写、默认值、迁移                        |
+| `core/notify/`                  | 系统通知、声音、闪烁、徽标                    |
+| `ipc/handlers.ts`               | 通道注册、zod 校验、事件推送                  |
+| `window/main-window.ts`         | 窗口、标题栏、关闭行为                        |
+| `window/tray.ts`                | 托盘、菜单、单实例                            |
 
 ## 7. 协议层
 
@@ -147,13 +147,13 @@ flowchart LR
 
 ### 7.5 消息状态机
 
-| 状态 | 进入条件 | 界面 |
-|---|---|---|
-| `sending` | 写库之后、UDP 发送之前 | 发送中 |
-| `sent` | UDP 写成功 | 已发送（单勾） |
-| `delivered` | 收到对方的 RECVMSG 回执 | 已送达（双勾） |
-| `read` | 收到私有 XML 已读回执 | 已读 |
-| `failed` | UDP 写失败，或者重启时仍为 `sending` | 发送失败，可重试 |
+| 状态        | 进入条件                             | 界面             |
+| ----------- | ------------------------------------ | ---------------- |
+| `sending`   | 写库之后、UDP 发送之前               | 发送中           |
+| `sent`      | UDP 写成功                           | 已发送（单勾）   |
+| `delivered` | 收到对方的 RECVMSG 回执              | 已送达（双勾）   |
+| `read`      | 收到私有 XML 已读回执                | 已读             |
+| `failed`    | UDP 写失败，或者重启时仍为 `sending` | 发送失败，可重试 |
 
 - Legacy 文字只使用 `sent` 与 `delivered`，不把 `read` 当作必需状态。
 - 真实内网通忽略私有 XML 已读回执，对 legacy 消息不发送已读回执；`read` 只在私有通道的客户端之间生效。
@@ -308,12 +308,12 @@ CREATE TABLE group_members (
 
 进程退出时可能留下中间状态，启动时执行一次清理：
 
-| 遗留状态 | 处理 |
-|---|---|
-| 消息 `sending` | 改为 `failed`，界面显示“未发送”，可以手动重新发送 |
-| 文件任务 `transferring` | 改为 `failed`，删除没有写完的半截文件 |
-| 文件任务 `waiting` 或 `offered` | 保留；对方在线时可以接收或者重新发送 |
-| 文件任务 `done` 但路径不存在 | 保留记录，打开时提示文件已经被移动或者删除 |
+| 遗留状态                        | 处理                                              |
+| ------------------------------- | ------------------------------------------------- |
+| 消息 `sending`                  | 改为 `failed`，界面显示“未发送”，可以手动重新发送 |
+| 文件任务 `transferring`         | 改为 `failed`，删除没有写完的半截文件             |
+| 文件任务 `waiting` 或 `offered` | 保留；对方在线时可以接收或者重新发送              |
+| 文件任务 `done` 但路径不存在    | 保留记录，打开时提示文件已经被移动或者删除        |
 
 手动重新发送会插入一条新消息并使用新的序号，不复用原消息行，避免对端收到重复的同一序号。
 
@@ -321,45 +321,45 @@ CREATE TABLE group_members (
 
 存储: `userData/settings.json`，zod 校验，原子写入（临时文件 + rename），带 `version` 字段做迁移。渲染进程通过 IPC 读取，修改后主进程广播 `settings:changed`。
 
-| 分类 | 字段 | 默认值 | 作用 |
-|---|---|---|---|
-| 账号 | displayName | 张三 | 显示名称 |
-| 账号 | account | 当前用户 | 协议账号 |
-| 账号 | hostName | 主机名 | 协议主机名 |
-| 账号 | group | 空 | 分组 |
-| 账号 | corporation | 空 | 公司 |
-| 账号 | department | 空 | 部门 |
-| 账号 | sign | 空 | 个性签名 |
-| 账号 | status | 在线 | 在线、忙碌、离开 |
-| 网络 | port | 2425 | 协议端口（重启生效） |
-| 网络 | bindAddr | 0.0.0.0 | 监听地址（重启生效） |
-| 网络 | subnets | 空 | 额外广播网段 |
-| 网络 | seeds | 空 | 固定对端地址 |
-| 网络 | broadcastInterval | 30 秒 | 发现广播间隔 |
-| 消息 | notifyEnabled | 开 | 新消息提醒总开关 |
-| 消息 | notifySound | 开 | 声音 |
-| 消息 | soundFile | 内置 | 提示音 |
-| 消息 | soundVolume | 70 | 音量 |
-| 消息 | flashTaskbar | 开 | 任务栏与托盘闪烁 |
-| 消息 | systemNotification | 开 | 系统通知 |
-| 消息 | inAppToast | 开 | 应用内提示 |
-| 消息 | dnd | 关 | 免打扰 |
-| 消息 | dndStart | 22:00 | 免打扰开始 |
-| 消息 | dndEnd | 08:00 | 免打扰结束 |
-| 文件 | receiveDir | 下载/内网通 | 默认接收目录 |
-| 文件 | autoAccept | 关 | 自动接收 |
-| 文件 | autoAcceptMaxMB | 512 | 自动接收大小上限，0 表示不限 |
-| 文件 | notifyOnComplete | 开 | 接收完成提醒 |
-| 文件 | openAfterReceive | 关 | 完成后打开文件 |
-| 外观 | fontSize | 14 | 消息字号 |
-| 外观 | density | 标准 | 标准、紧凑 |
-| 通用 | closeToTray | 开 | 关闭窗口最小化到托盘 |
-| 通用 | startAtLogin | 关 | 开机启动 |
-| 通用 | startMinimized | 关 | 启动时隐藏窗口 |
-| 通用 | language | 简体中文 | 界面语言（首版只有中文） |
-| 存储 | dataDir | userData | 数据根目录（数据库与设置，重启生效；切换时提供新建或者复制数据库） |
-| 存储 | historyRetention | 永久 | 首版只做永久 |
-| 关于 | version | — | 版本与协议说明 |
+| 分类 | 字段               | 默认值      | 作用                                                               |
+| ---- | ------------------ | ----------- | ------------------------------------------------------------------ |
+| 账号 | displayName        | 张三        | 显示名称                                                           |
+| 账号 | account            | 当前用户    | 协议账号                                                           |
+| 账号 | hostName           | 主机名      | 协议主机名                                                         |
+| 账号 | group              | 空          | 分组                                                               |
+| 账号 | corporation        | 空          | 公司                                                               |
+| 账号 | department         | 空          | 部门                                                               |
+| 账号 | sign               | 空          | 个性签名                                                           |
+| 账号 | status             | 在线        | 在线、忙碌、离开                                                   |
+| 网络 | port               | 2425        | 协议端口（重启生效）                                               |
+| 网络 | bindAddr           | 0.0.0.0     | 监听地址（重启生效）                                               |
+| 网络 | subnets            | 空          | 额外广播网段                                                       |
+| 网络 | seeds              | 空          | 固定对端地址                                                       |
+| 网络 | broadcastInterval  | 30 秒       | 发现广播间隔                                                       |
+| 消息 | notifyEnabled      | 开          | 新消息提醒总开关                                                   |
+| 消息 | notifySound        | 开          | 声音                                                               |
+| 消息 | soundFile          | 内置        | 提示音                                                             |
+| 消息 | soundVolume        | 70          | 音量                                                               |
+| 消息 | flashTaskbar       | 开          | 任务栏与托盘闪烁                                                   |
+| 消息 | systemNotification | 开          | 系统通知                                                           |
+| 消息 | inAppToast         | 开          | 应用内提示                                                         |
+| 消息 | dnd                | 关          | 免打扰                                                             |
+| 消息 | dndStart           | 22:00       | 免打扰开始                                                         |
+| 消息 | dndEnd             | 08:00       | 免打扰结束                                                         |
+| 文件 | receiveDir         | 下载/内网通 | 默认接收目录                                                       |
+| 文件 | autoAccept         | 关          | 自动接收                                                           |
+| 文件 | autoAcceptMaxMB    | 512         | 自动接收大小上限，0 表示不限                                       |
+| 文件 | notifyOnComplete   | 开          | 接收完成提醒                                                       |
+| 文件 | openAfterReceive   | 关          | 完成后打开文件                                                     |
+| 外观 | fontSize           | 14          | 消息字号                                                           |
+| 外观 | density            | 标准        | 标准、紧凑                                                         |
+| 通用 | closeToTray        | 开          | 关闭窗口最小化到托盘                                               |
+| 通用 | startAtLogin       | 关          | 开机启动                                                           |
+| 通用 | startMinimized     | 关          | 启动时隐藏窗口                                                     |
+| 通用 | language           | 简体中文    | 界面语言（首版只有中文）                                           |
+| 存储 | dataDir            | userData    | 数据根目录（数据库与设置，重启生效；切换时提供新建或者复制数据库） |
+| 存储 | historyRetention   | 永久        | 首版只做永久                                                       |
+| 关于 | version            | —           | 版本与协议说明                                                     |
 
 状态值与内网通的对应关系（0 在线、1 忙碌、2 离开）在实现阶段用对方界面核对一次，只调整常量。
 
@@ -405,18 +405,18 @@ flowchart LR
 
 ### 10.5 视觉
 
-| 变量 | 取值 |
-|---|---|
-| 强调色 | #07C160 |
-| 导航栏背景 | #2E2E2E |
-| 页面背景 | #F5F5F5 |
-| 会话列表背景 | #FFFFFF |
-| 卡片背景 | #FFFFFF |
-| 主文字 | #191919 |
-| 次文字 | #999999 |
-| 分割线 | #E7E7E7 |
-| 自己气泡 | #95EC69 黑字 |
-| 对方气泡 | #FFFFFF 黑字 |
+| 变量         | 取值         |
+| ------------ | ------------ |
+| 强调色       | #07C160      |
+| 导航栏背景   | #2E2E2E      |
+| 页面背景     | #F5F5F5      |
+| 会话列表背景 | #FFFFFF      |
+| 卡片背景     | #FFFFFF      |
+| 主文字       | #191919      |
+| 次文字       | #999999      |
+| 分割线       | #E7E7E7      |
+| 自己气泡     | #95EC69 黑字 |
+| 对方气泡     | #FFFFFF 黑字 |
 
 - 圆角: 卡片 8，气泡 6，按钮 4；头像 4。
 - Logo: ✉️ 信封图形，绿色圆角方形底、白色信封。窗口图标、安装包图标、托盘图标由同一份 SVG 导出，避免不同系统的 emoji 字体差异。
@@ -555,7 +555,7 @@ Linux 桌面没有通知守护进程或者托盘宿主时，设置页面显示�
 - 旧客户端源码保留在 `client/`，作为协议参考与测试对端。
 - 旧数据目录可以从设置里选择；默认查找同目录下的 `history.jsonl` 与 `config.json`。
 - 迁移只读旧数据，不修改；导入完成后写一个标记文件。
-- 协议文档 `docs/protocol.md` 作为实现依据，新增行为同步更新。
+- 协议文档 `docs/04-参考资料/ipmsg-protocol-zh.md` 作为实现依据，新增行为同步更新。
 
 ## 15. 构建与发布
 
@@ -600,26 +600,26 @@ Linux 桌面没有通知守护进程或者托盘宿主时，设置页面显示�
 
 ## 17. 实施阶段
 
-| 阶段 | 内容 | 退出条件 |
-|---|---|---|
-| 0 | electron-vite 脚手架、窗口、托盘骨架、设置存储、SQLite 迁移框架、IPC 类型 | 窗口能启动，设置能保存，数据库能建表 |
-| 1 | 协议编解码、发现、联系人、文字消息、历史库与旧数据导入 | 与 Go 参考对端互发文字；旧历史导入成功 |
-| 2 | 文件邀请、TCP 服务、拉取、进度、去重、自动接收 | 与 Go 参考对端双向传文件；真实内网通双向通过 |
-| 3 | 微信布局（简化）：导航栏、会话列表、聊天区、文件卡片、虚拟滚动 | 界面完整，长时间会话不卡顿 |
-| 4 | 设置中心全部分类、托盘常驻、提醒效果、开机启动 | 设置项全部生效并持久化 |
-| 5 | 打包、防火墙、图标、两平台构建、验收清单 | Windows 与 Linux ARM64 安装包可用 |
+| 阶段 | 内容                                                                      | 退出条件                                     |
+| ---- | ------------------------------------------------------------------------- | -------------------------------------------- |
+| 0    | electron-vite 脚手架、窗口、托盘骨架、设置存储、SQLite 迁移框架、IPC 类型 | 窗口能启动，设置能保存，数据库能建表         |
+| 1    | 协议编解码、发现、联系人、文字消息、历史库与旧数据导入                    | 与 Go 参考对端互发文字；旧历史导入成功       |
+| 2    | 文件邀请、TCP 服务、拉取、进度、去重、自动接收                            | 与 Go 参考对端双向传文件；真实内网通双向通过 |
+| 3    | 微信布局（简化）：导航栏、会话列表、聊天区、文件卡片、虚拟滚动            | 界面完整，长时间会话不卡顿                   |
+| 4    | 设置中心全部分类、托盘常驻、提醒效果、开机启动                            | 设置项全部生效并持久化                       |
+| 5    | 打包、防火墙、图标、两平台构建、验收清单                                  | Windows 与 Linux ARM64 安装包可用            |
 
 ## 18. 风险与对策
 
-| 风险 | 对策 |
-|---|---|
-| TypeScript 重写偏离线上行为 | Go 参考对端做协议一致性测试；每个阶段跑真实内网通清单 |
+| 风险                                                  | 对策                                                     |
+| ----------------------------------------------------- | -------------------------------------------------------- |
+| TypeScript 重写偏离线上行为                           | Go 参考对端做协议一致性测试；每个阶段跑真实内网通清单    |
 | Electron 升级后 node:sqlite 的 API 或 SQLite 版本变化 | 固定 Electron 版本；集成测试覆盖打开、迁移、中文搜索查询 |
-| Linux 托盘与通知依赖桌面环境 | 启动检测，失败时降级并在设置里提示 |
-| 2425 端口被内网通占用 | 启动明确报错；支持修改端口并在界面提示 |
-| 历史数据库损坏 | WAL、事务、每日备份 `lanpost.db.bak`，保留最近 7 份 |
-| GBK 转换丢字 | 出站 GBK 失败时置 UTF8 位；入站保留原始字节用于排查 |
-| 大文件内存占用 | 全程流式读写，64 KB 缓冲，不把文件读入内存 |
+| Linux 托盘与通知依赖桌面环境                          | 启动检测，失败时降级并在设置里提示                       |
+| 2425 端口被内网通占用                                 | 启动明确报错；支持修改端口并在界面提示                   |
+| 历史数据库损坏                                        | WAL、事务、每日备份 `lanpost.db.bak`，保留最近 7 份      |
+| GBK 转换丢字                                          | 出站 GBK 失败时置 UTF8 位；入站保留原始字节用于排查      |
+| 大文件内存占用                                        | 全程流式读写，64 KB 缓冲，不把文件读入内存               |
 
 ## 19. 设计决定
 

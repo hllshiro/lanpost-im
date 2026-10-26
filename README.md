@@ -4,18 +4,12 @@
 
 ## 项目状态
 
-第一版核心功能已实现，当前正在修复主动向 NWT/飞秋发送文件时的入站 TCP 兼容问题。进展和待办见：
+第一版核心功能已实现；主动外发文件的入站防火墙问题已修复并实机验证。当前在补安装包/Linux 回归和少量边界项。文档按“设计 / 现状 / 计划 / 参考资料”分类，入口见：
 
-- 开发交接与环境切换：`docs/handoff.md`
-- 文件发送兼容 TODO：`docs/TODO-file-send-compat.md`
-- 设计文档：`docs/superpowers/specs/2026-10-23-electron-client-design.md`
-
-其他文档：
-
-- 文件传输状态机：`docs/file-transfer.md`
-- NWT/飞秋兼容矩阵：`docs/nwt-compatibility.md`
-- 抓包与协议调试：`docs/protocol-debugging.md`
-- 已知限制：`docs/known-limits.md`
+- 文档索引：`docs/README.md`
+- 设计基线：`docs/01-设计/2026-10-23-electron-client-design.md`
+- 已知限制：`docs/02-现状/known-limits.md`
+- 文件传输、兼容矩阵、抓包与 IPMSG 标准：`docs/04-参考资料/`
 
 ## 当前能力
 
@@ -25,8 +19,7 @@
 - SQLite 消息历史、旧历史导入。
 - 微信布局桌面界面、联系人页、文件页、设置覆盖层。
 - 托盘常驻、系统通知、应用内提示、声音和免打扰。
-- 与 NWT 的文字和接收文件兼容；主动发送文件仍在修复。
-- 与飞秋的接收文件兼容；主动发送文件仍在修复。
+- 与 NWT、飞秋的文字和双向文件收发兼容；入站防火墙规则由安装包或设置页处理。
 
 ## 开发
 
@@ -38,6 +31,36 @@ pnpm dev
 ```
 
 `pnpm dev` 保留 Chromium 沙箱。如果所在机器的 GPU 进程无法启动（日志出现 `GPU process launch failed`），使用 `pnpm dev:no-sandbox`。
+
+### Windows 防火墙
+
+正式安装包会按机器安装（需要管理员权限），在安装时按程序路径添加一条入站放行规则（规则名 `lanpost-im`，任意协议与端口，适用于所有网络配置文件），并在卸载时删除。规则按程序放行，所以修改监听端口后不需要重新配置。
+
+开发版运行的是 `node_modules` 里的 `electron.exe`，安装包规则不适用；Windows 还可能已经为这个 `electron.exe` 生成显式“阻止”规则（例如当前网卡被归为“公用”时），显式阻止优先于放行。首次在 Windows 上做文件传输前运行：
+
+```powershell
+pnpm firewall:dev
+```
+
+脚本会请求一次管理员权限，删除该 `electron.exe` 现有的入站规则，再添加名为 `lanpost-im-dev` 的入站放行规则。以下情况需要重新运行：
+
+- 更换 Electron/pnpm 版本，导致 `electron.exe` 路径变化；
+- 更换仓库目录；
+- 相关防火墙规则被删除或被安全软件还原。
+
+也可以在“设置 → 网络 → 防火墙”查看状态并点“修复”。如果不想运行脚本，临时把当前网卡的网络配置文件改为“专用”，也能让 Windows 自动生成的放行规则生效。
+
+### Linux 防火墙
+
+deb 安装时脚本会检测已启用的 ufw 或 firewalld，为默认端口 2425 添加 TCP/UDP 入站放行规则，并记录到 `/var/lib/lanpost-im/firewall-ports`；卸载时只删除脚本添加过的规则。AppImage、zip，或安装后才启用防火墙的机器，可以在“设置 → 网络 → 防火墙”点“修复”，应用会通过 `pkexec` 请求权限并按当前监听端口添加规则。修改监听端口后需要再点一次修复，安装时添加的 2425 规则不会自动删除。
+
+Linux 非 root 无法直接读取 ufw 规则，状态依据脚本写入的 `/var/lib/lanpost-im/firewall-ports` 记录；没有记录时显示“需确认”，重复修复是幂等的。没有 ufw/firewalld 或使用自定义 nftables/iptables 时不会自动修改，需要按现有策略手动放行：
+
+```bash
+sudo ufw allow 2425/tcp && sudo ufw allow 2425/udp
+# 或 firewalld
+sudo firewall-cmd --permanent --add-port=2425/tcp --add-port=2425/udp && sudo firewall-cmd --reload
+```
 
 ## 构建
 
