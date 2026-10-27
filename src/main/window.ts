@@ -12,7 +12,7 @@ export function setQuitting(value: boolean): void {
   quitting = value
 }
 
-export function createMainWindow(settings: SettingsStore): BrowserWindow {
+export function createMainWindow(settings: SettingsStore, startHidden = false): BrowserWindow {
   const window = new BrowserWindow({
     width: 1080,
     height: 720,
@@ -38,6 +38,10 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
   }
 
   window.on('ready-to-show', () => {
+    if (startHidden) {
+      logStartup('window ready-to-show (hidden)')
+      return
+    }
     window.show()
     logStartup('window ready-to-show')
   })

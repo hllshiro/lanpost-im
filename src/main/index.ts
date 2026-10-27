@@ -23,6 +23,7 @@ import {
 } from './window'
 import { createTray, destroyTray } from './tray'
 import { applyGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts'
+import { applyStartAtLogin, type AutostartContext } from './autostart'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
@@ -108,6 +109,33 @@ if (!gotLock) {
         settings.update({ identity: { identityId: currentIdentityId(current.account) } })
       }
 
+      const autostartContext: AutostartContext = {
+        platform: process.platform,
+        execPath:
+          process.platform === 'linux' && process.env['APPIMAGE']
+            ? process.env['APPIMAGE']
+            : process.execPath,
+        appPath: app.getAppPath(),
+        isPackaged: app.isPackaged,
+        configDir: app.getPath('appData'),
+        appName: APP_NAME,
+        loginItem: {
+          set: (options) => app.setLoginItemSettings(options)
+        }
+      }
+      let startAtLoginState = settings.get().general.startAtLogin
+      const applyLoginItem = (enabled: boolean): { ok: boolean; error?: string } => {
+        const result = applyStartAtLogin(enabled, autostartContext)
+        if (!result.ok) {
+          logStartup('start at login apply failed: ' + (result.error ?? 'unknown'))
+        } else {
+          startAtLoginState = enabled
+        }
+        return result
+      }
+      // 启动时总是与系统同步一次：开启时补齐登录项，关闭时清理遗留项。
+      applyLoginItem(startAtLoginState)
+
       const databaseFile = join(app.getPath('userData'), 'lanpost.db')
       logStartup(`opening database: ${databaseFile}`)
       database = openDatabase(databaseFile)
@@ -143,19 +171,24 @@ if (!gotLock) {
       const handlers = createHandlers({
         settings,
         appInfo,
+        applyStartAtLogin: applyLoginItem,
         onSettingsChanged: (next) => {
           appService.applySettings(next)
           applyGlobalShortcuts(next, shortcutHandlers)
+          if (next.general.startAtLogin !== startAtLoginState) {
+            applyLoginItem(next.general.startAtLogin)
+          }
         }
       })
       registerIpc(handlers)
       registerAppIpc(appService)
       logStartup('ipc registered')
 
-      createMainWindow(settings)
+      const startHidden = settings.get().general.startMinimized
+      createMainWindow(settings, startHidden)
       appService.attachWindow(getMainWindow())
       applyGlobalShortcuts(settings.get(), shortcutHandlers)
-      logStartup('main window created')
+      logStartup(`main window created${startHidden ? ' (hidden)' : ''}`)
 
       createTray({
         onShow: showMainWindow,

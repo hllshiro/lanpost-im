@@ -6,6 +6,7 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsDefaults: 'settings:defaults',
+  settingsStartAtLogin: 'settings:start-at-login',
   shortcutsRecording: 'shortcuts:recording',
   shortcutsAvailable: 'shortcuts:available',
   identityStatus: 'identity:status',
@@ -108,6 +109,7 @@ export type Api = {
     get(): Promise<Settings>
     update(patch: SettingsPatch): Promise<Settings>
     defaults(): Promise<Settings>
+    setStartAtLogin(enabled: boolean): Promise<Settings>
   }
   shortcuts: {
     setRecording(active: boolean): Promise<void>

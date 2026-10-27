@@ -1,4 +1,6 @@
 <script setup lang="ts">
+defineProps<{ disabled?: boolean }>()
+
 const model = defineModel<boolean>({ required: true })
 </script>
 
@@ -7,6 +9,7 @@ const model = defineModel<boolean>({ required: true })
     type="button"
     class="toggle"
     :class="{ on: model }"
+    :disabled="disabled"
     role="switch"
     :aria-checked="model"
     @click="model = !model"
@@ -28,6 +31,11 @@ const model = defineModel<boolean>({ required: true })
 
 .toggle.on {
   background: var(--accent);
+}
+
+.toggle:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .knob {

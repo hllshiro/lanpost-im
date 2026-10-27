@@ -75,7 +75,8 @@ const api: Api = {
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
-    defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
+    defaults: () => ipcRenderer.invoke(IPC.settingsDefaults),
+    setStartAtLogin: (enabled) => ipcRenderer.invoke(IPC.settingsStartAtLogin, enabled)
   },
   shortcuts: {
     setRecording: (active) => ipcRenderer.invoke(IPC.shortcutsRecording, active),

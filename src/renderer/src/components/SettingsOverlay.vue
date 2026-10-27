@@ -86,6 +86,7 @@ const saved = ref(false)
 const confirmingReset = ref(false)
 const recording = ref<ShortcutAction | null>(null)
 const recordTip = ref('')
+const startAtLoginBusy = ref(false)
 const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 const firewall = ref<FirewallStatus | null>(null)
@@ -183,22 +184,40 @@ async function repairFirewall(): Promise<void> {
   }
 }
 
+function noteSaved(next: Settings): void {
+  applySettings(next)
+  emit('saved', next)
+  saved.value = true
+  if (savedTimer !== undefined) window.clearTimeout(savedTimer)
+  savedTimer = window.setTimeout(() => {
+    saved.value = false
+  }, 1800)
+}
+
 async function pushPatch(patch: SettingsPatch): Promise<void> {
   pending.value += 1
   error.value = ''
   try {
-    const next = await window.api.settings.update(patch)
-    applySettings(next)
-    emit('saved', next)
-    saved.value = true
-    if (savedTimer !== undefined) window.clearTimeout(savedTimer)
-    savedTimer = window.setTimeout(() => {
-      saved.value = false
-    }, 1800)
+    noteSaved(await window.api.settings.update(patch))
   } catch (reason) {
     error.value = errorMessage(reason)
   } finally {
     pending.value -= 1
+  }
+}
+
+async function setStartAtLogin(enabled: boolean): Promise<void> {
+  if (startAtLoginBusy.value) return
+  startAtLoginBusy.value = true
+  pending.value += 1
+  error.value = ''
+  try {
+    noteSaved(await window.api.settings.setStartAtLogin(enabled))
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    pending.value -= 1
+    startAtLoginBusy.value = false
   }
 }
 
@@ -829,18 +848,22 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="row">
-            <div class="row-text"><span class="label">开机启动</span></div>
+            <div class="row-text">
+              <span class="label">开机启动</span>
+              <p class="hint">登录系统后自动运行内网传书</p>
+            </div>
             <div class="control control-auto">
               <ToggleSwitch
-                v-model="settings.general.startAtLogin"
-                @update:model-value="saveField('general', { startAtLogin: $event })"
+                :model-value="settings.general.startAtLogin"
+                :disabled="startAtLoginBusy"
+                @update:model-value="setStartAtLogin($event)"
               />
             </div>
           </div>
           <div class="row">
             <div class="row-text">
-              <span class="label">启动时隐藏窗口</span>
-              <p class="hint">开机启动后不显示主界面</p>
+              <span class="label">启动时最小化到托盘</span>
+              <p class="hint">启动后隐藏主界面，只保留托盘图标</p>
             </div>
             <div class="control control-auto">
               <ToggleSwitch
