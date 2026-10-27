@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { deriveIdentityId } from './identity'
 import { identityFromComputerName } from './identity'
 
 describe('identity defaults', () => {
@@ -36,5 +37,16 @@ describe('identity defaults', () => {
     expect(identityFromComputerName(long).displayName).toHaveLength(32)
     expect(identityFromComputerName(long).account).toHaveLength(32)
     expect(identityFromComputerName(long).hostName).toHaveLength(64)
+  })
+})
+
+describe('identity id', () => {
+  it('derives the same id for the same hardware and account', () => {
+    const one = deriveIdentityId('alice', 'hardware-123')
+    const two = deriveIdentityId('alice', 'hardware-123')
+    expect(one).toBe(two)
+    expect(one).toHaveLength(32)
+    expect(deriveIdentityId('bob', 'hardware-123')).not.toBe(one)
+    expect(deriveIdentityId('alice', 'hardware-456')).not.toBe(one)
   })
 })

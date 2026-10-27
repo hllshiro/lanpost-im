@@ -9,6 +9,7 @@ export interface PeerInfo {
   name: string
   group: string
   status: number
+  identityId: string
   online: boolean
   lastSeen: number
   unread: number
@@ -25,6 +26,7 @@ export interface ConversationInfo {
   id: string
   kind: 'direct' | 'group'
   peerKey: string | null
+  identityId: string
   title: string
   pinned: boolean
   muted: boolean

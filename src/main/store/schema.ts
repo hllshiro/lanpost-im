@@ -1,10 +1,11 @@
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
   id TEXT PRIMARY KEY,
   kind TEXT NOT NULL,
   peer_key TEXT UNIQUE,
+  identity_id TEXT NOT NULL DEFAULT '',
   title TEXT NOT NULL,
   avatar TEXT,
   pinned INTEGER NOT NULL DEFAULT 0,
@@ -29,6 +30,7 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_conversations_identity ON conversations(identity_id);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(created_at);
 
 CREATE TABLE IF NOT EXISTS file_tasks (
@@ -62,6 +64,7 @@ CREATE TABLE IF NOT EXISTS peers (
   host TEXT NOT NULL,
   name TEXT NOT NULL,
   group_name TEXT NOT NULL DEFAULT '',
+  identity_id TEXT NOT NULL DEFAULT '',
   status INTEGER NOT NULL DEFAULT 0,
   online INTEGER NOT NULL DEFAULT 0,
   cap_utf8 INTEGER NOT NULL DEFAULT 0,

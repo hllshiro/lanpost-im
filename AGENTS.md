@@ -22,7 +22,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - `src/main/index.ts`：启动、数据目录、窗口、托盘、IPC 注册。
 - `src/main/app-service.ts`：主进程编排（协议、仓储、文件、通知）；新业务接这里，不要再塞回 `index.ts`。
-- `src/main/protocol/`：标准 IPMSG 发现、文字、Entry/UTF-8、确认重传、目录流；`src/main/files/`：TCP 文件收发；`src/main/firewall.ts`：Windows/Linux 防火墙检测与修复；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
+- `src/main/protocol/`：标准 IPMSG 发现、文字、Entry/UTF-8/身份码、确认重传、目录流；`src/main/files/`：TCP 文件收发；`src/main/firewall.ts`：Windows/Linux 防火墙检测与修复；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
 - `src/shared/`：main/preload/renderer 的三方契约（`domain.ts`、`ipc.ts`、`settings.ts`），保持不依赖 Electron/Node。新增 IPC 必须同时改 shared 的 `Api`、preload、main handler 和 renderer 调用。
 - `src/renderer/src/`：Vue 3 + Pinia；`App.vue` 是外壳，`stores/app.ts` 管快照、事件、当前会话。
 - `out/`、`dist/` 是生成物，不要手改；图标、托盘和提示音由 `scripts/gen-assets.py` 生成。
@@ -34,7 +34,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 出站报文版本固定为 `1`；入站容忍带后缀的历史版本号。飞秋的 `1_lbt80_0#...#9:` 外层头在解析时归一化。
 - 有 `CAPUTF8OPT` 的对端默认 UTF-8（支持 emoji），否则回退 GBK。GETFILEDATA 扩展域为十六进制 `packetId:fileId:offset:`；GETDIRFILES 为 `packetId:fileId`。
 - 中文搜索使用 `LIKE`；这里的 FTS5 对两字中文查询不可用。
-- SQLite 使用 `node:sqlite`，`SCHEMA_VERSION = 2`；旧版本数据库直接清空重建，没有增量迁移。第一版尚未发布，不要写数据迁移代码。
+- SQLite 使用 `node:sqlite`，`SCHEMA_VERSION = 3`；旧版本数据库直接清空重建，没有增量迁移。第一版尚未发布，不要写数据迁移代码。
 
 ## 数据目录
 

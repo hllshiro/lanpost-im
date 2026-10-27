@@ -30,7 +30,7 @@ describe('openDatabase', () => {
       expect.arrayContaining(['conversations', 'messages', 'file_tasks', 'peers', 'group_members'])
     )
     const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
-    expect(version.user_version).toBe(2)
+    expect(version.user_version).toBe(3)
     db.close()
   })
 
@@ -46,7 +46,7 @@ describe('openDatabase', () => {
     const rows = reopened.prepare('SELECT id FROM conversations').all()
     expect(rows).toHaveLength(0)
     const version = reopened.prepare('PRAGMA user_version').get() as { user_version: number }
-    expect(version.user_version).toBe(2)
+    expect(version.user_version).toBe(3)
     reopened.close()
   })
 

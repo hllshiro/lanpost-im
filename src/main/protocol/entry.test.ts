@@ -17,6 +17,20 @@ describe('entry', () => {
     expect(parsed.version).toBe('lanpost-im/0.1.0')
   })
 
+  it('round-trips the lanpost identity extension', () => {
+    const parsed = parseEntry(
+      encodeEntry({
+        name: '张三',
+        group: '研发',
+        account: 'zhangsan',
+        host: 'pc',
+        version: 'v',
+        identityId: 'abc123'
+      })
+    )
+    expect(parsed.identityId).toBe('abc123')
+  })
+
   it('uses two NULs when group is empty', () => {
     const buf = encodeEntry({ name: 'a', group: '', account: 'a', host: 'pc', version: 'v' })
     expect(buf.subarray(0, 3).toString('hex')).toBe('610000')

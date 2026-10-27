@@ -9,7 +9,7 @@ import { AppService } from './app-service'
 import { checkFirewall } from './firewall'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
-import { currentIdentityDefaults } from './identity'
+import { currentIdentityDefaults, currentIdentityId } from './identity'
 import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
@@ -95,6 +95,10 @@ if (!gotLock) {
       const settingsFile = join(app.getPath('userData'), 'settings.json')
       logStartup(`loading settings: ${settingsFile}`)
       const settings = new SettingsStore(settingsFile, currentIdentityDefaults())
+      const current = settings.get().identity
+      if (current.identityId === '') {
+        settings.update({ identity: { identityId: currentIdentityId(current.account) } })
+      }
 
       const databaseFile = join(app.getPath('userData'), 'lanpost.db')
       logStartup(`opening database: ${databaseFile}`)

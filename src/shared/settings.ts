@@ -7,7 +7,8 @@ const identitySchema = z.object({
   account: z.string().min(1).default('lanpost'),
   hostName: z.string().min(1).default('lanpost-pc'),
   group: z.string().default(''),
-  status: z.number().int().min(0).max(2).default(0)
+  status: z.number().int().min(0).max(2).default(0),
+  identityId: z.string().default('')
 })
 
 const networkSchema = z.object({

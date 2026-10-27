@@ -7,6 +7,7 @@ export interface EntryInput {
   account: string
   host: string
   version: string
+  identityId?: string
 }
 
 export interface ParsedEntry {
@@ -15,6 +16,7 @@ export interface ParsedEntry {
   account: string
   host: string
   version: string
+  identityId: string
 }
 
 const NUL = Buffer.from([0])
@@ -39,7 +41,8 @@ export function encodeEntry(input: EntryInput): Buffer {
     `HN:${input.host}`,
     `NN:${input.name}`,
     `GN:${input.group}`,
-    `VS:${hexEncode(input.version)}`
+    `VS:${hexEncode(input.version)}`,
+    ...(input.identityId !== undefined && input.identityId !== '' ? [`ID:${input.identityId}`] : [])
   ].join(NEWLINE)
   return Buffer.concat([legacy, Buffer.from(extended, 'utf8')])
 }
@@ -53,7 +56,8 @@ export function parseEntry(payload: Buffer): ParsedEntry {
     group: legacyGroup,
     account: '',
     host: '',
-    version: ''
+    version: '',
+    identityId: ''
   }
   const extensionField = fields.find((field) => field.length > 0 && field[0] === 0x0a)
   if (extensionField === undefined) {
@@ -66,6 +70,7 @@ export function parseEntry(payload: Buffer): ParsedEntry {
     else if (line.startsWith('NN:')) parsed.name = line.slice(3)
     else if (line.startsWith('GN:')) parsed.group = line.slice(3)
     else if (line.startsWith('VS:')) parsed.version = hexDecode(line.slice(3))
+    else if (line.startsWith('ID:')) parsed.identityId = line.slice(3).trim()
   }
   return parsed
 }

@@ -292,6 +292,20 @@ onBeforeUnmount(() => {
           </div>
           <div class="row">
             <div class="row-text">
+              <label class="label" for="setting-identity-id">身份码</label>
+              <p class="hint">用于跨设备/重装后合并历史，请妥善备份</p>
+            </div>
+            <div class="control">
+              <input
+                id="setting-identity-id"
+                :value="settings.identity.identityId"
+                class="input"
+                readonly
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
               <label class="label" for="setting-host">主机名</label>
               <p class="hint">默认取当前计算机名，避免局域网内冲突</p>
             </div>

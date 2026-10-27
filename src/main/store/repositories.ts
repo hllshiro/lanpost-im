@@ -13,6 +13,7 @@ interface ConversationRow {
   id: string
   kind: string
   peer_key: string | null
+  identity_id: string
   title: string
   pinned: number
   muted: number
@@ -42,6 +43,7 @@ interface PeerRow {
   host: string
   name: string
   group_name: string
+  identity_id: string
   status: number
   online: number
   cap_utf8: number
@@ -89,6 +91,7 @@ function mapConversation(row: ConversationRow): ConversationInfo {
     id: row.id,
     kind: row.kind as ConversationInfo['kind'],
     peerKey: row.peer_key,
+    identityId: row.identity_id,
     title: row.title,
     pinned: toBoolean(row.pinned),
     muted: toBoolean(row.muted),
@@ -131,6 +134,7 @@ function mapPeer(row: PeerRow): PeerInfo {
     host: row.host,
     name: row.name,
     group: row.group_name,
+    identityId: row.identity_id,
     status: row.status,
     online: toBoolean(row.online),
     lastSeen: row.last_seen,
@@ -182,14 +186,46 @@ export class ConversationRepository {
     return rows.map(mapConversation)
   }
 
-  ensureDirect(peerKey: string, title: string): ConversationInfo {
+  ensureDirect(peerKey: string, title: string, identityId = ''): ConversationInfo {
+    if (identityId !== '') {
+      const byIdentity = this.findByIdentity(identityId)
+      if (byIdentity !== null) {
+        this.db
+          .prepare('UPDATE conversations SET peer_key = ? WHERE id = ?')
+          .run(peerKey, byIdentity.id)
+        return this.require(byIdentity.id)
+      }
+    }
     const id = directConversationId(peerKey)
+    const existing = this.get(id)
+    if (existing !== null) {
+      if (identityId !== '' && existing.identityId === '') {
+        this.db.prepare('UPDATE conversations SET identity_id = ? WHERE id = ?').run(identityId, id)
+      }
+      return this.require(id)
+    }
     this.db
       .prepare(
-        'INSERT OR IGNORE INTO conversations (id, kind, peer_key, title, created_at) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO conversations (id, kind, peer_key, identity_id, title, created_at) VALUES (?, ?, ?, ?, ?, ?)'
       )
-      .run(id, 'direct', peerKey, title, Date.now())
+      .run(id, 'direct', peerKey, identityId, title, Date.now())
     return this.require(id)
+  }
+
+  findDirect(peerKey: string, identityId = ''): ConversationInfo | null {
+    if (identityId !== '') {
+      const byIdentity = this.findByIdentity(identityId)
+      if (byIdentity !== null) return byIdentity
+    }
+    return this.get(directConversationId(peerKey))
+  }
+
+  findByIdentity(identityId: string): ConversationInfo | null {
+    if (identityId === '') return null
+    const row = this.db
+      .prepare("SELECT * FROM conversations WHERE kind = 'direct' AND identity_id = ? LIMIT 1")
+      .get(identityId) as ConversationRow | undefined
+    return row === undefined ? null : mapConversation(row)
   }
 
   get(id: string): ConversationInfo | null {
@@ -345,10 +381,19 @@ export class PeerRepository {
   constructor(private readonly db: DatabaseSync) {}
 
   upsert(peer: PeerInfo): void {
+    let alias = peer.alias
+    if (peer.identityId !== '' && alias.trim() === '') {
+      const inherited = this.db
+        .prepare(
+          "SELECT alias FROM peers WHERE identity_id = ? AND key <> ? AND alias <> '' ORDER BY last_seen DESC LIMIT 1"
+        )
+        .get(peer.identityId, peer.key) as { alias: string } | undefined
+      if (inherited !== undefined) alias = inherited.alias
+    }
     this.db
       .prepare(
-        `INSERT INTO peers (key, ip, port, user, host, name, group_name, status, online, cap_utf8, cap_file, cap_clipboard, dialup, version_info, absence_info, alias, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO peers (key, ip, port, user, host, name, group_name, identity_id, status, online, cap_utf8, cap_file, cap_clipboard, dialup, version_info, absence_info, alias, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
            ip = excluded.ip,
            port = excluded.port,
@@ -356,6 +401,7 @@ export class PeerRepository {
            host = excluded.host,
            name = excluded.name,
            group_name = excluded.group_name,
+           identity_id = excluded.identity_id,
            status = excluded.status,
            online = excluded.online,
            cap_utf8 = excluded.cap_utf8,
@@ -374,6 +420,7 @@ export class PeerRepository {
         peer.host,
         peer.name,
         peer.group,
+        peer.identityId,
         peer.status,
         toInteger(peer.online),
         toInteger(peer.capUtf8),
@@ -382,7 +429,7 @@ export class PeerRepository {
         toInteger(peer.dialup),
         peer.versionInfo,
         peer.absenceInfo,
-        peer.alias,
+        alias,
         peer.lastSeen
       )
   }
@@ -391,7 +438,33 @@ export class PeerRepository {
     const rows = this.db
       .prepare(`${PEER_SELECT} ORDER BY name COLLATE NOCASE ASC, key ASC`)
       .all() as unknown as PeerRow[]
-    return rows.map(mapPeer)
+    const referenced = new Set(
+      (
+        this.db
+          .prepare('SELECT peer_key FROM conversations WHERE peer_key IS NOT NULL')
+          .all() as Array<{ peer_key: string }>
+      ).map((row) => row.peer_key)
+    )
+    const chosen = new Map<string, PeerRow>()
+    for (const row of rows) {
+      if (row.identity_id === '') continue
+      const current = chosen.get(row.identity_id)
+      if (
+        current === undefined ||
+        (row.online === 1 && current.online === 0) ||
+        (row.online === current.online &&
+          referenced.has(row.key) &&
+          !referenced.has(current.key)) ||
+        (row.online === current.online &&
+          referenced.has(row.key) === referenced.has(current.key) &&
+          row.last_seen > current.last_seen)
+      ) {
+        chosen.set(row.identity_id, row)
+      }
+    }
+    return rows
+      .filter((row) => row.identity_id === '' || chosen.get(row.identity_id)?.key === row.key)
+      .map(mapPeer)
   }
 
   setAlias(key: string, alias: string): void {

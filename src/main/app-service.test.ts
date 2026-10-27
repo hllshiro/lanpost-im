@@ -85,6 +85,7 @@ function peer(): ProtocolPeer {
     name: 'Peer',
     group: '',
     status: 0,
+    identityId: 'test-identity',
     online: true,
     capUtf8: true,
     capFile: true,
@@ -374,5 +375,19 @@ describe('AppService picker directory memory', () => {
       expect.objectContaining({ defaultPath: firstDir })
     )
     expect(settings.get().files.lastDialogDir).toBe(secondDir)
+  })
+})
+
+describe('AppService identity history reuse', () => {
+  it('keeps messages in one conversation when identity matches across peer keys', () => {
+    const { service, repos } = setup()
+    const inbound = (service as unknown as { handleIncoming: (...args: unknown[]) => void })
+      .handleIncoming
+    inbound.call(service, '10.0.0.1|alice', 'Alice', 'old ip', 1, {}, 'identity-x')
+    inbound.call(service, '10.0.0.2|alice', 'Alice', 'new ip', 2, {}, 'identity-x')
+    const conversations = repos.conversations.list()
+    expect(conversations).toHaveLength(1)
+    expect(conversations[0]).toMatchObject({ identityId: 'identity-x', peerKey: '10.0.0.2|alice' })
+    expect(repos.messages.list(conversations[0].id).messages).toHaveLength(2)
   })
 })

@@ -23,6 +23,7 @@ function makePeer(key: string, overrides: Partial<PeerInfo> = {}): PeerInfo {
     name: '爱丽丝',
     group: '',
     status: 0,
+    identityId: '',
     online: false,
     lastSeen: 0,
     unread: 0,
@@ -331,5 +332,42 @@ describe('FileRepository', () => {
     })
 
     db.close()
+  })
+})
+
+describe('ConversationRepository identity reuse', () => {
+  it('reuses the conversation when the same identity changes peer key', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const first = conversations.ensureDirect('10.0.0.1|alice', 'Alice', 'identity-a')
+    const second = conversations.ensureDirect('10.0.0.2|alice2', 'Alice', 'identity-a')
+    expect(second.id).toBe(first.id)
+    expect(second.peerKey).toBe('10.0.0.2|alice2')
+    expect(conversations.list()).toHaveLength(1)
+  })
+})
+
+describe('PeerRepository identity dedupe', () => {
+  it('keeps one visible peer per identity and inherits aliases', () => {
+    const db = openMemory()
+    const peers = new PeerRepository(db)
+    peers.upsert(
+      makePeer('10.0.0.1|alice', {
+        identityId: 'identity-a',
+        alias: '老备注',
+        online: false,
+        lastSeen: 10
+      })
+    )
+    peers.upsert(
+      makePeer('10.0.0.2|alice', {
+        identityId: 'identity-a',
+        online: true,
+        lastSeen: 20
+      })
+    )
+    const list = peers.list()
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ key: '10.0.0.2|alice', alias: '老备注', online: true })
   })
 })

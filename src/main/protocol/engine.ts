@@ -64,6 +64,7 @@ export interface ProtocolConfig {
   seeds: string[]
   broadcastInterval: number
   dialup?: boolean
+  identityId?: string
 }
 
 export interface ProtocolPeer {
@@ -75,6 +76,7 @@ export interface ProtocolPeer {
   name: string
   group: string
   status: number
+  identityId: string
   online: boolean
   capUtf8: boolean
   capFile: boolean
@@ -192,6 +194,7 @@ export function toPeerInfo(peer: ProtocolPeer): PeerInfo {
     name: peer.name,
     group: peer.group,
     status: peer.status,
+    identityId: peer.identityId,
     online: peer.online,
     lastSeen: peer.lastSeen,
     unread: 0,
@@ -483,7 +486,8 @@ export class ProtocolEngine {
       group: this.config.group,
       account: this.config.account,
       host: this.config.host,
-      version: 'lanpost-im/0.1.0'
+      version: 'lanpost-im/0.1.0',
+      identityId: this.config.identityId ?? ''
     })
   }
 
@@ -603,6 +607,7 @@ export class ProtocolEngine {
         name: '',
         group: '',
         status: 0,
+        identityId: '',
         online: true,
         capUtf8: false,
         capFile: false,
@@ -740,6 +745,7 @@ export class ProtocolEngine {
     if (parsed.account !== '') peer.user = parsed.account
     if (parsed.host !== '') peer.host = parsed.host
     if (parsed.version !== '') peer.versionInfo = parsed.version
+    if (parsed.identityId !== '') peer.identityId = parsed.identityId
     peer.capUtf8 = (header.cmd & OPT_CAPUTF8) !== 0
     peer.capFile = (header.cmd & OPT_FILEATTACH) !== 0
     peer.capClipboard = (header.cmd & OPT_CLIPBOARD) !== 0

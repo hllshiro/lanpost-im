@@ -5,6 +5,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type {
   AppEvent,
   AppSnapshot,
+  ConversationInfo,
   FileTaskInfo,
   MessageMeta,
   MessagesPage,
@@ -26,7 +27,7 @@ import {
 } from './protocol/commands'
 import { FileManager } from './files/manager'
 import { NotificationManager } from './notify/manager'
-import { createRepositories, directConversationId, type Repositories } from './store/repositories'
+import { createRepositories, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { logStartup } from './startup-log'
@@ -58,6 +59,7 @@ function engineConfig(settings: Settings): ConstructorParameters<typeof Protocol
     host: settings.identity.hostName,
     group: settings.identity.group,
     status: settings.identity.status,
+    identityId: settings.identity.identityId,
     port: settings.network.port,
     bindAddr: settings.network.bindAddr,
     subnets: settings.network.subnets,
@@ -118,10 +120,10 @@ export class AppService {
     this.engine = new ProtocolEngine(engineConfig(settings.get()), {
       onPeers: (peers) => this.handlePeers(peers),
       onMessage: (peer, text, remoteSeq, meta) =>
-        this.handleIncoming(peer.key, peer.name, text, remoteSeq, meta),
+        this.handleIncoming(peer.key, peer.name, text, remoteSeq, meta, peer.identityId),
       onMessageDeleted: (peerKey, remoteSeq) => this.handleMessageDeleted(peerKey, remoteSeq),
       onFileOffer: (peer, packetId, text, attachments, utf8) =>
-        this.handleFileOffer(peer, packetId, text, attachments, utf8),
+        this.handleFileOffer(peer, packetId, text, attachments, utf8, peer.identityId),
       onFileRelease: (peerKey, packetId, fileIds) => {
         void peerKey
         this.fileManager.markReleased(packetId, fileIds)
@@ -299,6 +301,16 @@ export class AppService {
     return targets.length
   }
 
+  private ensureConversation(peerKey: string, title: string, identityId = ''): ConversationInfo {
+    const identity = identityId || this.repos.peers.get(peerKey)?.identityId || ''
+    return this.repos.conversations.ensureDirect(peerKey, title, identity)
+  }
+
+  private conversationForPeer(peerKey: string): ConversationInfo | null {
+    const identity = this.repos.peers.get(peerKey)?.identityId ?? ''
+    return this.repos.conversations.findDirect(peerKey, identity)
+  }
+
   private insertGroupMessage(
     peerKey: string,
     text: string,
@@ -306,10 +318,7 @@ export class AppService {
     flags: { broadcast?: boolean; multicast?: boolean }
   ): void {
     const peer = this.repos.peers.get(peerKey)
-    const conversation = this.repos.conversations.ensureDirect(
-      peerKey,
-      peer?.alias || peer?.name || peerKey
-    )
+    const conversation = this.ensureConversation(peerKey, peer?.alias || peer?.name || peerKey)
     const meta: MessageMeta = { flags }
     const message = this.repos.messages.insertOutgoing(conversation.id, text, seq, 'text', meta)
     this.repos.messages.setStatus(message.id, 'sent')
@@ -330,14 +339,14 @@ export class AppService {
 
   setAlias(peerKey: string, alias: string): void {
     this.repos.peers.setAlias(peerKey, alias)
-    const conversationId = directConversationId(peerKey)
     const peer = this.repos.peers.get(peerKey)
-    if (peer !== null) {
+    const conversation = this.conversationForPeer(peerKey)
+    if (peer !== null && conversation !== null) {
       this.repos.conversations.setTitle(
-        conversationId,
+        conversation.id,
         alias.trim() === '' ? peer.name || peer.user || peer.ip : alias
       )
-      this.emitConversation(conversationId)
+      this.emitConversation(conversation.id)
     }
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
   }
@@ -443,7 +452,15 @@ export class AppService {
         utf8: peer.capUtf8,
         entryCount: measured.entries
       })
-      this.createFileMessage(conversation.peerKey, peer.name, text, packetId, [task], 'out')
+      this.createFileMessage(
+        conversation.peerKey,
+        peer.name,
+        text,
+        packetId,
+        [task],
+        'out',
+        peer.identityId
+      )
       text = ''
     }
   }
@@ -495,6 +512,7 @@ export class AppService {
       host: settings.identity.hostName,
       group: settings.identity.group,
       status: settings.identity.status,
+      identityId: settings.identity.identityId,
       subnets: settings.network.subnets,
       seeds: settings.network.seeds,
       broadcastInterval: settings.network.broadcastInterval,
@@ -508,7 +526,8 @@ export class AppService {
     packetId: number,
     text: string,
     attachments: Attachment[],
-    utf8 = false
+    utf8 = false,
+    identityId = ''
   ): void {
     if (!this.filesStarted) {
       logStartup('file offer ignored: file service not started')
@@ -533,7 +552,8 @@ export class AppService {
         text,
         packetId,
         created.map((file) => file.id),
-        'in'
+        'in',
+        identityId
       )
       for (const file of created) {
         void this.fileManager.accept(file.id).catch((error: unknown) => {
@@ -544,7 +564,7 @@ export class AppService {
       }
       return
     }
-    this.createFileMessage(peer.key, peer.name, text, packetId, created, 'in')
+    this.createFileMessage(peer.key, peer.name, text, packetId, created, 'in', identityId)
     const settings = this.settings.get()
     for (const file of created) {
       const limit = settings.files.autoAcceptMaxMB
@@ -564,12 +584,14 @@ export class AppService {
     text: string,
     packetId: number,
     files: Array<{ id: string; name: string }>,
-    direction: 'in' | 'out'
+    direction: 'in' | 'out',
+    identityId = ''
   ): void {
     const peer = this.repos.peers.get(peerKey)
-    const conversation = this.repos.conversations.ensureDirect(
+    const conversation = this.ensureConversation(
       peerKey,
-      peer?.alias || peer?.name || peerName || peerKey
+      peer?.alias || peer?.name || peerName || peerKey,
+      identityId
     )
     const body = text.trim() !== '' ? text : (files[0]?.name ?? '文件')
     const meta: MessageMeta = { files: files.map((file) => file.id) }
@@ -611,9 +633,10 @@ export class AppService {
   }
 
   private handleMessageDeleted(peerKey: string, remoteSeq: number): void {
-    const conversationId = directConversationId(peerKey)
-    if (this.repos.messages.deleteByRemoteSeq(conversationId, remoteSeq)) {
-      this.emit({ type: 'message-deleted', conversationId, remoteSeq })
+    const conversation = this.conversationForPeer(peerKey)
+    if (conversation === null) return
+    if (this.repos.messages.deleteByRemoteSeq(conversation.id, remoteSeq)) {
+      this.emit({ type: 'message-deleted', conversationId: conversation.id, remoteSeq })
     }
   }
 
@@ -623,12 +646,14 @@ export class AppService {
     text: string,
     packetId: number,
     fileIds: string[],
-    direction: 'in' | 'out'
+    direction: 'in' | 'out',
+    identityId = ''
   ): void {
     const peer = this.repos.peers.get(peerKey)
-    const conversation = this.repos.conversations.ensureDirect(
+    const conversation = this.ensureConversation(
       peerKey,
-      peer?.alias || peer?.name || peerName || peerKey
+      peer?.alias || peer?.name || peerName || peerKey,
+      identityId
     )
     const meta: MessageMeta = { images: fileIds }
     const message =
@@ -712,7 +737,15 @@ export class AppService {
       })
       ids.push(task.id)
     }
-    this.createImageMessage(conversation.peerKey, peer.name, text, packetId, ids, 'out')
+    this.createImageMessage(
+      conversation.peerKey,
+      peer.name,
+      text,
+      packetId,
+      ids,
+      'out',
+      peer.identityId
+    )
   }
 
   private handleFileUpdate(file: FileTaskInfo): void {
@@ -738,10 +771,7 @@ export class AppService {
     }
     if (link === undefined) {
       const peer = this.repos.peers.get(peerKey)
-      const conversation = this.repos.conversations.ensureDirect(
-        peerKey,
-        peer?.alias || peer?.name || peerKey
-      )
+      const conversation = this.ensureConversation(peerKey, peer?.alias || peer?.name || peerKey)
       const text = file.name
       const meta: MessageMeta = { files: [file.id] }
       const message =
@@ -808,16 +838,22 @@ export class AppService {
     const aliases = new Map(this.repos.peers.list().map((peer) => [peer.key, peer.alias]))
     for (const peer of peers) {
       this.repos.peers.upsert(toPeerInfo(peer))
-      const conversationId = directConversationId(peer.key)
-      const title = aliases.get(peer.key)?.trim() || peer.name || peer.user || peer.ip
-      const existing = this.repos.conversations.get(conversationId)
+      const existing = this.repos.conversations.findDirect(peer.key, peer.identityId)
+      const previousAlias =
+        existing?.peerKey !== null && existing?.peerKey !== undefined
+          ? this.repos.peers.get(existing.peerKey)?.alias
+          : undefined
+      const title =
+        aliases.get(peer.key)?.trim() || previousAlias?.trim() || peer.name || peer.user || peer.ip
+      const conversation = this.ensureConversation(peer.key, title, peer.identityId)
       if (existing === null) {
-        const conversation = this.repos.conversations.ensureDirect(peer.key, title)
         this.emit({ type: 'conversation', conversation })
-      } else if (existing.title !== title) {
+      } else if (conversation.title !== title) {
         // 昵称、别名或账号在握手后变化时，会话标题跟着联系人一起更新。
-        this.repos.conversations.setTitle(conversationId, title)
-        this.emitConversation(conversationId)
+        this.repos.conversations.setTitle(conversation.id, title)
+        this.emitConversation(conversation.id)
+      } else if (existing.peerKey !== conversation.peerKey) {
+        this.emitConversation(conversation.id)
       }
     }
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
@@ -828,9 +864,10 @@ export class AppService {
     peerName: string,
     text: string,
     remoteSeq: number,
-    meta: MessageMeta = {}
+    meta: MessageMeta = {},
+    identityId = ''
   ): void {
-    const conversation = this.repos.conversations.ensureDirect(peerKey, peerName || peerKey)
+    const conversation = this.ensureConversation(peerKey, peerName || peerKey, identityId)
     const message = this.repos.messages.insertIncoming(
       conversation.id,
       text,
@@ -859,7 +896,9 @@ export class AppService {
     seq: number,
     status: 'delivered' | 'read' | 'failed'
   ): void {
-    const conversationId = directConversationId(peerKey)
+    const conversation = this.conversationForPeer(peerKey)
+    if (conversation === null) return
+    const conversationId = conversation.id
     const row = this.db
       .prepare(
         "SELECT id FROM messages WHERE conversation_id = ? AND direction = 'out' AND remote_seq = ? ORDER BY id DESC LIMIT 1"

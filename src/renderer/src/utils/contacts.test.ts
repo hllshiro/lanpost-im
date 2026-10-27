@@ -12,6 +12,7 @@ function peer(overrides: Partial<PeerInfo>): PeerInfo {
     name: 'n',
     group: '',
     status: 0,
+    identityId: '',
     online: true,
     lastSeen: 0,
     unread: 0,
