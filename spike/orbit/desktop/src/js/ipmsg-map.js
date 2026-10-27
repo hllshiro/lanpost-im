@@ -39,7 +39,35 @@
     }
   }
 
-  var api = { peerToFriend: peerToFriend, textToPacket: textToPacket, statusOf: statusOf }
+  function isImageName(name) {
+    return /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(name || '')
+  }
+
+  function fileToPacket(file) {
+    var chatId = 'ipmsg:' + file.peerKey
+    var type = isImageName(file.name) ? 'image' : 'file'
+    return {
+      type: 'MESSAGE',
+      from: chatId,
+      timestamp: new Date().toISOString(),
+      payload: {
+        chatId: chatId,
+        text: '',
+        msgId: 'ipmsg-file:' + file.id,
+        transport: 'ipmsg',
+        attachments: [{
+          id: 'ipmsg-file-' + file.id,
+          type: type,
+          name: file.name,
+          size: file.size,
+          path: file.path,
+          url: 'orbit-file://' + file.path
+        }]
+      }
+    }
+  }
+
+  var api = { peerToFriend: peerToFriend, textToPacket: textToPacket, fileToPacket: fileToPacket, statusOf: statusOf }
   if (typeof module !== 'undefined' && module.exports) module.exports = api
   if (root) root.IpmsgMap = api
 })(typeof window !== 'undefined' ? window : globalThis)

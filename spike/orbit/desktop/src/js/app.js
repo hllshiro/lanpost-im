@@ -831,6 +831,14 @@ document.addEventListener('DOMContentLoaded', () => {
         });
       }
 
+      if (window.orbitAPI.onIpmsgFile) {
+        window.orbitAPI.onIpmsgFile((file) => {
+          if (!window.IpmsgMap || !window.store) return;
+          if (!file || file.direction !== 'in' || file.state !== 'done' || !file.path) return;
+          window.store.handleIncomingPacket(window.IpmsgMap.fileToPacket(file));
+        });
+      }
+
       if (window.orbitAPI.onIpmsgTextStatus) {
         window.orbitAPI.onIpmsgTextStatus((status) => {
           // IPMSG delivery/read receipts are intentionally not surfaced in Phase 0.

@@ -9,6 +9,7 @@ let app;
 let page;
 let transport;
 let receiveDir;
+let sourceDir;
 
 test.beforeEach(async () => {
   ({ app, page } = await launchApp(tmpUserDataDir('ipmsg')));
@@ -28,6 +29,10 @@ test.afterEach(async () => {
     fs.rmSync(receiveDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
     receiveDir = null;
   }
+  if (sourceDir) {
+    fs.rmSync(sourceDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    sourceDir = null;
+  }
 });
 
 test('discovers, displays and exchanges text with an IPMSG peer', async () => {
@@ -35,6 +40,7 @@ test('discovers, displays and exchanges text with an IPMSG peer', async () => {
   receiveDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-ipmsg-e2e-'));
 
   const texts = [];
+  const files = [];
   transport = new IpmsgTransport(
     {
       name: 'IPMSG Test Peer',
@@ -51,7 +57,7 @@ test('discovers, displays and exchanges text with an IPMSG peer', async () => {
       onPeers: () => {},
       onText: (text) => texts.push(text),
       onTextStatus: () => {},
-      onFile: () => {},
+      onFile: (file) => files.push(file),
       onLog: () => {},
       onError: (error) => { throw error; }
     }
@@ -77,6 +83,26 @@ test('discovers, displays and exchanges text with an IPMSG peer', async () => {
     return window.orbitAPI.ipmsgSendText('127.0.0.1|ipmsg-test', 'hello from orbit');
   });
   await expect.poll(() => texts.some((item) => item.text === 'hello from orbit'), { timeout: 15000 }).toBe(true);
+
+  sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-ipmsg-src-'));
+  const incomingName = 'from-ipmsg-' + Date.now() + '.txt';
+  const incomingFile = path.join(sourceDir, incomingName);
+  fs.writeFileSync(incomingFile, 'ipmsg file from test');
+  await transport.sendFile(appPeer.key, incomingFile);
+  await page.waitForFunction((name) => {
+    const messages = Object.values(window.store.getState().messages).flat();
+    return messages.some((message) => (message.attachments || []).some((att) => att.name === name));
+  }, incomingName, { timeout: 15000 });
+
+  const outgoingName = 'to-ipmsg-' + Date.now() + '.txt';
+  const outgoingPath = path.join(sourceDir, outgoingName);
+  fs.writeFileSync(outgoingPath, 'ipmsg file from orbit');
+  await page.evaluate(async (filePath) => {
+    return window.orbitAPI.ipmsgSendFile('127.0.0.1|ipmsg-test', filePath);
+  }, outgoingPath);
+  await expect.poll(() => files.some((file) => file.direction === 'in' && file.state === 'done' && file.name === outgoingName), { timeout: 15000 }).toBe(true);
+  const received = files.find((file) => file.direction === 'in' && file.state === 'done' && file.name === outgoingName);
+  expect(fs.readFileSync(received.path, 'utf8')).toBe('ipmsg file from orbit');
 });
 
 async function waitFor(probe, timeout = 15000) {

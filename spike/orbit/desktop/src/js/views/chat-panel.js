@@ -3105,9 +3105,41 @@ window.ChatPanel = {
     const activeGroup = state.groups.find(function(g) { return g.groupId === activeChatId; });
     const isGroup = !!activeGroup;
     if (friend && friend.transport === 'ipmsg' && this.stagedFiles && this.stagedFiles.length > 0) {
-      if (window.Toast) window.Toast.show('IPMSG', 'File transfer integration is pending', 'info', 3000);
-      this._sending = false;
-      return;
+      var ipmsgFiles = this.stagedFiles.filter(function(s) { return s && s.path; });
+      var loaded = 0;
+      for (var fi = 0; fi < ipmsgFiles.length; fi++) {
+        var sf = ipmsgFiles[fi];
+        try {
+          var taskId = await window.orbitAPI.ipmsgSendFile(String(friend.userId).replace(/^ipmsg:/, ''), sf.path);
+          window.store.addMessage(activeChatId, {
+            id: 'ipmsg-file-out:' + taskId,
+            sender: myId,
+            text: '',
+            timestamp: new Date().toISOString(),
+            transport: 'ipmsg',
+            attachments: [{
+              id: 'ipmsg-file-' + taskId,
+              type: sf.type === 'image' ? 'image' : 'file',
+              name: sf.name,
+              size: sf.size,
+              path: sf.path,
+              url: 'orbit-file://' + sf.path
+            }]
+          });
+          loaded++;
+        } catch (error) {
+          if (window.Toast) window.Toast.show('IPMSG', 'File send failed: ' + (error && error.message ? error.message : String(error)), 'error', 4000);
+        }
+      }
+      this.stagedFiles = [];
+      this.renderPreviewArea();
+      if (!text) {
+        var ipmsgInput = document.getElementById('chat-input');
+        if (ipmsgInput) ipmsgInput.value = '';
+        window.store.notify();
+        this._sending = false;
+        return;
+      }
     }
     const myId = state.currentUser.userId;
 
