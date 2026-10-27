@@ -310,6 +310,29 @@ desktop/lib/ipmsg/
 
 如果 spike 表明“UI 和数据模型不用大改”，Orbit 底座可行；如果一开始就发现群聊、消息模型、i18n 和迁移要重写，那就回到当前项目，只移植 Orbit 的局部实现。
 
+## 最小 IPMSG 兼容的复杂度
+
+把 IPMSG 范围收缩到“用户发现 + 点对点文本 + 文件传送”后，协议层本身不难，因为当前项目已经实现了这套核心，可以抽成独立模块复用。真正的复杂度转移到 Orbit 的数据/UI 适配。
+
+| 工作项 | 复杂度 | 说明 |
+| --- | --- | --- |
+| IPMSG 发现、文本、文件协议 | 低 | 复用当前 `engine` + `FileManager`，去掉目录、图片、密封、广播等分支 |
+| Orbit 主进程挂第二个 transport | 中 | UDP 2425 与 Orbit 45678 不冲突；新增 IPMSG 模块和 IPC 事件 |
+| 联系人模型 | 中 | Orbit `friends` 增加 `transport`/`ipmsgAccount`/`lastIp`；IPMSG 联系人用 `ipmsg:<ip>|<account>` |
+| 消息模型 | 中 | 复用 Orbit `messages`/`chatId`，增加 `transport`、`remoteSeq`、`remoteId`；文本可直接映射 |
+| 文件传输适配 | 中偏高 | Orbit 的 transfer 事件和 IPMSG 的 FileManager 进度/状态要统一；附件表和下载路径要对接 |
+| 能力降级 UI | 低 | IPMSG 联系人隐藏 typing/reaction/read receipt/群邀请/编辑 |
+| 联系人合并 | 低到中 | 第一阶段可以不复用旧项目”；IPMSG 联系人按独立联系人处理，避免双通道去重复杂化 |
+| 旧数据迁移 | 中 | 若 Orbit 是升级而非新装，需要把当前 schema 4 的会话/消息/文件导入 Orbit |
+| 中文化和微信风格 UI | 高 | Orbit 目前是英文 Discord 风格；如果坚持微信风格，这部分会抵消复用收益 |
+| Android 上的 IPMSG | 高 | Node 的 UDP/TCP 不能直接在 Capacitor WebView 跑，需要 Java 插件；建议桌面优先 |
+
+**判断：**
+
+- 只做桌面端、只做 IPMSG 1:1、接受 Orbit UI、暂不迁移旧数据：复杂度从“高”降到“中等”，值得做一个 spike。
+- 仍要保留当前微信 UI、中文、旧数据和 Android：复杂度仍然很高，继续当前项目更划算。
+- 最小 spike 可以只验证：IPMSG 联系人出现在 Orbit 列表、双向文本、单文件双向传输、Orbit↔Orbit 原有功能不受影响。
+
 ## 对群聊离线消息的建议
 
 结合当前约束，建议采用“发送方队列 + 上线同步”的 A 方案，不引入服务端或复杂 gossip：
