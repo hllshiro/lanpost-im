@@ -1,0 +1,3841 @@
+/* src/styles/components.css */
+
+/* Avatars */
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  background-color: var(--bg-hover);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.avatar-sm { width: 24px; height: 24px; }
+.avatar-md { width: 36px; height: 36px; }
+.avatar-lg { width: 48px; height: 48px; }
+.avatar-xl { width: 80px; height: 80px; }
+
+/* Status Dots */
+/* ⚠ THIS NO LONGER PAINTS ANYTHING — the glyph does. It used to be a filled disc
+   tinted per state, which could not say four things: `dnd` and `busy` share a
+   hue, and so do `invisible` and `offline`. Presence is now a shape as well as a
+   colour, from shared/ui/presence.js — a filled circle, a filled moon, a filled
+   circle with a bar through it, and a ring.
+   What is left here is the positioning, plus the pulse below and the
+   reduced-motion opt-out in redesign.css, which are all keyed off this class. */
+.status-indicator {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Badges */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  height: 16px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: bold;
+  background-color: var(--accent-danger);
+  color: white;
+}
+
+/* Sidebar Icons */
+.icon-btn {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: var(--transition);
+  position: relative;
+  margin-bottom: var(--spacing-sm);
+}
+
+.icon-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+}
+
+.icon-btn.active {
+  background-color: var(--accent-soft);
+  color: var(--accent-primary);
+  border-radius: var(--radius-md);
+}
+
+/* Fill SVG icons when button is active — filled variant for active state */
+.icon-btn.active svg {
+  fill: currentColor !important;
+}
+
+/* Active indicator line on the left */
+.icon-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 24px;
+  width: 3px;
+  background-color: var(--accent-primary);
+  border-radius: 0 4px 4px 0;
+}
+
+/* Panel Middle Search Bar */
+.search-container {
+  padding: var(--spacing-md);
+  padding-top: 0;
+}
+
+.search-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+.search-input-wrapper i {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  width: 16px;
+  height: 16px;
+}
+
+.search-input {
+  width: 100%;
+  height: 32px;
+  background-color: var(--bg-hover);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: 0 12px 0 36px;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: var(--transition);
+}
+
+.search-input:focus {
+  background-color: var(--bg-surface);
+  border-color: var(--accent-primary);
+}
+
+/* List Rows (Friends / Groups) */
+.list-row {
+  display: flex;
+  align-items: center;
+  padding: var(--spacing-sm) var(--spacing-md);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  margin: 0 var(--spacing-sm);
+  transition: var(--transition);
+}
+
+.list-row:hover {
+  background-color: var(--bg-hover);
+}
+
+.list-row.active {
+  background-color: var(--accent-soft);
+}
+
+.list-row-info {
+  margin-left: var(--spacing-sm);
+  flex: 1;
+  overflow: hidden;
+}
+
+.list-row-title {
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.list-row-subtitle {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Unread / Mention Badges */
+.unread-badge {
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 6px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.unread-badge.mention-badge {
+  background: var(--accent-danger);
+}
+
+/* Compact Bubbles Override */
+[data-bubbles="Compact"] .message-bubble {
+  border-radius: 4px !important;
+}
+
+/* Message Feed Pattern */
+.message-feed {
+  background-image: var(--chat-bg-image, none);
+  background-size: var(--chat-bg-size, auto);
+}
+
+/* Chat Input Wrapper */
+.chat-input-wrapper {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-hover);
+  border-radius: 24px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  transition: var(--transition);
+  position: relative; /* containing block for the voice recording bar */
+}
+
+.chat-input-wrapper:focus-within {
+  background-color: var(--bg-surface);
+  border-color: var(--accent-primary);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.chat-input-wrapper button {
+  color: var(--text-muted);
+  transition: var(--transition);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.chat-input-wrapper button:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-surface);
+}
+
+.chat-input-field {
+  flex: 1;
+  border: none !important;
+  background: transparent !important;
+  font-size: 15px;
+  color: var(--text-primary);
+  outline: none !important;
+  box-shadow: none !important;
+  padding: 0 12px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.chat-input-field:focus,
+.chat-input-field:focus-visible {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+.chat-input-field::placeholder {
+  color: var(--text-muted);
+}
+/* Textarea (multi-line input) overrides */
+textarea.chat-input-field {
+  resize: none;
+  overflow-y: auto;
+  max-height: 200px;
+  line-height: 1.4;
+  padding: 8px 12px;
+  font-family: inherit;
+  scrollbar-width: thin;
+}
+textarea.chat-input-field::-webkit-scrollbar {
+  width: 4px;
+}
+
+/* ── Voice Recording Bar (floats above the chat input while recording) ── */
+.voice-rec-bar {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 8px 0 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+  animation: voiceBarIn 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes voiceBarIn {
+  from { opacity: 0; transform: translateY(6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.voice-rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: voicePulse 1s ease-in-out infinite;
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+@keyframes voicePulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+
+#voice-rec-timer {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  min-width: 32px;
+  flex-shrink: 0;
+}
+
+.voice-rec-meter {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  justify-content: space-between;
+  flex: 1;
+  height: 28px;
+  min-width: 40px;
+}
+.voice-rec-meter-bar {
+  width: 4px;
+  height: 4%;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  transition: height 70ms ease, background-color 70ms ease;
+}
+.voice-rec-meter-bar.active {
+  background: var(--accent-primary);
+}
+
+/* Bar buttons live inside .chat-input-wrapper — beat its generic button rules */
+.chat-input-wrapper .voice-rec-btn {
+  width: auto;
+  height: 28px;
+  border-radius: 10px;
+  padding: 0 8px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-muted);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  transition: var(--transition);
+}
+.chat-input-wrapper .voice-rec-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.chat-input-wrapper .voice-rec-btn-cancel:hover {
+  color: var(--accent-danger);
+}
+.chat-input-wrapper .voice-rec-btn-stop {
+  color: #fff;
+  background: var(--accent-danger);
+  font-weight: 600;
+}
+.chat-input-wrapper .voice-rec-btn-stop:hover {
+  color: #fff;
+  background: var(--accent-danger);
+  filter: brightness(1.12);
+}
+
+/* Enhanced Hover & Transition Feedback */
+button,
+.btn,
+.chat-header-avatar,
+.status-select-item {
+  transition: var(--transition), transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.list-row,
+.search-result-row,
+.message-bubble {
+  transition: var(--transition), transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+button:hover,
+.btn:hover,
+.chat-header-avatar:hover,
+.status-select-item:hover {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+}
+
+.list-row:hover,
+.search-result-row:hover {
+  filter: brightness(1.05);
+}
+
+button:active,
+.btn:active,
+.chat-header-avatar:active,
+.status-select-item:active {
+  transform: scale(0.95);
+}
+
+.list-row:active,
+.search-result-row:active {
+  transform: scale(0.98);
+}
+
+/* Message bubble hover */
+.message-bubble:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.message-feed {
+  overflow-x: hidden;
+}
+
+/* ⚠⚠ `content-visibility: auto` WAS TRIED HERE AND REVERTED. DO NOT RE-ADD IT WITHOUT AN
+   ALTERNATING A/B.
+   
+   It looked like a clean 2x win — 76.3ms of style recalc down to 37.2ms, layout 18.9 to
+   8.7 — and the whole 81-test suite stayed green. It was measured again with the ON and
+   OFF cases ALTERNATED in one session and every run printed, and it is a REGRESSION:
+
+     ON   layout  311  327    6  305    4    9    avg 160.3ms
+     OFF  layout   10   10   11    8   11   10    avg   9.8ms
+     ON   style    59   80   27   75   22   22    avg  47.6ms
+     OFF  style    41   50   55   38   56   50    avg  48.2ms
+
+   Style is unchanged, and layout spikes to ~300ms in four runs out of six. The likely
+   cause is the feedback loop between `content-visibility: auto` and
+   `contain-intrinsic-size: auto`: a row becomes visible, lays out, and its real size
+   replaces the placeholder — which changes the scroll height, which changes what is
+   visible. With 200 rows that is thrash.
+
+   ⚠ The earlier "win" was a biased comparison: the rule was injected mid-session and the
+   two halves were not interleaved. **A performance change needs an ALTERNATING A/B with
+   every run shown — a median hides exactly this.** */
+
+/* Message action bar */
+.message-row:hover .msg-actions-bar {
+  display: flex;
+}
+.msg-actions-bar {
+  display: none;
+  position: absolute;
+  top: -22px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 4px 8px;
+  box-shadow: var(--shadow-md);
+  z-index: 5;
+  gap: 6px;
+}
+.msg-actions-left {
+  top: auto;
+  bottom: 100%;
+  margin-bottom: 8px;
+  left: auto;
+  transform: none;
+}
+.msg-actions-left.msg-actions-compact {
+  right: 0;
+}
+.msg-actions-left.msg-actions-wide {
+  left: 0;
+  right: auto;
+}
+.msg-actions-right {
+  right: -8px;
+  top: -22px;
+  left: auto;
+  bottom: auto;
+  margin-bottom: 0;
+}
+.msg-actions-right.msg-actions-compact,
+.msg-actions-right.msg-actions-wide {
+  top: auto;
+  bottom: 100%;
+  margin-bottom: 8px;
+}
+.msg-actions-right.msg-actions-compact {
+  left: 0;
+  right: auto;
+}
+.msg-actions-right.msg-actions-wide {
+  right: 0;
+  left: auto;
+}
+.msg-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease;
+}
+.msg-action-btn:hover {
+  background: var(--bg-hover);
+}
+.msg-action-btn svg {
+  width: 16px;
+  height: 16px;
+}
+.msg-delete-btn {
+  color: var(--accent-danger);
+}
+
+/* Force GPU compositing to eliminate white subpixel edge at border-radius clip boundary */
+.att-thumb {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
+/* Attachment delete button */
+.att-thumb .att-delete-btn {
+  display: none;
+}
+.att-thumb:hover .att-delete-btn {
+  display: flex !important;
+}
+
+/* ── Audio Player (OrbitAudioPlayer) ── */
+/* Embedded cover art — the "sound track image" if the file has one, else a
+   music note. Sized to match the 28px control buttons in the row. */
+.oap-art {
+  width: 56px;
+  height: 56px;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background-color: rgba(127,127,127,0.16);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  color: var(--text-muted, rgba(255,255,255,0.55));
+}
+
+.oap-art.has-art {
+  background-color: transparent;
+}
+
+.oap-art-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.oap-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  min-width: 240px;
+}
+
+.oap-canvas {
+  width: 100%;
+  height: 200px;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.08);
+  display: block;
+}
+
+.oap-canvas-box {
+  position: relative;
+}
+
+.oap-canvas-box::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(to top, rgba(0,0,0,0.4) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.oap-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.oap-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.oap-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.oap-btn:active {
+  opacity: 0.7;
+}
+
+/* File name above the timer. The wrapper owns margin-left:auto (it used to sit on
+   .oap-time) so the pair still rests at the right of the control row, and the
+   wrapper is what shrinks — so a long name ellipsises instead of shoving the
+   volume button off the row. */
+.oap-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+  max-width: 260px;
+  margin-left: auto;
+}
+
+.oap-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  line-height: 1.2;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oap-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  padding-right: 2px;
+  line-height: 1.2;
+}
+
+.oap-vol {
+  flex-shrink: 0;
+}
+
+.oap-vol-slider {
+  position: absolute;
+  right: 10px;
+  bottom: 100%;
+  margin-bottom: 6px;
+  width: 80px;
+  height: 28px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+  z-index: 10;
+}
+
+/* Custom track + thumb. The native accent-color fill stops at the content-box
+   edge while the track bleeds into the horizontal padding, leaving an unfilled
+   gray tail at 100%. A gradient track driven by --oap-fill (set from JS on the
+   slider) fills edge to edge at every value. Firefox paints
+   ::-moz-range-progress natively, so no var is needed there. */
+.oap-vol-slider {
+  -webkit-appearance: none;
+  appearance: none;
+}
+.oap-vol-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(to right,
+    var(--accent-primary) 0%,
+    var(--accent-primary) var(--oap-fill, 100%),
+    rgba(128, 128, 128, 0.35) var(--oap-fill, 100%));
+}
+.oap-vol-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: none;
+}
+.oap-vol-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.35);
+}
+.oap-vol-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+}
+.oap-vol-slider::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  border: none;
+}
+
+/* ── Seek Bar ── */
+/* The seek row carries the volume icon at its right end and the progress
+   track takes the remaining width. The slider is a popover above the icon. */
+.oap-seek {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+.oap-seek-track {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.oap-seek-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.35);
+  pointer-events: none;
+}
+
+.oap-seek-fill {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  pointer-events: none;
+  transition: width 0.1s linear;
+}
+
+.oap-seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-primary, #0A84FF);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 0.1s linear;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.oap-seek-tip {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  transform: translateY(-4px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  display: none;
+  z-index: 5;
+}
+
+/* ── Video Player (OrbitVideoPlayer) ── */
+.ovp-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  max-width: 720px;
+  border-radius: 8px;
+  position: relative;
+}
+
+.ovp-video {
+  width: 100%;
+  max-height: 600px;
+  display: block;
+  border-radius: 8px 8px 0 0;
+  background: var(--accent-primary);
+}
+
+/* First-frame poster — covers the <video> until it is played, so an unplayed
+   video shows a real preview instead of a black rectangle. Sits above the video
+   (positioned, z-index 0) but under the bottom fade (z-index 1) and the
+   loading/center overlays (5/6). */
+.ovp-poster {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: none;
+  background-color: #000;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-radius: 8px 8px 0 0;
+  pointer-events: none;
+}
+
+.ovp-video-box {
+  position: relative;
+}
+
+.ovp-video-box::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ovp-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 12px 6px;
+  position: relative;
+  z-index: 1;
+}
+
+.ovp-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.ovp-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.ovp-btn:active {
+  opacity: 0.7;
+}
+
+.ovp-vol-slider {
+  width: 60px;
+  height: 4px;
+  accent-color: var(--accent-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ovp-time {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  margin-left: auto;
+  white-space: nowrap;
+  padding-right: 2px;
+}
+
+.ovp-seek {
+  position: relative;
+  height: 20px;
+  padding: 0 12px;
+  cursor: pointer;
+}
+
+
+
+.ovp-seek-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  border-radius: 4px;
+}
+
+.ovp-seek-track::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(128, 128, 128, 0.35);
+  pointer-events: none;
+}
+.ovp-seek-track {
+  z-index: 1;
+}
+
+.ovp-seek-fill {
+  position: absolute;
+  left: 0;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent-primary);
+  pointer-events: none;
+  transition: width 0.1s linear;
+}
+
+.ovp-seek-thumb {
+  position: absolute;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left 0.1s linear;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+}
+
+.ovp-seek-tip {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  transform: translateY(-4px);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  display: none;
+  z-index: 5;
+}
+
+/* Search result row hover */
+.search-result-row:hover {
+  background: var(--bg-hover);
+}
+
+/* Friend picker option hover */
+.friend-picker-option:hover {
+  background: var(--bg-hover);
+}
+
+/* Scrollbar subtle */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Debug Display Overlay */
+.debug-display .debug-overlay {
+  display: block !important;
+}
+
+.debug-display [data-debug] {
+  position: relative;
+}
+
+.debug-display [data-debug]::after {
+  content: attr(data-debug);
+  position: absolute;
+  bottom: calc(100% + 4px);
+  right: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  font-family: 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
+  color: var(--accent-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 1000;
+  white-space: pre;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  letter-spacing: 0.01em;
+}
+
+/* Show on hover or when parent is hovered */
+.debug-display [data-debug]:hover::after,
+.debug-display .message-row:hover [data-debug]::after {
+  opacity: 1;
+}
+
+/* Search modal input - no purple focus ring */
+.search-modal-input:focus,
+.search-modal-input:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.search-modal-header {
+  position: relative;
+  transition: background 0.15s ease;
+}
+
+.search-modal-header:focus-within {
+  background: transparent;
+}
+
+.search-modal-header:focus-within::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--accent-primary);
+  opacity: 0.6;
+}
+.debug-display .search-input-wrapper::after {
+  content: attr(data-debug);
+  position: absolute;
+  bottom: -22px;
+  left: 12px;
+  font-size: 10px;
+  font-family: 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
+  color: var(--accent-warning, #f59e0b);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  pointer-events: none;
+  opacity: 0;
+  color: var(--text-muted);
+}
+
+/* ── App Skeleton Screen ── */
+
+#app-skeleton {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9997;
+  display: grid;
+  grid-template-rows: 32px 1fr;
+  grid-template-columns: 64px 260px 1fr;
+  background: var(--bg-base);
+  pointer-events: none;
+}
+
+#app-skeleton.sk-hidden {
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.sk-titlebar {
+  grid-column: 1 / -1;
+  background: var(--bg-sidebar);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 10px;
+  gap: 8px;
+}
+
+.sk-titlebar .sk-filler {
+  flex: 1;
+}
+
+.sk-win-btn {
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+}
+
+.sk-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.sk-left {
+  background: var(--bg-sidebar);
+  align-items: center;
+  padding: 16px 0;
+  gap: 14px;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.sk-mid {
+  background: var(--bg-surface);
+  padding: 16px;
+  gap: 0;
+  border-right: 1px solid var(--border-subtle);
+}
+
+.sk-main {
+  background: var(--bg-base);
+  padding: 0;
+}
+
+.sk-box {
+  background: var(--bg-hover);
+  border-radius: 6px;
+  animation: sk-pulse 1.6s ease-in-out infinite;
+}
+
+.sk-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+}
+
+.sk-spacer {
+  flex: 1;
+}
+
+.sk-search {
+  height: 36px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+
+.sk-tabs {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.sk-tab {
+  flex: 1;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.sk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sk-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.sk-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.sk-avatar.lg {
+  width: 40px;
+  height: 40px;
+}
+
+.sk-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sk-line {
+  height: 10px;
+  border-radius: 4px;
+}
+
+.w-70 { width: 70%; }
+.w-65 { width: 65%; }
+.w-60 { width: 60%; }
+.w-55 { width: 55%; }
+.w-50 { width: 50%; }
+.w-45 { width: 45%; }
+.w-40 { width: 40%; }
+.w-35 { width: 35%; }
+.w-30 { width: 30%; }
+.w-15 { width: 15%; }
+
+.sk-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sk-chat {
+  flex: 1;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sk-msg {
+  display: flex;
+}
+
+.sk-msg.rc {
+  justify-content: flex-start;
+}
+
+.sk-msg.sn {
+  justify-content: flex-end;
+}
+
+.sk-bubble {
+  height: 34px;
+  border-radius: 14px;
+}
+
+.sk-input {
+  height: 44px;
+  margin: 16px;
+  border-radius: 10px;
+}
+
+@keyframes sk-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 0.7; }
+}
+
+.debug-display .search-container:hover .search-input-wrapper::after {
+  opacity: 1;
+}
+
+/* List rows - subtle corner badge for friends/groups */
+.debug-display .list-row::before {
+  content: attr(data-debug);
+  font-size: 9px;
+  font-family: 'SF Mono', 'Consolas', 'Liberation Mono', monospace;
+  color: var(--text-muted);
+  padding: 2px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: 0 0 0 8px;
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  left: auto;
+  z-index: 999;
+  line-height: 1.3;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+  max-width: 360px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.debug-display .list-row:hover::before {
+  opacity: 1;
+}
+
+.debug-display .list-row {
+  position: relative;
+}
+
+/* ─── Reactions ────────────────────────────────────────────────────────────
+   ⚠ THIS LOOK USED TO BE INLINE ON EVERY PILL, in chat-panel.js — display, gap,
+   padding, radius, background, border, font-size, and a hardcoded `color: white`
+   for the "you reacted" count. Inline styles cannot be restyled by a stylesheet,
+   so the redesign could not touch a control that sits inside the conversation it
+   redesigned. The look is here now, the state is a class (`is-mine`), and the
+   redesign's deltas are in the layer.
+
+   ⚠ `.reaction-emoji`, NOT `span`. The old selector here was `.reaction-pill span`,
+   which also matched the COUNT — with the inline font-size gone, that would have
+   rendered the count at the emoji's 15px. */
+.reactions-row {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.reaction-pill {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  /* ⚠ The token, not the `12px` literal it used to carry. The ladder is the
+     system; 12 was a one-off that could not follow it. */
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+
+/* ⚠ There was no hover state at all — only `cursor: pointer`, which promises an
+   affordance the UI never showed. Border only: the redesign's rule is that
+   hovering must not move or resize a control. */
+.reaction-pill:hover {
+  border-color: var(--border-strong);
+}
+
+.reaction-pill.is-mine {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.reaction-pill .reaction-emoji {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Android Emoji', 'Twemoji Mozilla', 'EmojiOne Color', sans-serif;
+  font-size: 15px;
+  line-height: 1;
+}
+
+.reaction-count {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* ⚠ The base keeps the white count, because this is the look classic has today
+   and the base has to reproduce it. The redesign replaces the filled pill
+   altogether — see the layer. */
+.reaction-pill.is-mine .reaction-count {
+  color: #fff;
+}
+
+/* Reactions debug overlay */
+.debug-display .reaction-pill::after {
+  font-size: 9px;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+/* Message bubbles debug badge - subtle chip */
+.debug-display .message-bubble::after {
+  font-size: 9px;
+  padding: 2px 7px;
+  bottom: auto;
+  top: -1px;
+  right: -1px;
+  border-radius: 0 8px 0 6px;
+  background: var(--bg-base);
+  border-color: var(--border-subtle);
+  color: var(--text-muted);
+  transition: opacity 0.15s ease;
+  opacity: 0;
+}
+
+.debug-display .message-bubble:hover::after {
+  opacity: 1;
+}
+
+/* Search result rows debug */
+.debug-display .search-result-row::after {
+  bottom: auto;
+  top: 2px;
+  right: 2px;
+  font-size: 9px;
+  padding: 2px 7px;
+  opacity: 0;
+  background: var(--bg-base);
+  color: var(--text-muted);
+  border-radius: 6px;
+}
+
+.debug-display .search-result-row:hover::after {
+  opacity: 1;
+}
+
+/* Reply quote debug */
+.debug-display [data-debug^="ReplyTo"]::after {
+  font-size: 9px;
+  padding: 2px 7px;
+  bottom: auto;
+  top: 2px;
+  right: 2px;
+  background: var(--bg-base);
+  color: var(--text-muted);
+  opacity: 0;
+}
+
+.debug-display [data-debug^="ReplyTo"]:hover::after {
+  opacity: 1;
+}
+
+/* Dev Mode indicator */
+.dev-mode #btn-nav-settings {
+  color: var(--accent-warning, #f59e0b) !important;
+}
+
+/* Show Message IDs */
+.show-message-ids .message-id {
+  display: block !important;
+}
+
+/* Connection Stats */
+.show-conn-stats #connection-stats-overlay {
+  display: flex !important;
+}
+
+/* Experimental: Animated Avatars */
+.experimental-animated-avatars .avatar {
+  animation: avatar-pulse 3s ease-in-out infinite;
+}
+
+@keyframes avatar-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.65; }
+}
+
+/* Experimental: Enhanced Message FX */
+.experimental-message-fx .message-own .message-bubble {
+  animation: fx-bubble 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Sparkle emoji */
+.experimental-message-fx .message-own .message-bubble::after {
+  content: '✨';
+  position: absolute;
+  top: -14px;
+  right: -8px;
+  font-size: 18px;
+  line-height: 1;
+  pointer-events: none;
+  animation: fx-sparkle 0.8s ease-out forwards;
+}
+
+/* Injected particles */
+.fx-particle {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  opacity: 0;
+  animation: fx-particle-fly 0.8s cubic-bezier(0.25, 0.46, 0.45, 0.94) var(--p-delay, 0s) forwards;
+}
+
+@keyframes fx-bubble {
+  0% { opacity: 0.5; transform: scale(0.93); box-shadow: 0 0 0 0 transparent; }
+  40% { opacity: 1; transform: scale(1.04); box-shadow: 0 0 14px -2px rgba(99,102,241,0.2); }
+  100% { opacity: 1; transform: scale(1); box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes fx-sparkle {
+  0% { opacity: 1; transform: translateY(0) scale(0); }
+  35% { opacity: 1; transform: translateY(-8px) scale(1.3); }
+  70% { opacity: 0.7; transform: translateY(-16px) scale(0.8); }
+  100% { opacity: 0; transform: translateY(-24px) scale(0.3); }
+}
+
+@keyframes fx-particle-fly {
+  0% { opacity: 1; transform: translate(0, 0) scale(1); }
+  100% { opacity: 0; transform: translate(var(--p-x), var(--p-y)) scale(0.15); }
+}
+
+/* Experimental: Compact Spacing */
+.experimental-compact-spacing .message-row {
+  margin-bottom: 2px !important;
+}
+.experimental-compact-spacing .message-bubble {
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+}
+.experimental-compact-spacing .chat-input-area {
+  padding-top: 8px !important;
+  padding-bottom: 32px !important;
+}
+.experimental-compact-spacing .list-row {
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+}
+
+/* ─── Message Links ─── */
+.msg-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.message-own .msg-link {
+  color: rgba(255,255,255,0.9);
+}
+.message-own .msg-link:hover {
+  color: #1a3a6b;
+}
+.message-own .msg-link:active {
+  color: #2d7a2d;
+}
+
+/* ⚠ "Classic Bubbles" — Appearance → Text & Layout. Your own bubble is normally the
+   same surface as theirs (`--bg-surface`, set INLINE on the element), and the
+   redesign tints it with the accent instead. This restores the solid accent fill:
+   the look the app had before the redesign, and the setting the mobile already
+   carries under this name.
+
+   ⚠ IT LIVES HERE, IN THE ALWAYS-LOADED SHEET, because the setting has to work in
+   BOTH UIs. The layer has a tint rule of its own; this outranks it on specificity,
+   so it wins without needing to be repeated in redesign.css.
+   ⚠ `color: #fff !important` — the bubble's colour is an INLINE declaration, and
+   an `!important` in a sheet is the only thing that reaches one.
+   ⚠⚠ THE GEOMETRY IS PART OF "CLASSIC". The redesign's bubble is 14px with a 5px
+   tail and 9/13 padding; the message box this setting brings back was 16px with a
+   SQUARE tail and 10/14. Leaving the layer's geometry produced a hybrid — classic
+   colour on a redesign-shaped bubble — which is exactly what Dan photographed.
+   ⚠ `:not(.has-call-log)`: a call-log message puts its CARD inside the bubble, and
+   filling that card with the accent turned it into a solid blue slab with the
+   card's own muted text on top. A call log is a card, not a message box.
+   ⚠ The links need nothing: `.message-own .msg-link` above is already
+   `rgba(255,255,255,.9)`, which is the fill this rule restores. */
+:root[data-classic-bubbles="true"] .message-row.message-own .message-bubble:not(.has-call-log) {
+  background: var(--accent-primary) !important;
+  border-color: var(--accent-primary) !important;
+  color: #fff !important;
+  border-radius: 16px 16px 0 16px !important;
+  padding: 10px 14px !important;
+}
+.message-row:not(.message-own) .msg-link {
+  color: var(--accent-primary);
+}
+.message-row:not(.message-own) .msg-link:hover {
+  color: #1a3a6b;
+}
+.message-row:not(.message-own) .msg-link:active {
+  color: #2d7a2d;
+}
+
+/* Chat input area shadow */
+.chat-input-area {
+  box-shadow: 0 -4px 12px rgba(0,0,0,0.06), var(--shadow-md);
+}
+
+/* Tutorial spotlight fade-in */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ─── Link Preview ─── */
+.link-preview {
+  margin-top: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-hover);
+  cursor: pointer;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  position: relative;
+}
+.link-preview::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 100%;
+  background: var(--accent-primary);
+  opacity: 0.4;
+}
+.link-preview:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+}
+.link-preview.link-preview-mine {
+  border-color: rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08);
+}
+.link-preview.link-preview-mine::before {
+  background: rgba(255,255,255,0.5);
+  opacity: 1;
+}
+.link-preview-img {
+  width: 100%;
+  background: var(--bg-base);
+  overflow: hidden;
+  line-height: 0;
+}
+.link-preview-img:not(:has(img[src])) {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  line-height: normal;
+}
+.link-preview-mine .link-preview-img {
+  background: rgba(0,0,0,0.25);
+  color: rgba(255,255,255,0.4);
+}
+.link-preview-img img {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.link-preview-body {
+  padding: 10px 12px 10px 14px;
+}
+.link-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-preview-mine .link-preview-title {
+  color: #fff;
+}
+.link-preview:hover .link-preview-title,
+.link-preview.link-preview-mine:hover .link-preview-title {
+  color: #1a3a6b;
+}
+.link-preview:active .link-preview-title,
+.link-preview.link-preview-mine:active .link-preview-title {
+  color: #2d7a2d;
+}
+
+.link-preview-url {
+  font-size: 11px;
+  color: var(--text-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.link-preview-mine .link-preview-url {
+  color: rgba(255,255,255,0.65);
+}
+.link-preview:hover .link-preview-url,
+.link-preview.link-preview-mine:hover .link-preview-url {
+  color: #1a3a6b;
+}
+.link-preview:active .link-preview-url,
+.link-preview.link-preview-mine:active .link-preview-url {
+  color: #2d7a2d;
+}
+
+/* Inline code blocks */
+.msg-text code {
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.85em;
+  color: var(--accent-primary);
+  word-break: break-word;
+}
+
+/* Multi-line code blocks */
+.msg-text pre {
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 8px 0;
+  overflow-x: auto;
+  font-family: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  position: relative;
+}
+
+.msg-text pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: inherit;
+  color: var(--text-primary);
+}
+
+/* Markdown block-level elements */
+.msg-text ul,
+.msg-text ol {
+  margin: 8px 0;
+  padding-left: 20px;
+}
+.msg-text li {
+  margin: 2px 0;
+}
+.msg-text blockquote {
+  border-left: 3px solid var(--accent-primary);
+  padding: 4px 12px;
+  margin: 8px 0;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: 0 8px 8px 0;
+}
+.msg-text h3 {
+  margin: 12px 0 6px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text h4 {
+  margin: 12px 0 6px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text h2 {
+  margin: 12px 0 6px;
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text h1 {
+  margin: 12px 0 6px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text h5 {
+  margin: 12px 0 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text h6 {
+  margin: 12px 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.msg-text del {
+  color: var(--text-muted);
+}
+.msg-text hr {
+  border: none;
+  border-top: 2px solid var(--border-subtle);
+  margin: 12px 0;
+}
+
+/* Swipe-to-Reply */
+.message-row {
+  touch-action: pan-y;
+  will-change: transform;
+  position: relative;
+  z-index: 1;
+}
+
+.swipe-reply-indicator {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%) scale(0.4);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  color: var(--text-muted);
+}
+
+
+
+.titlebar-nav-btn { -webkit-app-region: no-drag; transition: all 0.2s; }
+.titlebar-nav-btn:hover { background: var(--bg-hover) !important; color: var(--text-primary) !important; }
+.titlebar-nav-btn:active { background: var(--bg-active) !important; }
+
+/* ─── Gallery Grid Items ─── */
+.gallery-grid-item {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-hover);
+  position: relative;
+  cursor: pointer;
+  break-inside: avoid;
+}
+.gallery-grid-item:hover {
+  border-color: var(--accent-primary);
+}
+.gallery-grid-item .gallery-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0,0,0,0.6);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+.gallery-grid-item:hover .gallery-overlay {
+  opacity: 1;
+}
+.gallery-action-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  color: white;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.gallery-action-btn:hover {
+  background: var(--accent-primary);
+  transform: scale(1.1);
+}
+.gallery-grid-item .gallery-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 12px 8px 12px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.9));
+  color: white;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* === Message threading (reply chains) === */
+
+/* Threaded reply: subtle left indent + vertical chain connector (mirrored for own messages) */
+.msg-threaded {
+  margin-left: 14px;
+  padding-left: 12px;
+  border-left: 2px solid var(--border-subtle);
+}
+.message-own .msg-threaded {
+  margin-left: 0;
+  margin-right: 14px;
+  padding-left: 0;
+  padding-right: 12px;
+  border-left: none;
+  border-right: 2px solid var(--border-subtle);
+}
+
+/* "N replies" chip below a message that has replies */
+.msg-thread-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.msg-thread-chip:hover {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
+}
+.msg-thread-chip svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* Thread panel rows */
+.thread-row {
+  transition: background 0.15s ease;
+}
+.thread-row:hover {
+  background: var(--bg-hover);
+}
+
+/* Call log entries in the chat.
+   A finished call leaves a message with a `call` object instead of text:
+   kind (voice/video), duration, and a Call again button.
+   Mirrors mobile/src/styles/mobile.css. */
+.call-log {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 8px 11px;
+  min-width: 190px;
+}
+.call-log-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--accent-soft, rgba(88, 101, 242, 0.16));
+  color: var(--accent-primary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.call-log-icon i { width: 17px; height: 17px; }
+/* Missed / declined / failed read as neutral rather than a live call. */
+.call-log.is-muted .call-log-icon {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+.call-log-body { min-width: 0; }
+.call-log-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.call-log-sub {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 1px;
+  font-variant-numeric: tabular-nums;
+}
+.call-log-again {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  margin-top: 2px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.12s;
+}
+.call-log-again i { width: 14px; height: 14px; }
+.call-log-again:hover { opacity: 0.9; }
+.call-log-again:active { transform: scale(0.98); opacity: 0.85; }
+
+
+/* ─── First-run feature slides (shared/ui/welcome-slides.js) ────────────────
+   Rendered into the chat panel's empty state on desktop and the conversation
+   list's empty state on mobile, so it is sized to sit comfortably in a narrow
+   column as well as a wide one. */
+/* ─── Welcome slides: atmosphere ────────────────────────────────────────
+   The empty state is the first thing anyone sees, so it carries the app's mood:
+   a slow aurora behind a glass card. All of it is decoration — nothing here is
+   content, and it all switches off under prefers-reduced-motion. */
+#chat-welcome-host {
+  position: relative;
+  overflow: hidden;
+}
+/* Two layers: drifting colour fields, and a faint grid for the colour to sit on.
+   inset:-20% so the drift never exposes an edge as it translates. */
+#chat-welcome-host::before,
+#chat-welcome-host::after {
+  content: '';
+  position: absolute;
+  inset: -20%;
+  pointer-events: none;
+  z-index: 0;
+}
+#chat-welcome-host::before {
+  /* Four fields rather than one: a single accent glow reads as a lamp, several
+     drifting past each other read as an aurora. Alphas are set per gradient with
+     color-mix so the green stays a guest, not a second brand colour. */
+  background:
+    radial-gradient(40% 44% at 24% 26%, color-mix(in srgb, var(--accent-primary) 92%, transparent) 0%, transparent 62%),
+    radial-gradient(30% 34% at 80% 20%, color-mix(in srgb, var(--accent-success) 40%, transparent) 0%, transparent 56%),
+    radial-gradient(46% 48% at 62% 82%, color-mix(in srgb, var(--accent-primary) 72%, transparent) 0%, transparent 66%),
+    radial-gradient(30% 34% at 10% 76%, color-mix(in srgb, var(--accent-soft) 85%, transparent) 0%, transparent 60%);
+  opacity: 0.4;
+  filter: blur(34px);
+  animation: ows-aurora 26s ease-in-out infinite alternate;
+}
+/* A light background needs less of it: the same alpha that reads as a glow on
+   near-black reads as a stain on near-white. */
+html[data-theme="light"] #chat-welcome-host::before { opacity: 0.3; }
+
+/* ⚠ AND IT STANDS STILL WHILE THE LAYOUT IS MOVING. `#app-layout` transitions
+   `grid-template-columns`, so the chat panel is a new size on every frame of a
+   sidebar toggle — and a blurred layer that changes size every frame is
+   re-rasterised every frame. Measured on the welcome screen, one toggle, frames
+   rendered in 400ms (~24 is 60fps):
+       aurora painting   22 frames, 20.8ms apart
+       aurora hidden     53 frames,  8.0ms apart
+   With a chat open there is no aurora and the toggle is smooth — which is exactly
+   what Dan reported: "it's only the WELCOME_SLIDE_SHOW".
+   ⚠ `opacity: 0` with a transition measured 28 frames — a fading layer is still a
+   layer being rasterised, so it has to go rather than dim. `visibility` rather
+   than `display` keeps the pseudo-element in the tree, so nothing is re-created
+   when it comes back. The class is added by beginLayoutMove() in app.js and
+   removed on the grid transition's own `transitionend`. */
+#app-layout.is-resizing #chat-welcome-host::before {
+  visibility: hidden;
+}
+#chat-welcome-host::after {
+  background-image:
+    linear-gradient(var(--border-subtle) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-subtle) 1px, transparent 1px);
+  background-size: 44px 44px, 44px 44px;
+  opacity: 0.45;
+  -webkit-mask-image: radial-gradient(62% 62% at 50% 45%, #000 0%, transparent 76%);
+  mask-image: radial-gradient(62% 62% at 50% 45%, #000 0%, transparent 76%);
+}
+/* everything the host actually contains stays above the decoration */
+#chat-welcome-host > * { position: relative; z-index: 1; }
+
+@keyframes ows-aurora {
+  0%   { transform: translate3d(-4%, -2%, 0) scale(1.06); }
+  50%  { transform: translate3d(3%, 2%, 0) scale(1.14); }
+  100% { transform: translate3d(-2%, 4%, 0) scale(1.08); }
+}
+
+.ows-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  max-width: 460px;
+  padding: 0 20px;
+  box-sizing: border-box;
+}
+
+.ows-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 26px 22px;
+  min-height: 190px;
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  /* Glass, so the aurora reads through it. The flat value comes first as the
+     fallback for a browser without color-mix(). */
+  background: var(--bg-surface);
+  background: color-mix(in srgb, var(--bg-surface) 84%, transparent);
+  backdrop-filter: blur(12px) saturate(1.1);
+  box-shadow: 0 22px 48px -28px rgba(0, 0, 0, 0.7);
+  transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.35s, border-color 0.35s;
+}
+.ows-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border-subtle));
+  box-shadow: 0 26px 54px -28px rgba(0, 0, 0, 0.75);
+}
+
+/* Entrance, staggered icon -> title -> body, replayed on every slide change. */
+.ows-card.ows-enter .ows-icon  { animation: ows-pop 0.5s cubic-bezier(0.2, 0.9, 0.25, 1.35) both; }
+.ows-card.ows-enter .ows-title { animation: ows-rise 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) 0.06s both; }
+.ows-card.ows-enter .ows-body  { animation: ows-rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) 0.12s both; }
+
+@keyframes ows-pop {
+  from { opacity: 0; transform: scale(0.68) rotate(-7deg); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes ows-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: none; }
+}
+
+.ows-icon {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: var(--bg-hover);
+  color: var(--accent-primary);
+}
+.ows-icon svg { width: 22px; height: 22px; }
+/* A soft bloom behind the glyph, so the accent reads as light rather than paint. */
+.ows-icon { position: relative; }
+.ows-icon::after {
+  content: '';
+  position: absolute;
+  inset: -34%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--accent-primary), transparent 72%);
+  opacity: 0.22;
+  filter: blur(7px);
+  pointer-events: none;
+  z-index: -1;
+}
+
+.ows-title {
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.ows-body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  max-width: 380px;
+}
+
+.ows-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.ows-dots { display: flex; gap: 6px; }
+
+.ows-dot {
+  width: 7px;
+  height: 7px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: var(--border-subtle);
+  cursor: pointer;
+  transition: background 0.18s, width 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+/* The active dot stretches into a pill: a position cue you can read at a glance
+   without counting seven dots. */
+.ows-dot.is-active {
+  width: 18px;
+  background: var(--accent-primary);
+}
+
+.ows-btn {
+  padding: 7px 14px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ows-btn:hover { background: var(--bg-hover); }
+
+.ows-btn-primary {
+  border-color: transparent;
+  background: var(--accent-primary);
+  color: #fff;
+}
+.ows-btn-primary:hover {
+  /* Must state the background, not just the filter. `.ows-btn:hover` sets
+     --bg-hover and wins here — same specificity, and it declares a background this
+     rule does not — so the primary button turned pale while keeping white text.
+     In dark mode that is merely odd; in light mode --bg-hover is light and the
+     label disappears entirely. */
+  background: var(--accent-hover, var(--accent-primary));
+  filter: brightness(1.04);
+}
+
+.ows-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: var(--text-muted);
+}
+.ows-done svg { width: 48px; height: 48px; opacity: 0.3; }
+
+/* Decoration must never fight someone who asked for less movement. */
+@media (prefers-reduced-motion: reduce) {
+  #chat-welcome-host::before { animation: none; }
+  .ows-card,
+  .ows-dot { transition: none; }
+  .ows-card.ows-enter .ows-icon,
+  .ows-card.ows-enter .ows-title,
+  .ows-card.ows-enter .ows-body { animation: none; }
+}
+
+/* ─── Empty states ──────────────────────────────────────────────────────
+   One treatment for every "nothing here yet" surface, so the chat panel, the
+   sidebar and search all read as the same app. A glass icon tile with a soft
+   bloom, a title, an optional hint, an optional action — and the same gentle
+   motion the welcome slides use, switched off under prefers-reduced-motion. */
+.oe-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 10px;
+  padding: 36px 24px;
+  box-sizing: border-box;
+  animation: oe-in 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+.oe-icon {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-primary);
+  /* the flat value first, for a browser without color-mix() */
+  background: var(--bg-hover);
+  background: color-mix(in srgb, var(--accent-primary) 18%, var(--bg-surface));
+  border: 1px solid var(--border-subtle);
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-subtle));
+  animation: oe-float 5.5s ease-in-out infinite;
+}
+/* the bloom sits above the tile's own background but behind the glyph */
+.oe-icon::after {
+  content: '';
+  position: absolute;
+  inset: -40%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--accent-primary), transparent 72%);
+  opacity: 0.18;
+  filter: blur(9px);
+  pointer-events: none;
+  z-index: -1;
+}
+.oe-icon svg { width: 26px; height: 26px; }
+.oe-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+.oe-hint {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  max-width: 300px;
+}
+.oe-action {
+  margin-top: 4px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: background 0.18s, transform 0.18s;
+}
+.oe-action:hover {
+  background: var(--accent-hover, var(--accent-primary));
+  transform: translateY(-1px);
+}
+
+/* In a list, where a whole-panel scale would shout. */
+.oe-root.is-compact { padding: 26px 18px; gap: 8px; }
+.oe-root.is-compact .oe-icon { width: 44px; height: 44px; border-radius: 14px; }
+.oe-root.is-compact .oe-icon svg { width: 20px; height: 20px; }
+.oe-root.is-compact .oe-title { font-size: 13px; }
+.oe-root.is-compact .oe-hint { font-size: 12px; }
+
+/* Passive states — "waiting for peers" is not something to act on, so it does not
+   wear the accent the way an actionable one does. */
+.oe-root.is-muted .oe-icon {
+  /* --bg-hover alone is only a shade off the page in the dark themes, which made
+     the tile effectively invisible; the stronger border is what gives it an edge. */
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.oe-root.is-muted .oe-icon::after { opacity: 0.14; }
+
+@keyframes oe-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes oe-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-4px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oe-root, .oe-icon { animation: none; }
+  .oe-action { transition: none; }
+}
+
+/* Fills and centres inside an empty chat feed. flex:1 covers the mobile feed (a
+   flex column) and min-height:100% covers the desktop one (a plain block), so the
+   placeholder lands in the middle of the conversation either way. */
+.oe-root.is-fill {
+  flex: 1;
+  min-height: 100%;
+  justify-content: center;
+}
+
+/* ─── Emoji picker (desktop) ────────────────────────────────────────────
+   The desktop picker had no styling at all, so it rendered the library's raw
+   defaults: a #444 hairline around the panel, a white box on whichever emoji held
+   focus, and an unthemed search field. The same variable set mobile uses, mapped
+   onto the app's tokens — emoji-picker-element reads these UNPREFIXED names, which
+   is worth stating because a `--emoji-picker-*` set lived here once and was never
+   read by anything. */
+#emoji-picker-container emoji-picker {
+  --background: var(--bg-surface);
+  --border-size: 0;                 /* the library's own hairline outline */
+  --border-radius: 0;               /* the container rounds the corners */
+  --indicator-color: var(--accent-primary);
+  --indicator-height: 2px;
+  --input-border-color: var(--border-subtle);
+  --input-font-color: var(--text-primary);
+  --input-placeholder-color: var(--text-muted);
+  --category-font-color: var(--text-muted);
+  --button-hover-background: var(--bg-hover);
+  --button-active-background: var(--border-subtle);
+  /* No focus ring: the library draws it on :focus rather than :focus-visible, so it
+     reads as a stray white rectangle. Themed hover and active states carry it. */
+  --outline-size: 0;
+  /* ⚠ THE LIBRARY'S SCROLLBAR COULD NOT BE STYLED FROM OUTSIDE, AND STILL CANNOT
+     BE — so it is themed the one way that crosses the boundary. Every other
+     scrollbar in the app is themed by base.css, but `::-webkit-scrollbar` does not
+     reach inside a shadow root, and the picker's scrollbar is inside one. It
+     rendered as the raw OS scrollbar: a bright bar against a near-black panel, the
+     only unthemed scrollbar in the window. `scrollbar-color` INHERITS, so the
+     declaration on the host does reach the shadow tree.
+
+     ⚠ COLOUR ONLY — NOT `scrollbar-width: thin`. `_fitToScrollbar()` in
+     emoji-picker.js measures the platform's DEFAULT scrollbar width and widens the
+     picker by exactly that much, because the library draws its grid underneath the
+     scrollbar. A thin scrollbar would be narrower than the number that function
+     measured, and the compensation would leave a strip of dead space on the right.
+     Change the width here and that measurement has to change with it. */
+  scrollbar-color: var(--border-strong) transparent;
+  width: 100%;
+  /* No height here. The element sizes itself, and a percentage height against an
+     auto-height parent is a trap: it collapsed the panel to something taller than
+     the window, pushing the search field off the top of the screen. */
+}
+
+#emoji-picker-container {
+  position: absolute;
+  bottom: 80px;
+  right: 40px;
+  z-index: 1000;
+  overflow: hidden;
+  /* Never taller than the space it has to live in. */
+  max-height: calc(100vh - 160px);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xl);
+  /* It had a shadow and a radius but no edge, which is why it read as a floating
+     widget rather than part of the window. */
+  animation: emoji-picker-in 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes emoji-picker-in {
+  from { opacity: 0; transform: translateY(6px) scale(0.985); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Same courtesy as everywhere else: no motion if it was not asked for. */
+@media (prefers-reduced-motion: reduce) {
+  #emoji-picker-container { animation: none; }
+}
+
+/* Jump to latest: sticky at the foot of the message feed when you are scrolled up.
+   The same shape as mobile — the statement on the left, one button on the right. */
+.jump-to-latest {
+  position: sticky;
+  bottom: 8px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: fit-content;
+  margin: 0 auto;
+  padding: 8px 8px 8px 15px;
+  border-radius: 18px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  /* Lift, not outline. A coloured ring on a floating chip reads as focus. */
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+  color: var(--text-secondary);
+  max-width: 80%;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.jump-to-latest .jump-latest-title {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.jump-to-latest.old .jump-latest-title {
+  color: var(--text-primary);
+  font-weight: 700;
+}
+.jump-to-latest .jump-latest-go {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  background: var(--accent-primary);
+  color: #fff;
+  cursor: pointer;
+}
+.jump-to-latest .jump-latest-go:hover {
+  filter: brightness(1.1);
+}
+
+/* The attach button: a plain plus that turns as you touch it. */
+.composer-plus svg {
+  transition: transform .2s cubic-bezier(.34, 1.4, .64, 1);
+}
+.composer-plus:hover svg {
+  transform: rotate(90deg);
+}
+/* A + turned 45 degrees is an x — so the open state needs no second icon. */
+.composer-plus.open svg {
+  transform: rotate(45deg);
+}
+
+/* The send button says whether it can be pressed.
+   Dimmed and inert with nothing to send; lit and filled when there is. */
+.composer-send {
+  opacity: .4;
+  cursor: default;
+  transition: opacity .15s ease, background .15s ease, transform .12s ease;
+}
+.composer-send.ready {
+  opacity: 1;
+  cursor: pointer;
+  /* No disc at all. The mic and the emoji beside it have no backgrounds, so a filled circle
+     here was the only shape in the row and read as a different KIND of control. The colour
+     carries the state instead: a grey outline arrow when there is nothing to send, a
+     theme-blue filled arrow when there is. */
+  color: var(--accent-primary);
+}
+/* Scoped with .chat-input-wrapper so it outranks the base button:hover rule, which sets a
+   background of its own and would otherwise turn the disc grey the moment the pointer
+   touched it. The hover keeps the disc and adds a faint accent glow — a hint that it is
+   live, without going back to the solid weight. */
+/* No hover override: the base .chat-input-wrapper button:hover supplies the same soft surface
+   the mic and emoji get, which is the house behaviour for every button in this row. The accent
+   colour above survives it — colour and background are different properties, so there is
+   nothing to out-rank any more. */
+.composer-send.ready:hover {
+  color: var(--accent-primary);
+}
+.composer-send.ready:hover {
+  transform: scale(1.06);
+}
+.composer-send.ready:active {
+  transform: scale(.94);
+}
+.composer-send svg {
+  transition: transform .15s ease;
+}
+
+/* The emoji button lights up while its picker is open, the way the send button lights up
+   when there is something to send. */
+.composer-emoji.active {
+  color: var(--accent-primary);
+}
+
+/* ---- Tutorial card motion ----
+   The card's innerHTML is rebuilt on every next()/prev(), so the elements are fresh each time
+   and these animations run without any JS re-triggering them. The stagger is the effect:
+   everything arriving at once reads as a swap, the same content 60ms apart reads as a
+   sequence. The easing overshoots slightly, which is where the "pop" comes from. */
+@keyframes tutorialCardIn {
+  from { opacity: 0; transform: translateY(14px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes tutorialPop {
+  from { opacity: 0; transform: translateY(9px) scale(.95); }
+  to   { opacity: 1; transform: none; }
+}
+.tutorial-card {
+  animation: tutorialCardIn .26s ease-out both;
+}
+.tutorial-card .tutorial-icon,
+.tutorial-card .tutorial-title,
+.tutorial-card .tutorial-desc,
+.tutorial-card .tutorial-nav {
+  animation: tutorialPop .34s cubic-bezier(.34, 1.4, .64, 1) both;
+}
+.tutorial-card .tutorial-title { animation-delay: .06s; }
+.tutorial-card .tutorial-desc  { animation-delay: .12s; }
+.tutorial-card .tutorial-nav   { animation-delay: .18s; }
+
+/* The nav buttons get a press of their own — they are the thing being clicked. */
+.tutorial-card .tutorial-btn-next,
+.tutorial-card .tutorial-btn-back,
+.tutorial-card .tutorial-btn-finish,
+.tutorial-card .tutorial-btn-skip {
+  transition: transform .12s ease, filter .15s ease, background .15s ease;
+}
+.tutorial-card .tutorial-btn-next:hover,
+.tutorial-card .tutorial-btn-finish:hover {
+  filter: brightness(1.1);
+}
+.tutorial-card .tutorial-btn-next:active,
+.tutorial-card .tutorial-btn-finish:active,
+.tutorial-card .tutorial-btn-back:active,
+.tutorial-card .tutorial-btn-skip:active {
+  transform: scale(.95);
+}
+
+/* ---- Shared Media panel motion ----
+   The panel is a display flip, and a display flip has no from-state to animate out of. It
+   rises and slides in from the right, and close() waits for the exit before hiding it. */
+@keyframes panelSlideIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes panelSlideOut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateX(18px); }
+}
+.panel-in  { animation: panelSlideIn .22s cubic-bezier(.22, 1, .36, 1) both; }
+.panel-out { animation: panelSlideOut .16s ease-in both; }
+
+/* ---- Global gallery motion ----
+   The container is rebuilt on every render, so the items are fresh each time and these
+   animations re-run by themselves — filter and search changes animate for free. */
+@keyframes galleryIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes galleryItemIn {
+  from { opacity: 0; transform: translateY(12px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.gallery-in {
+  animation: galleryIn .22s ease-out both;
+}
+.gallery-grid-item {
+  animation: galleryItemIn .3s cubic-bezier(.34, 1.3, .64, 1) both;
+}
+.gallery-grid-item:nth-child(1) { animation-delay: 0ms; }
+.gallery-grid-item:nth-child(2) { animation-delay: 22ms; }
+.gallery-grid-item:nth-child(3) { animation-delay: 44ms; }
+.gallery-grid-item:nth-child(4) { animation-delay: 66ms; }
+.gallery-grid-item:nth-child(5) { animation-delay: 88ms; }
+.gallery-grid-item:nth-child(6) { animation-delay: 110ms; }
+.gallery-grid-item:nth-child(7) { animation-delay: 132ms; }
+.gallery-grid-item:nth-child(8) { animation-delay: 154ms; }
+.gallery-grid-item:nth-child(9) { animation-delay: 176ms; }
+.gallery-grid-item:nth-child(10) { animation-delay: 198ms; }
+.gallery-grid-item:nth-child(11) { animation-delay: 220ms; }
+.gallery-grid-item:nth-child(12) { animation-delay: 242ms; }
+/* everything past the twelfth arrives together, so a large gallery does not
+   leave the last row waiting a second and a half for its turn */
+.gallery-grid-item:nth-child(n+13) { animation-delay: 242ms; }
+
+/* ---- Welcome carousel motion ----
+   welcome-slides.js builds a fresh .ows-root for every slide, so these animations re-run with
+   no JS involved. The card rises in, then the parts pop on a 60ms stagger — everything at once
+   reads as a swap, the same content in sequence reads as something happening. */
+@keyframes owsCardIn {
+  from { opacity: 0; transform: translateY(12px) scale(.97); }
+  to   { opacity: 1; transform: none; }
+}
+@keyframes owsPop {
+  from { opacity: 0; transform: translateY(8px) scale(.96); }
+  to   { opacity: 1; transform: none; }
+}
+.ows-card {
+  animation: owsCardIn .26s ease-out both;
+}
+/* The icon, title and body already have their own entrance (ows-pop / ows-rise, driven by
+   .ows-enter, which the module re-adds on every slide). Those are stronger and better tuned
+   than anything I would add, so this only covers the two parts that had nothing: the card
+   itself and the footer. */
+.ows-footer {
+  animation: owsPop .34s cubic-bezier(.34, 1.4, .64, 1) .18s both;
+}
+.ows-btn {
+  transition: transform .12s ease, filter .15s ease, background .15s ease;
+}
+.ows-btn-primary:hover { filter: brightness(1.1); }
+.ows-btn:active { transform: scale(.95); }
+
+/* Multi-select: a selected item is outlined, and a grid tile gets a tick in the corner.
+   Outline rather than a background, because the tiles are images and a tint would sit behind
+   them where it cannot be seen. */
+.gallery-item.selected,
+.gallery-file-card.selected,
+[data-item-key].selected {
+  outline: 2px solid var(--accent-primary);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+.gallery-item.selected::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent-primary);
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CONVERSATION REWORK — parity with the mobile
+
+   A message was one bubble holding everything: text, images, files, video,
+   audio. A photo had a frame around it — a frame around a frame — and a file
+   was whatever was left over. Attachments now sit BESIDE the bubble, and each
+   kind gets what it actually wants.
+
+   Ported from the mobile, deliberately identical in behaviour so the two
+   platforms cannot drift apart. The mobile's version is in redesign.css §22.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Attachments beside the bubble, aligned with it on the same side. */
+.message-row .msg-attachments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+  align-self: flex-start;
+}
+.message-row.message-own .msg-attachments {
+  align-self: flex-end;
+}
+
+/* ⚠ THE GAP BETWEEN A MESSAGE'S TEXT AND ITS ATTACHMENTS. The bubble and
+   `.msg-attachments` are siblings in a flex column whose `gap` is `normal` — so
+   a message carrying both stacked them FLUSH. Measured: the bubble's bottom edge
+   and the attachment's top edge were the same pixel, gap 0. Dan's Screenshot
+   (165) is that, with "test" sitting directly on the audio player.
+   ⚠ The adjacent-sibling combinator is doing real work here: it must apply ONLY
+   when a bubble precedes the attachments. An attachment-only message — a photo
+   with no caption — has no bubble, and a plain `margin-top` on the container
+   would push it down off the row's baseline. Verified both ways: 6px with a
+   bubble, 0px without. */
+.message-row .message-bubble + .msg-attachments {
+  margin-top: 6px;
+}
+
+/* The desktop's image and file cells share `.att-thumb`, so they are told apart
+   by what is inside them. Images lose the box and keep their aspect ratio;
+   files keep a surface, because a file has no shape of its own. */
+.message-row .msg-attachments .att-thumb:has(img) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: 0 0 0 1px var(--border-subtle);
+  border-radius: 12px !important;
+  height: auto !important;
+  overflow: hidden !important;
+}
+.message-row .msg-attachments .att-thumb:has(img) img {
+  width: 100% !important;
+  height: auto !important;
+  max-height: 340px;
+  object-fit: contain !important;
+  display: block;
+}
+.message-row .msg-attachments .att-thumb:has(> i[data-lucide]) {
+  background: var(--bg-surface) !important;
+  border: 1px solid var(--border-subtle) !important;
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+/* Video and audio: no box, a shadow, so the player reads as sitting on the feed
+   rather than inside a container. */
+.message-row .msg-attachments .att-thumb:has(.ovp-player),
+.message-row .msg-attachments .att-thumb:has(.oap-player) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .30);
+}
+
+/* ── Reactions straddle the bubble's bottom edge ─────────────────────────────
+   Bottom-LEFT on your own messages, bottom-RIGHT on theirs — the opposite
+   corner to the tail, poking out by roughly half their height. This replaces an
+   inline footer with a `border-top` divider, which read as a section rather than
+   something attached to the message.
+
+   The bubble is the containing block: it carries `position: relative` inline,
+   which is what makes this work. Moving the reactions out of it would leave them
+   resolving against the row instead and landing on the wrong side. */
+.message-row .reactions-row {
+  position: absolute !important;
+  bottom: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+  transform: translateY(52%) !important;
+  z-index: 2;
+}
+.message-row.message-own .reactions-row {
+  left: 6px !important;
+  right: auto !important;
+}
+.message-row:not(.message-own) .reactions-row {
+  right: 6px !important;
+  left: auto !important;
+}
+
+/* The pills sit proud of the bubble's bottom edge, so the bubble reserves a band
+   for them — otherwise they cover the last line of the message. The timestamp is
+   in flow below the bubble, so it has to clear them too. */
+.message-row:has(.reactions-row) .message-bubble {
+  padding-bottom: 20px !important;
+}
+.message-row:has(.reactions-row) .msg-time {
+  margin-top: 14px !important;
+}
+
+/* The group below the bubble: reactions of a message with no bubble, and the
+   thread chip. With no bubble to straddle, the absolute positioning has nothing
+   to resolve against, so let them flow. */
+.message-row .msg-below {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  align-self: flex-start;
+}
+.message-row.message-own .msg-below {
+  align-self: flex-end;
+  justify-content: flex-end;
+}
+.msg-below .reactions-row {
+  position: static !important;
+  bottom: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+}
+
+/* ── No bubble: straddle the ATTACHMENT's bottom edge instead ────────────────
+   An image on its own has no bubble, so the pills have nothing to sit on and
+   float below it, belonging to nothing. The idea is "straddle the bottom edge of
+   whatever the message IS" — with no bubble, that is the attachment.
+
+   The reactions are rendered INSIDE `.msg-attachments` for this case, which is
+   what makes it work: an absolutely-positioned element resolves against its own
+   ancestor chain, and `.msg-below` is a SIBLING of the attachment group. */
+.message-row:not(:has(.message-bubble)) .msg-attachments {
+  position: relative;
+}
+.message-row:not(:has(.message-bubble)):has(.reactions-row) .msg-attachments {
+  padding-bottom: 14px !important;
+}
+.message-row:not(:has(.message-bubble)):has(.reactions-row) .msg-time {
+  margin-top: 14px !important;
+}
+
+
+/* ══ The attachment grid, laid out the way Discord does it ══════════════════
+   The grid and its cells carry INLINE styles from chat-panel.js, so every rule
+   here needs !important to win.
+
+     1  the image, whole
+     2  two squares side by side          container 2:1
+     3  one large square, two stacked     container 3:2, columns 2fr / 1fr
+     4  2x2                               container 1:1
+     5+ 2x2 with a "+N" on the last tile
+
+   Tiles touch and the grid clips, so only the OUTER corners are rounded — which
+   is what makes a group read as one object rather than several adjacent cards. */
+.message-row .msg-attachments .att-grid[data-count="1"] {
+  display: block !important;
+  aspect-ratio: auto !important;
+}
+.message-row .msg-attachments .att-grid[data-count="1"] > .att-thumb {
+  border-radius: 12px !important;
+}
+
+.message-row .msg-attachments .att-grid:not([data-count="1"]) {
+  display: grid !important;
+  gap: 2px !important;
+  grid-template-columns: repeat(2, 1fr) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+}
+.message-row .msg-attachments .att-grid:not([data-count="1"]) > .att-thumb {
+  border-radius: 0 !important;
+  min-width: 0;
+  min-height: 0;
+  height: auto !important;
+}
+.message-row .msg-attachments .att-grid:not([data-count="1"]) > .att-thumb img {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+.message-row .msg-attachments .att-grid[data-count="2"] {
+  aspect-ratio: 2 / 1 !important;
+  grid-template-rows: 1fr !important;
+}
+
+/* 3:2, not square — the large tile is two thirds of both dimensions, which is
+   what makes it and the two small ones all square. */
+.message-row .msg-attachments .att-grid[data-count="3"] {
+  aspect-ratio: 3 / 2 !important;
+  grid-template-columns: 2fr 1fr !important;
+  grid-template-rows: repeat(2, 1fr) !important;
+}
+.message-row .msg-attachments .att-grid[data-count="3"] > :nth-child(1) {
+  grid-row: span 2;
+}
+
+.message-row .msg-attachments .att-grid[data-count="4"] {
+  aspect-ratio: 1 !important;
+  grid-template-rows: repeat(2, 1fr) !important;
+}
+
+.message-row .msg-attachments .att-grid-more {
+  position: relative !important;
+}
+.message-row .msg-attachments .att-grid-more img {
+  filter: brightness(0.35);
+}
+.message-row .msg-attachments .att-grid-more::after {
+  content: attr(data-more);
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* ══ Staged attachments ════════════════════════════════════════════════════
+   The strip above the composer, brought in line with the mobile's.
+
+   ⚠ Three things were missing here and the first two are the same shape as the
+   mobile's were. A staged image was a bare <img>, so a photo that took a moment
+   to decode was an empty 64px box with nothing happening in it. And the remove
+   BUTTON was never rendered — the document-level handler for `.btn-remove-file`
+   has existed the whole time, so the handler matched nothing and a staged file
+   could not be taken back. */
+.fp-tile {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  cursor: pointer;
+  /* A staged attachment is the one thing on screen that is not part of the app
+     yet — a thing you are about to send, resting on the conversation. */
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .45);
+  transition: transform .16s cubic-bezier(.16, 1, .3, 1), box-shadow .16s;
+}
+.fp-tile:active {
+  transform: translateY(1px) scale(.98);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .4);
+}
+.fp-tile img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: opacity .18s;
+}
+/* Held back until it is ready, so what you see while it loads is the spinner
+   rather than a half-painted frame. */
+.fp-tile.is-loading img { opacity: 0; }
+
+.fp-doc {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+}
+.fp-name {
+  font-size: 9px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  text-align: center;
+  margin-top: 4px;
+  color: var(--text-secondary);
+}
+
+.fp-spin {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.fp-tile.is-loading .fp-spin { display: flex; }
+.fp-spin::after {
+  content: "";
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .18);
+  border-top-color: var(--accent-primary);
+  animation: fpSpin .7s linear infinite;
+}
+@keyframes fpSpin { to { transform: rotate(360deg); } }
+
+/* Inside the tile on purpose: the tile is `overflow: hidden`, so anything
+   hanging off the corner would be clipped and unpressable. */
+.fp-tile .btn-remove-file {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .62);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background .16s, transform .16s;
+}
+.fp-tile .btn-remove-file:hover { background: var(--accent-danger); }
+.fp-tile .btn-remove-file:active { transform: scale(.9); }
+.fp-tile .btn-remove-file svg { width: 11px; height: 11px; stroke-width: 2.8; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-tile, .fp-tile img, .fp-tile .btn-remove-file { transition: none; }
+  .fp-spin::after { animation-duration: 2s; }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE SWITCH, AND THE PROFILE SIDEBAR
+
+   ⚠ THESE TWO LIVE HERE, NOT IN redesign.css, AND THE REASON IS THE "CLASSIC
+   LOOK" TOGGLE. Both had their markup migrated out of inline styles in v0.9.0 —
+   the renderer emits `.orbit-switch` and `pf-*` classes now — so a rule in the
+   redesign layer would leave a bare checkbox and an unstyled panel the moment a
+   user switched the layer off. Anything the renderer depends on in BOTH UIs has
+   to be in a sheet that always loads; the layer is only allowed to hold the
+   CHROME.
+
+   Their tokens (--switch-*, --dur, --ease, --accent-ring) are in variables.css
+   for the same reason. Verified: redesign.spec.js renders both modes and asserts
+   the switch and this panel are styled in each.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   9c. THE SWITCH — ONE CONTROL, FIVE CALL SITES
+
+   ⚠ THERE WERE FIVE HAND-BUILT SWITCHES, IN THREE FILES, AND FOUR OF THEM
+   DISAGREED WITH EACH OTHER:
+
+     settings-modal.js   App Lock PIN         44x24   off --border-strong
+     settings-modal.js   Automatic Updates    44x24   off --border-strong
+     sidebar-middle.js   Pin Group            36x20   off #323236
+     sidebar-middle.js   Mute Notifications   36x20   off #323236
+     profile-sidebar.js  Mute Notifications   36x20   off --border-subtle
+
+   Two sizes. Three off-colours. And the SAME action — "mute notifications" —
+   rendered as a RED switch in the profile sidebar and an ACCENT switch in the
+   group modal, because the profile one used --accent-danger for "on".
+
+   ⚠ The off-colours are the interesting part: two of the three were --border-*
+   tokens, which are SEMI-TRANSPARENT in every theme. A translucent border colour
+   used as a fill is nearly invisible against the row it sits on, which is how the
+   profile switch looked. --switch-off is a solid surface instead.
+
+   ⚠ State is driven by the real checkbox through SIBLING combinators — not `:has()`
+   (which would work here, Chromium 128, but a sibling selector cannot be the thing
+   that breaks) and not by JS. Every one of the five sites had a second writer that
+   repainted the track background and moved the knob by hand on every change:
+
+     settings-modal.js:2516   slider.style.background = on ? accent : border-strong
+     sidebar-middle.js:2306   pinTrack.style.background = …; pinKnob.style.left = …
+     profile-sidebar.js:289   toggle.style.background = …; knob.style.transform = …
+
+   Three copies of one state machine, each with its own idea of the travel
+   distance. All three are gone: the markup carries `checked`, the CSS reads it.
+
+   ⚠ `.toggle-slider` and `.toggle-knob` — the class names the settings markup has
+   been carrying since long before this redesign — had NO RULES IN ANY STYLESHEET.
+   They were markup-only, so the switch was never styled by CSS at all; every
+   pixel of it came from inline styles. Worth knowing before trusting a class name
+   to mean something.
+
+   ⚠ The travel is CALCULATED, never written out. A hand-written travel value is a
+   second writer: change the width and the knob stops short of the end.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* The outer element is a `<label>` where the switch is its own control, and a
+   `<span>` where it sits inside a row that is already a label — nesting a label
+   inside a label is invalid and browsers disagree about what it does. Both work
+   here: the element is only a positioning box. */
+.orbit-switch {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+/* The real control: focusable and keyboard-operable, just not visible. It is
+   absolutely positioned and zero-sized rather than `display: none`, because a
+   display:none input cannot be tabbed to — the switch would be mouse-only. */
+.orbit-switch > input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.orbit-switch-track {
+  position: relative;
+  display: block;
+  width: var(--switch-w);
+  height: var(--switch-h);
+  border-radius: var(--switch-h);
+  background: var(--switch-off);
+  transition: background var(--dur) var(--ease);
+}
+
+.orbit-switch-knob {
+  position: absolute;
+  top: var(--switch-inset);
+  left: var(--switch-inset);
+  width: var(--switch-knob);
+  height: var(--switch-knob);
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .35);
+  pointer-events: none;
+  transition: transform var(--dur) var(--ease);
+}
+
+.orbit-switch > input:checked + .orbit-switch-track {
+  background: var(--accent-primary);
+}
+.orbit-switch > input:checked + .orbit-switch-track > .orbit-switch-knob {
+  transform: translateX(calc(var(--switch-w) - var(--switch-knob) - 2 * var(--switch-inset)));
+}
+
+/* Keyboard focus lands on the invisible input, so the ring has to be drawn on the
+   track. */
+.orbit-switch > input:focus-visible + .orbit-switch-track {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 2px;
+}
+
+/* A switch that only REPORTS state, inside a row that is itself the control —
+   the profile sidebar's mute row. Clicks must reach the row, so the switch does
+   not swallow them. */
+.orbit-switch.is-static {
+  pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   9d. THE PROFILE SIDEBAR
+
+   ⚠ NO STYLESHEET HAD EVER TOUCHED THIS PANEL, AND NO SPEC DROVE IT. It was
+   built entirely from inline styles in profile-sidebar.js, which is how it
+   managed to ship a banner that renders as a 319x0 box — a gradient painted into
+   nothing — without anything noticing.
+
+   The markup now carries `pf-*` classes (see render() in profile-sidebar.js) and
+   this is the only place its appearance is defined.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.pf-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.pf-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 48px;
+  padding: 0 10px 0 16px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.pf-header-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pf-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pf-close svg {
+  width: 16px;
+  height: 16px;
+}
+.pf-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ⚠ ONE scroll container for the banner AND the body. The avatar is pulled up with
+   a negative margin to straddle the banner's edge, and a negative margin is clipped
+   by an `overflow` ancestor — so with the scroller on `.pf-body` the avatar's top
+   half was cut off at the banner's edge, with the banner painting over it. The
+   scroller has to be the ancestor of both. */
+.pf-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* ⚠ The height lives HERE, not inline, and that is the whole bug. The markup used
+   to put the banner's `background` in one `style` attribute and its
+   `height:80px;flex-shrink:0` in a SECOND one on the same div. The parser keeps
+   the first and silently drops the rest, so the height never landed and the
+   banner has always measured 319x0. */
+.pf-banner {
+  height: 80px;
+}
+
+.pf-body {
+  padding: 0 16px 20px;
+  text-align: center;
+}
+
+/* ⚠ The avatar is pulled UP over the banner's bottom edge. It already carried a
+   3px `--bg-surface` ring; a ring only reads as a ring if the disc straddles an
+   edge, and the body's top padding pushed the avatar clear of the banner instead
+   — so the ring was invisible and the banner read as a strip that happened to be
+   there rather than as the top of a profile card. */
+.pf-identity {
+  margin-top: -34px;
+}
+.pf-avatar {
+  margin-bottom: 10px;
+  line-height: 0;
+}
+.pf-avatar-img,
+.pf-avatar-initial {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 3px solid var(--bg-surface);
+  display: inline-block;
+  box-sizing: border-box;
+}
+.pf-avatar-img {
+  object-fit: cover;
+}
+/* The initials fallback is a solid accent disc with a white letter — the desktop's
+   convention for a photo-less avatar, in all twelve other places. */
+.pf-avatar-initial {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 25px;
+  font-weight: 600;
+}
+.pf-avatar-framed {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+.pf-avatar-frame {
+  position: absolute;
+  top: -14%;
+  left: -14%;
+  width: 122%;
+  height: 122%;
+  pointer-events: none;
+  object-fit: contain;
+}
+
+.pf-name {
+  margin: 0 0 3px;
+  font-family: var(--font-display);
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+  color: var(--text-primary);
+  /* The panel is narrow; a long name must wrap rather than push the panel wide. */
+  overflow-wrap: anywhere;
+}
+.pf-tag {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.pf-presence {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+/* A wrapper, not a dot: the glyph inside sets its own size and colour, so this
+   must not impose either — an 8px box around a 10px glyph clips it. */
+.pf-dot {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.pf-status {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.pf-lastseen {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* ── The group info modal's rail: a label and the facts under it ─────────────
+   ⚠⚠ THESE TWO RULES WERE ONLY IN redesign.css, WHICH IS THE ONE PLACE THEY
+   COULD NOT WORK. `gi-label` and `gi-fact` have no inline styles and no other
+   rule anywhere, so with the layer switched off — the original UI — they fell
+   back to bare default text. Dan: "is the old UI group info modal has styles?
+   Cuz i think somethings doesn't look right... like the texts seems... too
+   basic." It did not have them; this is what he was looking at.
+   ⚠ The layer KEEPS its structural deltas for this modal — the rail padding and
+   the two headings, which are genuine restyles of an existing look. What it may
+   not keep is the only styling an element has. */
+.gi-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.gi-fact {
+  font-size: 13px;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* One surface, one border, one radius for every block in the panel — the bio, the
+   pinned list and the rows. They used to each carry their own inline radius. */
+.pf-card {
+  text-align: left;
+  background: var(--bg-base);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+.pf-bio {
+  margin-top: 16px;
+  padding: 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+}
+
+.pf-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  cursor: pointer;
+}
+.pf-row-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.pf-row-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+.pf-row-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* ⚠ A DESTRUCTIVE ROW, AND IT USED TO LOOK LIKE A SETTING. Blocking someone was
+   the same card as muting them — same surface, same border, same shape, differing
+   only in the colour of the text. The tint says "this one is different" without
+   shouting, and it is a tint of the THEME's danger colour so it survives nord. */
+.pf-row-danger {
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent-danger) 9%, transparent);
+  border-color: color-mix(in srgb, var(--accent-danger) 26%, transparent);
+}
+.pf-row-danger .pf-row-icon,
+.pf-row-danger .pf-row-label {
+  color: var(--accent-danger);
+}
+.pf-row-danger:hover {
+  background: color-mix(in srgb, var(--accent-danger) 16%, transparent);
+}
+
+.pf-field {
+  margin-top: 16px;
+  text-align: left;
+}
+.pf-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.pf-idrow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 5px;
+}
+.pf-id {
+  flex: 1;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.pf-copy {
+  flex-shrink: 0;
+  width: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.pf-copy svg {
+  width: 14px;
+  height: 14px;
+}
+.pf-copy:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+/* ── The pinned block ────────────────────────────────────────────────────── */
+.pf-pinned {
+  margin-top: 14px;
+  padding: 12px;
+}
+.pf-pinned-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.pf-pinned-pin {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-primary);
+  flex-shrink: 0;
+}
+.pf-pinned-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.pf-pinned-jump {
+  display: block;
+  width: 100%;
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pf-pinned-jump:hover {
+  color: var(--text-primary);
+}
+.pf-pinned-all {
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-primary);
+  cursor: pointer;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE SETTINGS NAV — THE BASE, AND WHY IT LIVES IN THIS SHEET
+
+   ⚠⚠ THE ALWAYS-LOADED SHEET, DELIBERATELY. These buttons used to carry their whole
+   appearance as INLINE styles in settings-modal.js. When the icons went in, those
+   inline styles came out — and putting them only in styles/redesign.css left the
+   CLASSIC look with raw, unstyled buttons: no padding, no rounded row, no selected
+   state. Caught by switching the layer off and looking, which is the only way this
+   class of mistake shows up.
+
+   ⚠ This is the third instance of one rule: **anything the renderer needs in BOTH
+   UIs has to live in a sheet that always loads.** The redesign's own treatment — a
+   tighter row, the accent tint on the selected item, the icon column's opacity — is
+   in redesign.css and layers on top of this.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.settings-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+/* The icon column. ⚠⚠ HIDDEN HERE AND REVEALED BY THE LAYER, and the direction matters:
+   the icons are a REDESIGN addition, so the hiding has to live in the sheet BOTH UIs
+   load and only the reveal belongs in the layer. Written the other way round — size here,
+   shown by default — the classic look grew an icon column nobody asked for, and the
+   original classic nav was plain text.
+
+   ⚠ `display: none` rather than `opacity: 0`: a hidden flex item is removed from layout,
+   so the row's `gap` does not leave a 10px hole in front of every label. */
+.settings-tab svg {
+  display: none;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.settings-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.settings-tab.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ⚠ The close button's glyph exists for the COLLAPSED rail, which is a redesign
+   feature — so it is hidden HERE, in the sheet both UIs load, and revealed by the
+   `.nav-collapsed` rule in redesign.css. Put the hiding in the layer instead and the
+   classic look grows an icon nobody asked for. */
+#btn-close-settings svg {
+  display: none;
+}
+
+/* ─── The context menu ──────────────────────────────────────────────────────
+   ⚠⚠ HERE, NOT IN redesign.css, AND THAT IS A CORRECTION. The renderer used to write
+   this chrome as an inline `cssText`; when it moved to classes the first version put
+   it in the layer — and the CLASSIC look was left with a menu at `border-radius: 0`
+   and no surface at all. Measured: 0px.
+
+   Same rule as the nav above: anything the renderer needs in BOTH UIs lives in a sheet
+   that always loads. Only the deltas are in the layer. */
+
+#context-menu-container {
+  position: fixed;
+  /* ⚠ Load-bearing: the chrome is no longer inline, so this is what keeps the container
+     hidden between init() and the first show(). show() and close() set `display` inline
+     from then on, and inline wins. */
+  display: none;
+  flex-direction: column;
+  z-index: 10000;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-xl);
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  /* ⚠ Overridden INLINE by the caller for destructive items, which is the one thing
+     that stays inline here — and it is why this rule has no `!important`. */
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.context-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+/* ⚠ Background only. The old hover was two inline handlers writing `background`, and
+   nothing else — so a danger item kept its colour and that was right. */
+.context-item:hover {
+  background: var(--bg-hover);
+}
+
+.context-menu-sep {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--border-subtle);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   THE GLOBAL GALLERY
+
+   ⚠⚠ THIS WAS IN redesign.css AND THAT WAS A BUG IN BOTH UIs. Every one of the
+   gallery's structural classes — gal-header, gal-search, gal-seg, gal-filters,
+   the filter chips, the view-mode buttons — was styled ONLY in the layer. The
+   layer is off — the original UI is the default — so there the entire gallery
+   rendered as bare HTML: the filter row came out as six unstyled <button>s with
+   no padding and no gap, which reads as one run-on word,
+   "AllImagesFilesAllChatsOrbit EchoD4niel-dev".
+
+   ⚠ None of it is a redesign difference. It is the first styling the gallery ever
+   got, in the wrong file. The rule it belongs to: **anything the renderer needs in
+   BOTH UIs has to live in a sheet that always loads** — fourth time this has come
+   up, after the settings nav's base, the context menu, and the close button's
+   glyph. The layer keeps only what genuinely differs between the two UIs.
+
+   ⚠ Every token below was checked to resolve from variables.css or a theme, so
+   nothing drops its declaration in classic.
+   ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════════
+   9d. THE GALLERY  (classic base — the redesign layer overrides in redesign.css)
+
+   These are the values the gallery had before the redesign: a 64px header with
+   a 20px title, a 240×36 search pill on a --bg-hover track, 28×28 view-mode
+   buttons with a --bg-surface active state, and filter chips that use a filled
+   accent pill for the selected state. The redesign layer (redesign.css) brings
+   the header down to 48px, shrinks the search to 220×30, switches the active
+   chip to a tinted treatment, and so on.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.gal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  height: 64px;
+  padding: 0 var(--spacing-lg);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.gal-header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.gal-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.gal-stat {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.gal-stat:hover {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.gal-stat svg {
+  width: 12px;
+  height: 12px;
+}
+
+.gal-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-shrink: 0;
+}
+
+.gal-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 240px;
+  height: 36px;
+  border-radius: 18px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+  transition: border-color var(--dur) var(--ease);
+}
+.gal-search:focus-within {
+  border-color: var(--accent-primary);
+}
+.gal-search-icon {
+  position: absolute;
+  left: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+.gal-search-input {
+  width: 100%;
+  height: 100%;
+  padding: 0 16px 0 36px;
+  border: none;
+  border-radius: 18px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+}
+.gal-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.gal-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  flex-shrink: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.gal-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.gal-icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* The view-mode switcher — same shape as the old inline build, now a class so
+   both UIs can style it. Classic uses a --bg-hover track; the redesign layer
+   switches to --bg-base. */
+.gal-seg {
+  display: flex;
+  gap: 0;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-subtle);
+}
+.view-mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.view-mode-btn svg {
+  width: 15px;
+  height: 15px;
+}
+.view-mode-btn:hover {
+  color: var(--text-primary);
+}
+.view-mode-btn.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+/* ── The filter chips ────────────────────────────────────────────────────── */
+.gal-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--spacing-lg);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  overflow-x: auto;
+}
+.gal-filters-sep {
+  width: 1px;
+  height: 16px;
+  margin: 0;
+  flex-shrink: 0;
+  background: var(--border-strong);
+}
+.gallery-type-filter,
+.gallery-filter-btn {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-base);
+  color: var(--text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.gallery-type-filter:hover,
+.gallery-filter-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+/* Classic: selected filter is a filled accent pill with white text. The redesign
+   layer overrides this to a tinted treatment. */
+.gallery-type-filter.active,
+.gallery-filter-btn.active {
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
+}
+

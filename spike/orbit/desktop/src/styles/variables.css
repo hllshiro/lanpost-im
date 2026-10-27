@@ -1,0 +1,132 @@
+/* src/styles/variables.css */
+:root {
+  /* Fallback accent (themes override) */
+  --accent-primary: #0A84FF;
+
+  /* The default banner — the strip across the top of a profile, a group card and
+     the settings preview. ONE definition for THREE call sites, because they used
+     to be three copies of the same string and they drifted: the v0.9.0 fix changed
+     one of them and left two still ending in a hardcoded #6C5CE7, a second brand
+     colour in a design that has exactly one.
+
+     It is a wash of the THEME's accent, so a nord or sunset user gets their own
+     colour here rather than Orbit blue. color-mix() is Chrome 111+; this app is
+     Electron 32 (Chromium 128), and redesign.spec.js asserts the banner actually
+     paints rather than trusting the version.
+
+     ⚠ The strength is 32% → 8%, down from 42% → 10%. A banner is the DEFAULT
+     identity state — "you have not chosen one" — and at 42% it was the most
+     saturated surface in the app while carrying no content, which made it the
+     loudest thing on a profile that has a name and a face to lead with. It is a
+     wash now, and the same value serves the settings preview, so the two cannot
+     drift apart again.
+
+     ⚠ Declared HERE, in the base sheet that always loads, NOT in redesign.css.
+     The three call sites are inline styles, and a `var()` naming an undefined
+     token drops the WHOLE declaration — so a banner defined only in the redesign
+     layer would leave every default banner with no background at all the moment
+     that layer was removed. `--bg-surface` is intentionally not defined here:
+     var() substitution happens where the token is USED, so the theme's own
+     --bg-surface is what lands. */
+  --banner-default: linear-gradient(135deg,
+    color-mix(in srgb, var(--accent-primary) 32%, var(--bg-surface)),
+    color-mix(in srgb, var(--accent-primary) 8%, var(--bg-surface)));
+
+  /* Presence. ONE palette for the app, derived from the semantic accents so it
+     follows the theme — on nord the online dot is nord's green, not a hardcoded
+     one that ignores the theme entirely.
+
+     ⚠ There were TWO palettes and they disagreed. chat-panel.js used the accent
+     tokens; profile-sidebar.js hardcoded #22c55e / #eab308 / #ef4444 / #6b7280;
+     and the settings "Online Peers" row hardcoded #22c55e. So the SAME friend's
+     online dot was a different green in the chat header than in the profile
+     sidebar — #30D158 against #22c55e on dark, and on nord a muted sage against a
+     vivid green.
+
+     ⚠ Declared in the base sheet, not the redesign layer, for the same reason as
+     --banner-default: these are used from inline styles, and a var() naming an
+     undefined token drops the whole declaration — the dot would lose its colour
+     rather than fall back.
+
+     `dnd` shares busy and `invisible` shares offline on purpose: each pair is two
+     labels for one visual state, and separate hues would invent a distinction the
+     UI never draws. */
+  --presence-online:  var(--accent-success);
+  --presence-away:    var(--accent-warning);
+  --presence-busy:    var(--accent-danger);
+  --presence-offline: var(--text-muted);
+
+  /* The focus ring. ⚠⚠ THIS WAS DEFINED ONLY IN redesign.css, AND ONLY FOR dark AND
+     light — so on nord, sunset, midnight, dark-purple and all four seasonal themes
+     the token did not exist and EVERY ONE of its seven uses dropped its declaration
+     and said nothing: no focus ring on any input, no ring on the search pill, the
+     chat field, the settings fields, or the switch. Same family as `--shadow-xl`.
+
+     Derived from the theme's own accent here, so all ten themes get one and a new
+     theme cannot forget it. color-mix() at 32% reproduces dark's previous
+     rgba(77,124,254,.32) exactly; light moves from .28 to .32, which is the point —
+     one rule instead of a per-theme value that eight themes never got. */
+  --accent-ring: color-mix(in srgb, var(--accent-primary) 32%, transparent);
+
+  /* Motion. One curve and one duration, so the whole app moves at the same tempo.
+     ⚠ Here rather than in the redesign layer: the switch and the profile sidebar
+     are styled in components.css (their markup is class-based in both UIs), and a
+     rule there referencing a token only the layer defines would lose its transition
+     in classic mode. `--transition` is still restated by the layer, because
+     components.css uses `transition: var(--transition)` in eight places and the
+     themes define their own. */
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --dur: 200ms;
+
+  /* The switch — ONE geometry for five call sites. There were two sizes (44x24 in
+     settings, 36x20 in the group modal and the profile sidebar) and three different
+     off-colours (--border-strong, #323236, --border-subtle).
+
+     ⚠ `--switch-off` is `--bg-hover` — a SOLID surface — and that is the point. Two
+     of the three old off-colours were --border-* tokens, which are SEMI-TRANSPARENT
+     in every theme (dark: rgba(255,255,255,.08)). Using a translucent border colour
+     as a FILL makes a track that is nearly invisible against the row it sits on,
+     which is exactly how the profile sidebar's switch looked.
+
+     The knob's travel is computed from the other three, not written out — a separate
+     travel value is a second writer, and changing the width without changing it is
+     how a knob ends up stopping short of the end.
+
+     ⚠ Also here rather than in the layer, for the same reason as --dur: the switch
+     markup carries classes in both UIs, so its rules live in components.css. */
+  --switch-w: 40px;
+  --switch-h: 22px;
+  --switch-knob: 16px;
+  --switch-inset: 3px;
+  --switch-off: var(--bg-hover);
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Border Radius */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 999px;
+
+  /* Typography */
+  --font-display: "Outfit", sans-serif;
+  --font-body: "DM Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+  --font-base-size: 14px;
+
+  /* Z-Index Layers */
+  --z-base: 1;
+  --z-hover: 10;
+  --z-titlebar: 9000;
+  --z-dropdown: 9100;
+  --z-modal-backdrop: 9500;
+  --z-modal: 9600;
+  --z-toast: 9900;
+}

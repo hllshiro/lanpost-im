@@ -1,0 +1,78 @@
+appId: com.orbit.desktop
+productName: Orbit
+directories:
+  output: dist/
+
+publish: null
+
+files:
+  - "**/*"
+  - "!.agent/**"
+  - "!.github/**"
+  - "!android/**"
+  - "!.gemini/**"
+
+# shared/ lives OUTSIDE the app directory (desktop/), so `files` cannot reach it.
+# The renderer loads ../../shared/* from desktop/src/ and the main process
+# requires ../shared/crypto/* — both resolve to resources/shared at runtime.
+# Without this, every shared/ module 404s in packaged builds.
+extraResources:
+  - from: ../shared
+    to: shared
+
+# --- Windows ---
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: src/icons/app/orbit.ico
+  requestedExecutionLevel: asInvoker
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+
+# --- macOS ---
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  icon: src/icons/app/orbit_1024.png
+  category: public.app-category.social-networking
+  darkModeSupport: true
+
+dmg:
+  title: "Orbit ${version}"
+  artifactName: "Orbit-${version}-${arch}.dmg"
+
+# --- Linux ---
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+  icon: src/icons/app/orbit_1024.png
+  category: Network;InstantMessaging;Chat
+  synopsis: "P2P chat without the cloud"
+  description: "Modern peer-to-peer messaging for your local network. No server required."
+
+appImage:
+  artifactName: "Orbit-${version}-${arch}.AppImage"
+
+deb:
+  artifactName: "Orbit-${version}-${arch}.deb"
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils

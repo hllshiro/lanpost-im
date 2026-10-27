@@ -1,0 +1,207 @@
+/* src/styles/layout.css */
+
+/* Custom Titlebar */
+#titlebar {
+  -webkit-app-region: drag;
+  height: 32px;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  z-index: var(--z-titlebar);
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  background-color: var(--bg-sidebar);
+}
+
+.titlebar-drag-area {
+  flex: 1;
+  height: 100%;
+}
+
+#titlebar .controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  height: 100%;
+}
+
+.control-btn {
+  width: 46px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: var(--transition);
+}
+
+.control-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+.control-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.control-btn-close:hover {
+  background-color: #e81123;
+  color: white;
+}
+
+/* App Grid Layout */
+#app-layout {
+  position: relative;
+  display: grid;
+  grid-template-columns: 64px 260px 1fr;
+  grid-template-rows: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  padding-top: 32px; /* Avoid titlebar overlap */
+  transition: grid-template-columns 0.3s ease;
+  will-change: transform;
+  transform: translateZ(0);
+}
+
+#app-layout.sidebar-collapsed {
+  grid-template-columns: 64px 0px 1fr;
+}
+
+#panel-middle {
+  overflow: hidden;
+}
+
+#panel-left {
+  background-color: var(--bg-sidebar);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 0;
+  z-index: 2;
+}
+
+#sidebar-nav-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 0 4px;
+  gap: 2px;
+  width: 100%;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-btn {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  flex-shrink: 0;
+}
+
+.sidebar-nav-btn:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.sidebar-nav-btn:active {
+  transform: scale(0.88);
+  color: var(--accent-primary);
+}
+
+.sidebar-nav-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--border-subtle);
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+#panel-middle {
+  background-color: var(--bg-surface);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: 1;
+}
+
+#panel-right {
+  background-color: var(--bg-base);
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* ⚠⚠ THE CHAT MAKES ROOM FOR A SIDE PANEL.
+
+   `#panel-gallery` (340px) and `#panel-profile` (320px) are `position: absolute; right: 0`
+   inside `#panel-right`, so they were sitting ON the conversation. Measured with the
+   gallery open, that covered THREE controls: `#btn-chat-more` (the chat header's ⋮),
+   `#btn-gallery` (the button that had just opened it) and **`#btn-send` in the composer**.
+   Clicking where the ⋮ is landed on the panel's close button instead, so the menu never
+   appeared — Dan's report, and the reason it looked like a dead button.
+
+   ⚠ In layout.css and NOT in the redesign layer: this is a bug in both UIs, so the rule
+   has to live where both of them can see it.
+
+   ⚠ The width comes from JS (`--side-panel-w`, set by OrbitReserveSidePanel) because the
+   two panels are different widths. The panel itself does not move — its own border and
+   shadow still read as the boundary between panel and conversation. */
+#panel-right.side-panel-open #chat-container {
+  margin-right: var(--side-panel-w, 0px);
+}
+
+/* Mobile Responsive Layout */
+@media (max-width: 768px) {
+  #app-layout {
+    grid-template-columns: 100vw;
+    grid-template-rows: 1fr 64px;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  
+  #titlebar {
+    display: none;
+  }
+
+  #panel-left {
+    grid-row: 2;
+    grid-column: 1;
+    flex-direction: row;
+    justify-content: space-around;
+    padding: 0 16px;
+    border-right: none;
+    border-top: 1px solid var(--border-subtle);
+    z-index: 100;
+  }
+  
+  .spacer {
+    display: none; /* hide spacers on mobile nav */
+  }
+
+  #panel-middle {
+    grid-row: 1;
+    grid-column: 1;
+  }
+
+  #panel-right {
+    grid-row: 1;
+    grid-column: 1;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 64px;
+    transform: translateX(100%);
+    transition: transform 0.3s ease;
+    z-index: 10;
+  }
+  
+  #panel-right.active {
+    transform: translateX(0);
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "name": "orbit-beta",
+  "version": "0.9.0-beta",
+  "description": "Orbit P2P Chat Application",
+  "author": "Orbit Team <hello@orbit.chat>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/D4niel-dev/Orbit-beta.git"
+  },
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:win": "electron-builder --win --publish never",
+    "build:mac": "electron-builder --mac --publish never",
+    "build:linux": "electron-builder --linux --publish never",
+    "build:all": "electron-builder --win --mac --linux --publish never",
+    "test": "playwright test",
+    "test:sharded": "playwright test --shard=1/2 && playwright test --shard=2/2"
+  },
+  "keywords": [],
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "@capacitor/android": "^8.3.4",
+    "@capacitor/core": "^8.3.4",
+    "archiver": "^8.0.0",
+    "bad-words": "^4.0.0",
+    "better-sqlite3": "^12.10.0",
+    "electron-store": "^8.2.0",
+    "emoji-picker-element": "^1.29.1",
+    "jsqr": "^1.4.0",
+    "lucide": "^1.17.0",
+    "qrcode-generator": "^2.0.4",
+    "sharp": "^0.34.5",
+    "sqlite3": "^6.0.1",
+    "uuid": "^14.0.0",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.4",
+    "@playwright/test": "^1.62.1",
+    "electron": "^32.3.3",
+    "electron-builder": "^26.8.1"
+  }
+}
