@@ -1,6 +1,6 @@
 {
   "name": "lanpost-im",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "packageManager": "pnpm@12.15.0",
   "description": "内网传书（Lanpost-IM）—— 基于 IPMSG 的跨平台局域网即时通信",
   "main": "./out/main/index.js",
