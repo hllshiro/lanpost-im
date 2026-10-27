@@ -5,3 +5,5 @@ desktop/src/icons/frames/
 *.log
 desktop/test-results/
 desktop/playwright-report/
+desktop/lib/ipmsg/dist/
+!desktop/package-lock.json

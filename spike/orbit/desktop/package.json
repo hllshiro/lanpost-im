@@ -15,7 +15,9 @@
     "build:linux": "electron-builder --linux --publish never",
     "build:all": "electron-builder --win --mac --linux --publish never",
     "test": "playwright test",
-    "test:sharded": "playwright test --shard=1/2 && playwright test --shard=2/2"
+    "test:sharded": "playwright test --shard=1/2 && playwright test --shard=2/2",
+    "build:ipmsg": "tsc -p lib/ipmsg/tsconfig.json",
+    "test:ipmsg": "vitest run --config lib/ipmsg/vitest.config.mjs"
   },
   "keywords": [],
   "license": "MIT",
@@ -28,6 +30,7 @@
     "better-sqlite3": "^12.10.0",
     "electron-store": "^8.2.0",
     "emoji-picker-element": "^1.29.1",
+    "iconv-lite": "^0.7.3",
     "jsqr": "^1.4.0",
     "lucide": "^1.17.0",
     "qrcode-generator": "^2.0.4",
@@ -39,7 +42,10 @@
   "devDependencies": {
     "@capacitor/cli": "^8.3.4",
     "@playwright/test": "^1.62.1",
+    "@types/node": "^26.6.5",
     "electron": "^32.3.3",
-    "electron-builder": "^26.8.1"
+    "electron-builder": "^26.8.1",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.5"
   }
 }
