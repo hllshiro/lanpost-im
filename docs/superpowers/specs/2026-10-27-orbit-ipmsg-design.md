@@ -1,6 +1,6 @@
 # 基于 Orbit 的 lanpost 0.2 设计
 
-- 状态：Draft，等待确认
+- 状态：方向已确认，Phase 0 技术验证待执行
 - 日期：2026-10-27
 - 目标分支：`spike/orbit-ipmsg`
 - 参考代码：`docs/3rd/Orbit-beta`（MIT，v0.9.0-beta）
@@ -21,7 +21,10 @@
 
 ### 2.1 本次目标
 
-- 桌面端：Windows / Linux（Android 移除，不构建 Capacitor）。
+- 桌面端：Windows 与 Linux（Android 移除，不构建 Capacitor）。
+- 最终产物与当前发布需求一致：
+  - Windows x64：NSIS 安装包、zip
+  - Linux x64/arm64：deb、rpm、AppImage
 - 保留 Orbit 原有 P2P 协议、联系人、消息、群聊、文件、设置和 UI。
 - 增加 IPMSG 通道：
   - 用户发现
@@ -30,7 +33,13 @@
 - IPMSG 联系人与 Orbit 联系人分开存储，不做双通道合并。
 - 不做旧 0.1.x 数据迁移。
 - Orbit UI 风格保持不变。
-- 默认界面语言为简体中文。
+- 最终目标是替换当前根应用，相当于 fork Orbit，但不与上游仓库建立 git remote/submodule 关联。
+
+### 2.1.1 阶段划分
+
+- **Phase 0（当前）**：技术验证。只验证 Orbit 桌面端、IPMSG 最小通道、联系人/消息/文件集成、Windows/Linux 可运行。**不做中文 i18n。**
+- **Phase 1**：集成确认可用后，再做全量中文 i18n、现有功能补齐、打包发布。
+- **Phase 2**：群聊离线、其他产品化能力。
 
 ### 2.2 非目标
 
@@ -38,8 +47,8 @@
 - 不把 IPMSG 联系人加入 Orbit 群聊。
 - 不做 Android / iOS。
 - 不做旧数据迁移或双通道去重。
-- 不在本次 spike 中重做 Orbit UI。
-- 不在本次 spike 中实现完整的群聊离线同步（见 9）。
+- 不在 Phase 0 重做 Orbit UI，也不做中文 i18n。
+- 不在 Phase 0 实现完整的群聊离线同步（见 8 Phase 2）。
 
 ## 3. 约束
 
@@ -56,7 +65,7 @@
 
 - 复用 Orbit 的聊天、群聊、文件、SQLite、通知、测试。
 - 新增 IPMSG transport，只做发现、1:1 文本、文件。
-- 新增 i18n 层，默认中文。
+- Phase 1 新增 i18n 层，默认中文；Phase 0 保持 Orbit 英文 UI。
 - 代价：维护 Orbit fork、补当前项目已有功能、i18n 工作量大。
 
 ### 方案 B：继续当前项目，移植 Orbit 功能
@@ -230,17 +239,18 @@ applyI18n(root)  // 处理 data-i18n / data-i18n-title / data-i18n-placeholder
 
 如果时间紧，可以在 spike 阶段先用“英文原文 → 中文”的临时字典做静态替换，但必须在正式实现前替换为 key，不把 DOM 替换层带进产品。
 
-### 6.4 工作量
+### 6.4 工作量与阶段
 
 - 框架 + 构建/加载 + 日期/数字：小。
 - 全量文案迁移：大，按 1,000+ 条估算，需要逐屏翻译和视觉检查。
-- spike 只要求框架 + 聊天/联系人和 IPMSG 相关界面中文；完整 i18n 作为独立阶段。
+- **Phase 0 不实现 i18n**，Orbit UI 保持英文；先验证技术链。
+- Phase 1 再做框架、全量中文和视觉检查；不把翻译工作混入技术验证。
 
 ## 7. 目录与分支策略
 
 实验分支：`spike/orbit-ipmsg`，从 `main` 创建。
 
-spike 阶段把 Orbit desktop 放到：
+Phase 0 把 Orbit desktop 放到：
 
 ```text
 spike/orbit/
@@ -254,36 +264,37 @@ spike/orbit/
 spike/orbit/desktop/lib/ipmsg/
 ```
 
-spike 验证通过后，再决定是否把 Orbit 作为仓库根应用、移除当前 Electron 实现，或把 IPMSG 模块反向移植回当前项目。
+Phase 0 验证通过后，最终把 Orbit desktop 作为仓库根应用，移除当前 Electron 实现；不保留 `spike/orbit` 作为长期目录，也不添加上游 git remote/submodule。保留 MIT LICENSE 和 Orbit 归属说明。
 
 ## 8. 实施阶段
 
 ### Phase 0：spike
 
 - 导入 Orbit desktop + shared，移除 mobile 构建。
-- 启动 Orbit desktop，确认 Windows 可运行。
+- 启动 Orbit desktop，确认 Windows 与 Linux 可运行。
 - 抽取 IPMSG 发现/文本/文件最小模块。
 - 增加 IPMSG 联系人、文本收发、单文件双向传输。
 - 增加 transport 字段和路由。
 - 验证 Orbit↔Orbit 原功能不受影响。
-- i18n 框架落地，聊天/联系人/IPMSG 相关界面默认中文。
+- 不做 i18n，Orbit UI 保持英文。
 
 验收：
 
 1. Orbit 启动正常，UI 风格不变。
 2. IPMSG 对端出现在联系人列表，标记为 IPMSG。
 3. 双向文本正常，UTF-8/GBK 正常。
-4. 单文件双向发送、接收、取消/拒绝正常。
+4. 单文件双向发送、自动接收、取消/拒绝正常。
 5. IPMSG 联系人不能加入群聊，相关按钮禁用。
 6. Orbit↔Orbit 文本、文件、群聊不受影响。
-7. 默认语言为 zh-CN，关键页面无英文残留（spike 范围）。
+7. Windows 与 Linux 至少各启动一次成功；最终打包在 Phase 1 验证。
 
 ### Phase 1：产品化
 
-- 全量 i18n 中文迁移。
+- 全量 i18n 中文迁移（默认 zh-CN）。
 - 当前项目已有能力补齐：目录传输（如仍需要）、快捷键、开机启动、状态自动离开、设置缓存等。
-- 文件传输 UI 完整对接：进度、暂停/续传、取消、拒收、打开目录。
-- Windows/Linux 打包、防火墙、自动更新、发布流程。
+- 文件传输 UI 完整对接：进度、暂停/续传、取消、拒收、打开目录；再决定手动/自动接收。
+- Windows x64 与 Linux x64/arm64 打包：NSIS/zip、deb/rpm/AppImage。
+- 防火墙、自动更新、发布流程。
 - 旧 0.1.x 用户明确不迁移，或后续单独设计。
 
 ### Phase 2：群聊离线
@@ -307,9 +318,9 @@ Orbit 当前群聊只 fan-out 在线成员，桌面端没有持久化 outbox。�
 - Orbit UI 是英文/Discord 风格；设计上保持风格，但中文文案会影响布局，需要逐屏检查。
 - spike 成功不等于全量迁移成功；数据迁移、旧功能补齐、打包仍需单独估算。
 
-## 10. 待确认
+## 10. 已确认决策
 
-- spike 是否只做桌面 Windows，Linux 随后？
-- IPMSG 文件默认自动接收还是手动确认？
-- 全量中文是否要求 spike 就覆盖设置页，还是 Phase 1 完成？
-- 最终是替换当前根应用，还是长期保留 `spike/orbit` 目录？
+- Windows 和 Linux 都需要；最终产物沿用 Windows x64 + Linux x64/arm64 的 deb/rpm/AppImage。
+- IPMSG 文件 Phase 0 采用自动接收，减少 UI 适配；Phase 1 再评估。
+- Phase 0 只做技术验证，不做中文 i18n；全量中文放 Phase 1。
+- 最终替换当前根应用，fork Orbit，但不与上游建立 git 关联。
