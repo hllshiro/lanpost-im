@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
 import type { NotifyPayload } from '../../shared/ipc'
+import type { SettingsSection } from './utils/settings-sections'
 import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
 import ChatPane from './components/ChatPane.vue'
@@ -15,6 +16,7 @@ import SettingsOverlay from './components/SettingsOverlay.vue'
 const store = useAppStore()
 
 const settingsOpen = ref(false)
+const settingsSection = ref<SettingsSection>('identity')
 const view = ref<'chat' | 'contacts' | 'files'>('chat')
 const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standard' })
 
@@ -62,6 +64,15 @@ function handleSettingsSaved(next: Settings): void {
   appearance.value = next.appearance
 }
 
+function openSettings(section?: SettingsSection): void {
+  if (section !== undefined) settingsSection.value = section
+  settingsOpen.value = true
+}
+
+function handleSettingsSection(section: SettingsSection): void {
+  settingsSection.value = section
+}
+
 function handleDraft(value: string): void {
   const id = store.currentConversationId
   if (id) store.saveDraft(id, value)
@@ -98,7 +109,7 @@ function handleOpenContact(conversationId: string): void {
 onMounted(async () => {
   void store.initialize()
   unsubscribeSettings = window.api.ui.onOpenSettings(() => {
-    settingsOpen.value = true
+    openSettings()
   })
   unsubscribeNotify = window.api.ui.onNotify((payload) => {
     toast.value = payload
@@ -154,7 +165,8 @@ onBeforeUnmount(() => {
       :local="store.local"
       :unread="store.unreadTotal"
       :active="view"
-      @settings="settingsOpen = true"
+      @profile="openSettings('identity')"
+      @settings="openSettings()"
       @select="handleViewSelect"
       @status="handleStatusSelect"
     />
@@ -196,7 +208,13 @@ onBeforeUnmount(() => {
         <FilesPage v-else />
       </template>
 
-      <SettingsOverlay v-else @close="settingsOpen = false" @saved="handleSettingsSaved" />
+      <SettingsOverlay
+        v-else
+        :initial-category="settingsSection"
+        @close="settingsOpen = false"
+        @saved="handleSettingsSaved"
+        @category="handleSettingsSection"
+      />
     </div>
 
     <div v-if="store.error" class="error-toast" role="status">

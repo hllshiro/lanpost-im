@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import {
   ArrowLeft,
@@ -25,11 +25,20 @@ import {
 } from '../../../shared/settings'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { errorMessage } from '../utils/errors'
+import type { SettingsSection } from '../utils/settings-sections'
 import ToggleSwitch from './ToggleSwitch.vue'
+
+const props = withDefaults(
+  defineProps<{
+    initialCategory?: SettingsSection
+  }>(),
+  { initialCategory: 'identity' }
+)
 
 const emit = defineEmits<{
   close: []
   saved: [settings: Settings]
+  category: [category: SettingsSection]
 }>()
 
 const categories = [
@@ -44,7 +53,6 @@ const categories = [
   { id: 'about', label: '关于', icon: Info }
 ] as const
 
-type CategoryId = (typeof categories)[number]['id']
 type Section = Exclude<keyof Settings, 'version'>
 type ShortcutAction = keyof typeof DEFAULT_SHORTCUTS
 
@@ -68,7 +76,7 @@ const shortcutItems: Array<{
   }
 ]
 
-const current = ref<CategoryId>('identity')
+const current = ref<SettingsSection>(props.initialCategory)
 const settings = ref<Settings>(structuredClone(defaultSettings))
 const subnetsText = ref('')
 const seedsText = ref('')
@@ -83,6 +91,13 @@ const appInfoError = ref('')
 const firewall = ref<FirewallStatus | null>(null)
 const firewallBusy = ref(false)
 let savedTimer: number | undefined
+
+watch(
+  () => props.initialCategory,
+  (category) => {
+    current.value = category
+  }
+)
 
 const currentLabel = computed(
   () => categories.find((item) => item.id === current.value)?.label ?? ''
@@ -237,6 +252,11 @@ async function restoreDefaults(): Promise<void> {
   await pushPatch(patch)
 }
 
+function selectCategory(category: SettingsSection): void {
+  current.value = category
+  emit('category', category)
+}
+
 function startRecording(action: ShortcutAction): void {
   if (recording.value === action) {
     cancelRecording()
@@ -351,7 +371,7 @@ onBeforeUnmount(() => {
           :key="category.id"
           class="cat"
           :class="{ active: current === category.id }"
-          @click="current = category.id"
+          @click="selectCategory(category.id)"
         >
           <component :is="category.icon" :size="16" :stroke-width="1.8" />
           <span>{{ category.label }}</span>

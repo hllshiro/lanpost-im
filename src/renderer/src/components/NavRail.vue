@@ -16,6 +16,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   select: [view: 'chat' | 'contacts' | 'files']
+  profile: []
   settings: []
   status: [status: number]
 }>()
@@ -69,9 +70,9 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
     <div ref="profileRef" class="profile-wrap">
       <button
         class="profile"
-        :title="`${profileTitle} · 点击打开设置`"
-        aria-label="账号与设置"
-        @click="emit('settings')"
+        :title="`${profileTitle} · 点击打开账号设置`"
+        aria-label="打开账号设置"
+        @click="emit('profile')"
       >
         <span class="avatar">
           <UserRound v-if="!local" :size="20" :stroke-width="1.7" />
