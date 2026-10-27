@@ -32,11 +32,37 @@ const statusIcon = computed(() => {
 
 const sealed = computed(() => props.message.meta.sealed === true)
 const flags = computed(() => props.message.meta.flags ?? {})
+const imageTasks = computed(() => props.files.filter((file) => file.kind === 'image'))
 const images = computed(() =>
-  props.files.filter((file) => file.kind === 'image' && file.state === 'done' && file.path !== '')
+  imageTasks.value.filter((file) => file.state === 'done' && file.path !== '')
 )
+const imageStateText = computed(() => {
+  const tasks = imageTasks.value
+  if (tasks.length === 0) {
+    return (props.message.meta.images?.length ?? 0) > 0 ? '图片记录不可用' : ''
+  }
+  if (tasks.some((file) => file.state === 'failed')) return '图片传输失败'
+  if (tasks.some((file) => file.state === 'rejected')) return '对方已拒绝图片'
+  if (tasks.some((file) => file.state === 'canceled')) return '图片已取消'
+  if (tasks.some((file) => file.state === 'transferring')) {
+    return props.message.direction === 'in' ? '图片接收中…' : '图片发送中…'
+  }
+  if (tasks.some((file) => file.state === 'offered' || file.state === 'waiting')) {
+    return '等待接收图片…'
+  }
+  return images.value.length === 0 ? '图片记录不可用' : ''
+})
 
 const statusText = computed(() => {
+  if ((props.message.meta.images?.length ?? 0) > 0 && props.own) {
+    if (imageTasks.value.some((file) => file.state === 'rejected')) return '对方已拒绝'
+    if (imageTasks.value.some((file) => file.state === 'canceled')) return '已取消'
+    if (imageTasks.value.some((file) => file.state === 'failed')) return '发送失败'
+    if (imageTasks.value.some((file) => file.state === 'transferring')) return '发送中'
+    if (imageTasks.value.some((file) => file.state === 'offered' || file.state === 'waiting')) {
+      return '等待接收'
+    }
+  }
   if (props.message.kind === 'file' && props.own) {
     if (props.files.some((file) => file.state === 'rejected')) return '对方已拒绝'
     if (props.files.some((file) => file.state === 'canceled')) return '已取消'
@@ -107,7 +133,10 @@ const statusClass = computed(() => {
               <Lock :size="11" :stroke-width="1.9" /> 密封
             </span>
             {{ message.text }}
-            <div v-if="images.length > 0" class="image-grid">
+            <div
+              v-if="imageTasks.length > 0 || (message.meta.images?.length ?? 0) > 0"
+              class="image-grid"
+            >
               <button
                 v-for="image in images"
                 :key="image.id"
@@ -120,6 +149,7 @@ const statusClass = computed(() => {
                   :alt="image.name"
                 />
               </button>
+              <div v-if="imageStateText" class="image-placeholder">{{ imageStateText }}</div>
             </div>
           </template>
         </div>
@@ -282,6 +312,16 @@ const statusClass = computed(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   margin-top: 6px;
+}
+
+.image-placeholder {
+  grid-column: 1 / -1;
+  padding: 12px;
+  border-radius: 6px;
+  background: #f4f4f4;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: center;
 }
 
 .image-item {

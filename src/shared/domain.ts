@@ -1,5 +1,7 @@
 import type { Settings } from './settings'
 
+export type PeerClientType = 'lanpost' | 'nwt' | 'feiq' | 'unknown'
+
 export interface PeerInfo {
   key: string
   ip: string
@@ -10,6 +12,7 @@ export interface PeerInfo {
   group: string
   status: number
   identityId: string
+  clientType: PeerClientType
   online: boolean
   lastSeen: number
   unread: number
@@ -44,6 +47,7 @@ export interface MessageMeta {
   files?: string[]
   images?: string[]
   channel?: 'standard'
+  notice?: 'third-party-client'
 }
 
 export interface MessageInfo {
@@ -108,6 +112,7 @@ export type AppEvent =
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
   | { type: 'message-deleted'; conversationId: string; remoteSeq: number }
+  | { type: 'message-removed'; conversationId: string; messageId: number }
   | { type: 'file'; file: FileTaskInfo }
   | { type: 'settings'; settings: Settings }
 

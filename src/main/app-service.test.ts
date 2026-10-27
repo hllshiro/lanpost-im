@@ -86,6 +86,7 @@ function peer(): ProtocolPeer {
     group: '',
     status: 0,
     identityId: 'test-identity',
+    clientType: 'lanpost',
     online: true,
     capUtf8: true,
     capFile: true,
@@ -389,5 +390,52 @@ describe('AppService identity history reuse', () => {
     expect(conversations).toHaveLength(1)
     expect(conversations[0]).toMatchObject({ identityId: 'identity-x', peerKey: '10.0.0.2|alice' })
     expect(repos.messages.list(conversations[0].id).messages).toHaveLength(2)
+  })
+})
+
+describe('AppService third-party notice', () => {
+  it('adds one system notice per conversation per app lifetime', () => {
+    const { service, repos, events } = setup()
+    const peerInfo = {
+      ...peer(),
+      key: '192.168.2.124|xqkj',
+      ip: '192.168.2.124',
+      user: 'xqkj',
+      name: '内网通',
+      clientType: 'nwt' as const
+    }
+    repos.peers.upsert({
+      key: peerInfo.key,
+      ip: peerInfo.ip,
+      port: peerInfo.port,
+      user: peerInfo.user,
+      host: peerInfo.host,
+      name: peerInfo.name,
+      group: '',
+      status: 0,
+      identityId: '',
+      clientType: 'nwt',
+      online: true,
+      lastSeen: 1,
+      unread: 0,
+      alias: '',
+      capUtf8: false,
+      capFile: true,
+      capClipboard: false,
+      dialup: false,
+      versionInfo: '',
+      absenceInfo: ''
+    })
+    const conversation = repos.conversations.ensureDirect(peerInfo.key, peerInfo.name)
+    service.openConversation(conversation.id)
+    service.openConversation(conversation.id)
+    const system = repos.messages
+      .list(conversation.id)
+      .messages.filter((message) => message.kind === 'system')
+    expect(system).toHaveLength(1)
+    expect(system[0].text).toContain('内网通')
+    expect(
+      events.some((event) => event.type === 'message' && event.message.kind === 'system')
+    ).toBe(true)
   })
 })

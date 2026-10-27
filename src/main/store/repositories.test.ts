@@ -24,6 +24,7 @@ function makePeer(key: string, overrides: Partial<PeerInfo> = {}): PeerInfo {
     group: '',
     status: 0,
     identityId: '',
+    clientType: 'unknown',
     online: false,
     lastSeen: 0,
     unread: 0,

@@ -44,6 +44,7 @@ interface PeerRow {
   name: string
   group_name: string
   identity_id: string
+  client_type: string
   status: number
   online: number
   cap_utf8: number
@@ -135,6 +136,7 @@ function mapPeer(row: PeerRow): PeerInfo {
     name: row.name,
     group: row.group_name,
     identityId: row.identity_id,
+    clientType: row.client_type as PeerInfo['clientType'],
     status: row.status,
     online: toBoolean(row.online),
     lastSeen: row.last_seen,
@@ -323,6 +325,19 @@ export class MessageRepository {
     this.db.prepare('UPDATE messages SET meta = ? WHERE id = ?').run(JSON.stringify(meta), id)
   }
 
+  deleteSystemNotices(conversationId: string, notice: string): number[] {
+    const rows = this.db
+      .prepare(
+        "SELECT id FROM messages WHERE conversation_id = ? AND kind = 'system' AND meta LIKE ?"
+      )
+      .all(conversationId, `%"notice":"${notice}"%`) as Array<{ id: number }>
+    if (rows.length === 0) return []
+    this.db
+      .prepare("DELETE FROM messages WHERE conversation_id = ? AND kind = 'system' AND meta LIKE ?")
+      .run(conversationId, `%"notice":"${notice}"%`)
+    return rows.map((row) => row.id)
+  }
+
   deleteByRemoteSeq(conversationId: string, remoteSeq: number): boolean {
     const result = this.db
       .prepare('DELETE FROM messages WHERE conversation_id = ? AND remote_seq = ?')
@@ -392,8 +407,8 @@ export class PeerRepository {
     }
     this.db
       .prepare(
-        `INSERT INTO peers (key, ip, port, user, host, name, group_name, identity_id, status, online, cap_utf8, cap_file, cap_clipboard, dialup, version_info, absence_info, alias, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO peers (key, ip, port, user, host, name, group_name, identity_id, client_type, status, online, cap_utf8, cap_file, cap_clipboard, dialup, version_info, absence_info, alias, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
            ip = excluded.ip,
            port = excluded.port,
@@ -402,6 +417,7 @@ export class PeerRepository {
            name = excluded.name,
            group_name = excluded.group_name,
            identity_id = excluded.identity_id,
+           client_type = excluded.client_type,
            status = excluded.status,
            online = excluded.online,
            cap_utf8 = excluded.cap_utf8,
@@ -421,6 +437,7 @@ export class PeerRepository {
         peer.name,
         peer.group,
         peer.identityId,
+        peer.clientType,
         peer.status,
         toInteger(peer.online),
         toInteger(peer.capUtf8),

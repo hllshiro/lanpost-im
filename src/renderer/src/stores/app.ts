@@ -166,6 +166,15 @@ export const useAppStore = defineStore('app', () => {
       case 'file':
         upsertFile(event.file)
         break
+      case 'message-removed': {
+        const list = messages.value[event.conversationId]
+        if (list) {
+          messages.value[event.conversationId] = list.filter(
+            (message) => message.id !== event.messageId
+          )
+        }
+        break
+      }
       case 'message-deleted': {
         const list = messages.value[event.conversationId]
         if (list) {
@@ -273,6 +282,7 @@ export const useAppStore = defineStore('app', () => {
     if (!id) return
     const conversation = conversations.value.find((item) => item.id === id)
     if (!conversation) return
+    void window.api.conversations.open(id).catch((reason) => reportError(reason))
     if (conversation.unread > 0 && readMarks.value[id] === undefined) {
       readMarks.value = { ...readMarks.value, [id]: conversation.lastReadMessageId }
     }

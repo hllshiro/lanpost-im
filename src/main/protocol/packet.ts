@@ -1,3 +1,4 @@
+import type { PeerClientType } from '../../shared/domain'
 import { NWT_PRIVATE_VERSION } from './commands'
 
 export class PacketError extends Error {
@@ -9,6 +10,7 @@ export class PacketError extends Error {
 
 export interface PacketHeader {
   version: string
+  clientType: PeerClientType
   seq: number
   user: string
   host: string
@@ -72,8 +74,14 @@ export function decodePacket(data: Buffer): PacketHeader {
   }
   const seq = parseDecimal(parts[1], 'seq', 0xffffffff)
   const cmd = parseDecimal(parts[4], 'cmd', 0xffffffff)
+  const clientType: PeerClientType = version.endsWith('@shiyeline')
+    ? 'nwt'
+    : version.startsWith('1_lbt80')
+      ? 'feiq'
+      : 'unknown'
   return {
     version: privateNwt ? NWT_PRIVATE_VERSION : '1',
+    clientType,
     seq,
     user: parts[2].toString('utf8'),
     host: parts[3].toString('utf8'),

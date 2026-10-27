@@ -16,6 +16,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.conversationRead, (_event, conversationId: string, messageId: number) =>
     service.markRead(conversationId, messageId)
   )
+  ipcMain.handle(IPC.conversationOpen, (_event, conversationId: string) =>
+    service.openConversation(conversationId)
+  )
   ipcMain.handle(IPC.conversationDraft, (_event, conversationId: string, draft: string) =>
     service.saveDraft(conversationId, draft)
   )

@@ -34,7 +34,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 出站报文版本固定为 `1`；入站容忍带后缀的历史版本号。飞秋的 `1_lbt80_0#...#9:` 外层头在解析时归一化。
 - 有 `CAPUTF8OPT` 的对端默认 UTF-8（支持 emoji），否则回退 GBK。GETFILEDATA 扩展域为十六进制 `packetId:fileId:offset:`；GETDIRFILES 为 `packetId:fileId`。
 - 中文搜索使用 `LIKE`；这里的 FTS5 对两字中文查询不可用。
-- SQLite 使用 `node:sqlite`，`SCHEMA_VERSION = 3`；旧版本数据库直接清空重建，没有增量迁移。第一版尚未发布，不要写数据迁移代码。
+- SQLite 使用 `node:sqlite`，`SCHEMA_VERSION = 4`；旧版本数据库直接清空重建，没有增量迁移。第一版尚未发布，不要写数据迁移代码。
 
 ## 数据目录
 

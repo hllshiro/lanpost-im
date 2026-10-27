@@ -80,6 +80,7 @@ export class AppService {
   private fileSeq = 0
   private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
+  private readonly noticeShown = new Set<string>()
 
   constructor(
     private readonly db: DatabaseSync,
@@ -244,6 +245,32 @@ export class AppService {
     return { message: updated }
   }
 
+  openConversation(conversationId: string): void {
+    if (this.noticeShown.has(conversationId)) return
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) return
+    const peer = this.repos.peers.get(conversation.peerKey)
+    if (peer === null || peer.clientType === 'lanpost') return
+    this.noticeShown.add(conversationId)
+    for (const id of this.repos.messages.deleteSystemNotices(
+      conversationId,
+      'third-party-client'
+    )) {
+      this.emit({ type: 'message-removed', conversationId, messageId: id })
+    }
+    const label =
+      peer.clientType === 'nwt' ? '内网通' : peer.clientType === 'feiq' ? '飞秋' : '第三方客户端'
+    const message = this.repos.messages.insertIncoming(
+      conversationId,
+      `对方使用${label}，部分功能可能受限。`,
+      0,
+      'system',
+      { notice: 'third-party-client' }
+    )
+    this.emit({ type: 'message', message })
+    this.emitConversation(conversationId)
+  }
+
   markRead(conversationId: string, messageId: number): void {
     this.repos.conversations.markRead(conversationId, messageId)
     this.emitConversation(conversationId)
@@ -400,6 +427,8 @@ export class AppService {
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
+    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (peer?.clientType === 'nwt') throw new Error('内网通客户端不支持接收文件夹')
     const result = await dialog.showOpenDialog({
       title: '发送文件夹',
       defaultPath: this.lastDialogDir(),
@@ -421,6 +450,9 @@ export class AppService {
     const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
     if (peer === undefined || !peer.online) {
       throw new Error('联系人不在线')
+    }
+    if (peer.clientType === 'nwt' && paths.some((path) => statSync(path).isDirectory())) {
+      throw new Error('内网通客户端不支持接收文件夹')
     }
     for (const path of paths) {
       const stats = statSync(path)
@@ -685,6 +717,10 @@ export class AppService {
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
+    const current = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (current?.clientType === 'nwt' || current?.clientType === 'feiq') {
+      throw new Error('对方客户端不支持图片消息')
+    }
     const result = await dialog.showOpenDialog({
       title: '发送图片',
       defaultPath: this.lastDialogDir(),
@@ -701,6 +737,8 @@ export class AppService {
     if (conversation === null || conversation.peerKey === null) throw new Error('会话不存在')
     const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
     if (peer === undefined || !peer.online) throw new Error('联系人不在线')
+    if (peer.clientType === 'nwt') throw new Error('内网通客户端不支持图片消息')
+    if (peer.clientType === 'feiq') throw new Error('飞秋客户端不支持图片消息')
     const stats = paths.map((path) => statSync(path))
     if (
       paths.length === 0 ||

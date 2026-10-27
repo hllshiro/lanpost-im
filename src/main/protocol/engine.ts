@@ -1,6 +1,6 @@
 import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
-import type { PeerInfo, MessageMeta } from '../../shared/domain'
+import type { PeerInfo, MessageMeta, PeerClientType } from '../../shared/domain'
 import { buildFileBody, parseOffer, type Attachment } from './attach'
 import {
   CMD_ABSENCE,
@@ -77,6 +77,7 @@ export interface ProtocolPeer {
   group: string
   status: number
   identityId: string
+  clientType: PeerClientType
   online: boolean
   capUtf8: boolean
   capFile: boolean
@@ -195,6 +196,7 @@ export function toPeerInfo(peer: ProtocolPeer): PeerInfo {
     group: peer.group,
     status: peer.status,
     identityId: peer.identityId,
+    clientType: peer.clientType,
     online: peer.online,
     lastSeen: peer.lastSeen,
     unread: 0,
@@ -608,6 +610,7 @@ export class ProtocolEngine {
         group: '',
         status: 0,
         identityId: '',
+        clientType: 'unknown',
         online: true,
         capUtf8: false,
         capFile: false,
@@ -626,6 +629,7 @@ export class ProtocolEngine {
     peer.host = header.host
     peer.lastSeen = now
     peer.online = true
+    if (header.clientType !== 'unknown') peer.clientType = header.clientType
     try {
       this.dispatch(peer, header)
     } catch (error) {
@@ -745,7 +749,10 @@ export class ProtocolEngine {
     if (parsed.account !== '') peer.user = parsed.account
     if (parsed.host !== '') peer.host = parsed.host
     if (parsed.version !== '') peer.versionInfo = parsed.version
-    if (parsed.identityId !== '') peer.identityId = parsed.identityId
+    if (parsed.identityId !== '') {
+      peer.identityId = parsed.identityId
+      peer.clientType = 'lanpost'
+    }
     peer.capUtf8 = (header.cmd & OPT_CAPUTF8) !== 0
     peer.capFile = (header.cmd & OPT_FILEATTACH) !== 0
     peer.capClipboard = (header.cmd & OPT_CLIPBOARD) !== 0

@@ -20,6 +20,7 @@ export const IPC = {
   messageBroadcast: 'messages:broadcast',
   messageMulticast: 'messages:multicast',
   conversationRead: 'conversation:read',
+  conversationOpen: 'conversation:open',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
@@ -95,6 +96,7 @@ export type Api = {
   }
   conversations: {
     pin(conversationId: string, pinned: boolean): Promise<void>
+    open(conversationId: string): Promise<void>
   }
   settings: {
     get(): Promise<Settings>

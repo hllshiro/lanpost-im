@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { Folder, Image, Lock, Paperclip, Send } from '@lucide/vue'
+import type { PeerInfo } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 
 const props = defineProps<{
@@ -8,6 +9,7 @@ const props = defineProps<{
   sending: boolean
   conversationTitle: string
   conversationId: string
+  peer: PeerInfo | null
 }>()
 
 const emit = defineEmits<{
@@ -19,7 +21,18 @@ const fileBusy = ref(false)
 const fileError = ref('')
 const sealed = ref(false)
 
+const imageBlockedReason = computed(() => {
+  if (props.peer?.clientType === 'nwt') return '内网通客户端不支持图片消息'
+  if (props.peer?.clientType === 'feiq') return '飞秋客户端不支持图片消息'
+  return ''
+})
+
+const folderBlockedReason = computed(() =>
+  props.peer?.clientType === 'nwt' ? '内网通客户端不支持接收文件夹' : ''
+)
+
 async function pickImages(): Promise<void> {
+  if (imageBlockedReason.value !== '') return
   if (fileBusy.value || props.conversationId === '') return
   fileBusy.value = true
   fileError.value = ''
@@ -33,6 +46,7 @@ async function pickImages(): Promise<void> {
 }
 
 async function pickFolder(): Promise<void> {
+  if (folderBlockedReason.value !== '') return
   if (fileBusy.value || props.conversationId === '') return
   fileBusy.value = true
   fileError.value = ''
@@ -136,27 +150,35 @@ onMounted(async () => {
         <span>文件</span>
       </button>
 
-      <button
-        class="tool"
-        :disabled="fileBusy || conversationId === ''"
-        :title="fileBusy ? '正在选择文件夹' : '发送文件夹'"
-        aria-label="发送文件夹"
-        @click="pickFolder"
+      <span
+        class="tool-wrap"
+        :title="folderBlockedReason || (fileBusy ? '正在选择文件夹' : '发送文件夹')"
       >
-        <Folder :size="16" :stroke-width="1.8" />
-        <span>文件夹</span>
-      </button>
+        <button
+          class="tool"
+          :disabled="fileBusy || conversationId === '' || folderBlockedReason !== ''"
+          aria-label="发送文件夹"
+          @click="pickFolder"
+        >
+          <Folder :size="16" :stroke-width="1.8" />
+          <span>文件夹</span>
+        </button>
+      </span>
 
-      <button
-        class="tool"
-        :disabled="fileBusy || conversationId === ''"
-        :title="fileBusy ? '正在选择图片' : '发送图片'"
-        aria-label="发送图片"
-        @click="pickImages"
+      <span
+        class="tool-wrap"
+        :title="imageBlockedReason || (fileBusy ? '正在选择图片' : '发送图片')"
       >
-        <Image :size="16" :stroke-width="1.8" />
-        <span>图片</span>
-      </button>
+        <button
+          class="tool"
+          :disabled="fileBusy || conversationId === '' || imageBlockedReason !== ''"
+          aria-label="发送图片"
+          @click="pickImages"
+        >
+          <Image :size="16" :stroke-width="1.8" />
+          <span>图片</span>
+        </button>
+      </span>
 
       <button
         class="tool"

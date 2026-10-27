@@ -13,6 +13,7 @@ function peer(overrides: Partial<PeerInfo>): PeerInfo {
     group: '',
     status: 0,
     identityId: '',
+    clientType: 'unknown',
     online: true,
     lastSeen: 0,
     unread: 0,

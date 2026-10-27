@@ -283,6 +283,7 @@ onBeforeUnmount(() => {
         :sending="sending"
         :conversation-title="conversation.title"
         :conversation-id="conversation.id"
+        :peer="peer"
         @update:draft="handleDraft"
         @send="handleSend"
       />
