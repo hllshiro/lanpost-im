@@ -100,6 +100,7 @@ export class AppService {
       bindAddr: settings.get().network.bindAddr,
       port: settings.get().network.port,
       receiveDir,
+      receiveLayout: settings.get().files.receiveLayout,
       notifyAccepted: (peerKey, packetId) => this.engine.sendFileAccept(peerKey, packetId),
       notifyReleased: (peerKey, packetId, fileIds) =>
         this.engine.releaseFiles(peerKey, packetId, fileIds),
@@ -517,6 +518,7 @@ export class AppService {
     const kind = type === FILE_ATTR_DIR ? 'dir' : type === FILE_ATTR_CLIPBOARD ? 'image' : 'file'
     const created = this.fileManager.offerIncoming({
       peerKey: peer.key,
+      peerName: peer.name,
       peerIp: peer.ip,
       peerPort: peer.port,
       packetId,

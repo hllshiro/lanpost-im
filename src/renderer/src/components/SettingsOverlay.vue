@@ -578,6 +578,22 @@ onBeforeUnmount(() => {
           </div>
           <div class="row">
             <div class="row-text">
+              <span class="label">接收目录结构<span class="restart">重启生效</span></span>
+              <p class="hint">按昵称建立子目录时，同一昵称的文件会放在同一路径</p>
+            </div>
+            <div class="control">
+              <select
+                v-model="settings.files.receiveLayout"
+                class="input"
+                @change="saveField('files', { receiveLayout: settings.files.receiveLayout })"
+              >
+                <option value="flat">全部放在接收目录下</option>
+                <option value="nickname">按联系人昵称建立子目录</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
               <span class="label">自动接收</span>
               <p class="hint">符合大小上限的文件直接接收</p>
             </div>

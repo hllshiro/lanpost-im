@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import type { FileKind, FileState, FileTaskInfo } from '../../shared/domain'
 import type { Attachment } from '../protocol/attach'
 import { pullFile } from './client'
+import { receiveFolder, type ReceiveLayout } from './layout'
 import { pullDirectory } from './dir-receiver'
 import { sanitizeFileName, uniqueName } from './names'
 import { FileServer, type FileServeTarget, type GetFileRequest } from './server'
@@ -23,6 +24,7 @@ export interface FileRecordBase {
   peerPort: number
   kind: FileKind
   utf8: boolean
+  folder: string
   name: string
   size: number
   mtime: number
@@ -64,6 +66,7 @@ export interface FileManagerOptions {
   bindAddr: string
   port: number
   receiveDir: string
+  receiveLayout?: ReceiveLayout
   notifyAccepted: (peerKey: string, packetId: number) => void
   notifyReleased: (peerKey: string, packetId: number, fileIds: number[]) => void
   callbacks: FileManagerCallbacks
@@ -73,6 +76,7 @@ export interface FileManagerOptions {
 
 export interface OfferIncomingInput {
   peerKey: string
+  peerName?: string
   peerIp: string
   peerPort: number
   packetId: number
@@ -138,7 +142,6 @@ export class FileManager {
 
   async start(): Promise<void> {
     mkdirSync(this.options.receiveDir, { recursive: true })
-    mkdirSync(join(this.options.receiveDir, 'images'), { recursive: true })
     this.stopping = false
     await this.server.start()
     const address = this.server.address()
@@ -179,15 +182,16 @@ export class FileManager {
       const now = Date.now()
       this.incomingSeq += 1
       const id = `in-${now.toString(36)}-${this.incomingSeq.toString(36)}`
-      const folder =
-        kind === 'image' ? join(this.options.receiveDir, 'images') : this.options.receiveDir
+      const taskFolder = this.folderFor(input.peerKey, input.peerName ?? '')
+      const folder = kind === 'image' ? join(taskFolder, 'images') : taskFolder
       const name = uniqueName(folder, rawName === '' ? 'file' : rawName, (candidate) =>
-        this.isNameReserved(id, candidate)
+        this.isNameReserved(id, candidate, folder)
       )
       const task: IncomingFile = {
         direction: 'in',
         kind,
         utf8: input.utf8 ?? false,
+        folder,
         id,
         messageId: null,
         conversationId: '',
@@ -278,6 +282,7 @@ export class FileManager {
       direction: 'out',
       kind,
       utf8: input.utf8 ?? false,
+      folder: '',
       id,
       messageId: null,
       conversationId: '',
@@ -355,7 +360,16 @@ export class FileManager {
     return task
   }
 
-  private isNameReserved(selfId: string, candidate: string): boolean {
+  private folderFor(peerKey: string, peerName: string): string {
+    return receiveFolder(
+      this.options.receiveDir,
+      this.options.receiveLayout ?? 'flat',
+      peerKey,
+      peerName
+    )
+  }
+
+  private isNameReserved(selfId: string, candidate: string, folder: string): boolean {
     for (const task of this.tasks.values()) {
       if (task.id === selfId || task.direction !== 'in') {
         continue
@@ -363,7 +377,7 @@ export class FileManager {
       if (task.state === 'rejected' || task.state === 'canceled') {
         continue
       }
-      if (task.name === candidate) {
+      if (task.folder === folder && task.name === candidate) {
         return true
       }
     }
@@ -396,13 +410,12 @@ export class FileManager {
       if (entry.signal.aborted) {
         throw new Error('文件接收已取消')
       }
-      const folder =
-        task.kind === 'image' ? join(this.options.receiveDir, 'images') : this.options.receiveDir
-      const name = uniqueName(folder, task.name, (candidate) =>
-        this.isNameReserved(task.id, candidate)
+      const taskFolder = task.folder || this.options.receiveDir
+      const name = uniqueName(taskFolder, task.name, (candidate) =>
+        this.isNameReserved(task.id, candidate, taskFolder)
       )
       task.name = name
-      task.path = join(folder, name)
+      task.path = join(taskFolder, name)
       const identity = this.identity()
       const written = await pullFile({
         peerIp: task.peerIp,
@@ -456,7 +469,8 @@ export class FileManager {
 
   private async runPullDir(entry: QueueEntry): Promise<void> {
     const task = entry.task
-    const temp = join(this.options.receiveDir, `.lanpost-${task.id}`)
+    const taskFolder = task.folder || this.options.receiveDir
+    const temp = join(taskFolder, `.lanpost-${task.id}`)
     try {
       if (entry.signal.aborted) throw new Error('目录接收已取消')
       const identity = this.identity()
@@ -478,10 +492,10 @@ export class FileManager {
           this.publish(task, false)
         }
       })
-      const name = uniqueName(this.options.receiveDir, task.name, (candidate) =>
-        this.isNameReserved(task.id, candidate)
+      const name = uniqueName(taskFolder, task.name, (candidate) =>
+        this.isNameReserved(task.id, candidate, taskFolder)
       )
-      const finalPath = join(this.options.receiveDir, name)
+      const finalPath = join(taskFolder, name)
       await rename(temp, finalPath)
       task.name = name
       task.path = finalPath

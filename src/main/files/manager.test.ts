@@ -318,3 +318,39 @@ describe('FileManager NWT cancel payload', () => {
     expect(instance.get(two.id)?.state).toBe('rejected')
   })
 })
+
+describe('FileManager receive layout', () => {
+  it('places incoming files and images under the peer nickname', () => {
+    const base = tempDir()
+    const instance = new FileManager({
+      bindAddr: '127.0.0.1',
+      port: 0,
+      receiveDir: base,
+      receiveLayout: 'nickname',
+      notifyAccepted: () => undefined,
+      notifyReleased: () => undefined,
+      callbacks: { onUpdate: () => undefined, onLog: () => undefined, onError: () => undefined }
+    })
+    managers.push(instance)
+    const [file] = instance.offerIncoming({
+      peerKey: '10.0.0.1|alice',
+      peerName: '张三',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      packetId: 1,
+      attachments: [{ id: 2, name: 'a.txt', size: 1, mtime: 1, attr: 1 }]
+    })
+    expect(instance.get(file.id)?.folder).toBe(join(base, '张三'))
+
+    const [image] = instance.offerIncoming({
+      peerKey: '10.0.0.1|alice',
+      peerName: '张三',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      packetId: 2,
+      kind: 'image',
+      attachments: [{ id: 3, name: 'a.png', size: 1, mtime: 1, attr: 0x20 }]
+    })
+    expect(instance.get(image.id)?.folder).toBe(join(base, '张三', 'images'))
+  })
+})
