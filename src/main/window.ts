@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -30,6 +30,12 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
       autoplayPolicy: 'no-user-gesture-required'
     }
   })
+
+  if (process.platform !== 'darwin') {
+    // Windows/Linux 上 Alt 会唤出默认菜单栏；移除菜单，保留应用内快捷键。
+    Menu.setApplicationMenu(null)
+    window.setMenu(null)
+  }
 
   window.on('ready-to-show', () => {
     window.show()
