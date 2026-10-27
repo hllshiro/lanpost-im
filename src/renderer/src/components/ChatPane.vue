@@ -30,10 +30,9 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [text: string, sealed: boolean]
+  send: [text: string]
   draft: [value: string]
   read: []
-  unseal: [messageId: number]
   loadMore: [beforeId: number]
 }>()
 
@@ -102,8 +101,8 @@ function handleDraft(value: string): void {
   emit('draft', value)
 }
 
-function handleSend(text: string, sealed: boolean): void {
-  emit('send', text, sealed)
+function handleSend(text: string): void {
+  emit('send', text)
 }
 
 async function refreshInfo(): Promise<void> {
@@ -274,7 +273,6 @@ onBeforeUnmount(() => {
           :loading="loadingMessages"
           @load-more="handleLoadMore"
           @read="emit('read')"
-          @unseal="emit('unseal', $event)"
         />
       </div>
 

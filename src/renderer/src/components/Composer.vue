@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Folder, Image, Lock, Paperclip, Send } from '@lucide/vue'
+import { Folder, Image, Paperclip, Send } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 
@@ -14,12 +14,11 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:draft': [value: string]
-  send: [text: string, sealed: boolean]
+  send: [text: string]
 }>()
 
 const fileBusy = ref(false)
 const fileError = ref('')
-const sealed = ref(false)
 
 const imageBlockedReason = computed(() => {
   if (props.peer?.clientType === 'nwt') return '内网通客户端不支持图片消息'
@@ -93,7 +92,7 @@ function onInput(): void {
 function submit(): void {
   const body = props.draft.trim()
   if (!body || props.sending) return
-  emit('send', body, sealed.value)
+  emit('send', body)
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -179,17 +178,6 @@ onMounted(async () => {
           <span>图片</span>
         </button>
       </span>
-
-      <button
-        class="tool"
-        :class="{ active: sealed }"
-        :title="sealed ? '取消密封发送' : '密封发送'"
-        aria-label="密封发送"
-        @click="sealed = !sealed"
-      >
-        <Lock :size="16" :stroke-width="1.8" />
-        <span>密封</span>
-      </button>
 
       <span v-if="fileError" class="file-error">{{ fileError }}</span>
       <span v-else class="hint">Enter 发送 · Shift + Enter 换行</span>

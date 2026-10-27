@@ -21,7 +21,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   loadMore: [beforeId: number]
   read: []
-  unseal: [messageId: number]
 }>()
 
 type Row =
@@ -213,7 +212,6 @@ onMounted(async () => {
             :files="row.files"
             :own-initial="ownInitial"
             :other-initial="otherInitial"
-            @unseal="emit('unseal', $event)"
           />
         </template>
 

@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle, Lock } from '@lucide/vue'
+import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, statusLabel } from '../utils/format'
 import FileCard from './FileCard.vue'
-
-const emit = defineEmits<{ unseal: [messageId: number] }>()
 
 const props = defineProps<{
   message: MessageInfo
@@ -30,7 +28,6 @@ const statusIcon = computed(() => {
   }
 })
 
-const sealed = computed(() => props.message.meta.sealed === true)
 const flags = computed(() => props.message.meta.flags ?? {})
 const imageTasks = computed(() => props.files.filter((file) => file.kind === 'image'))
 const images = computed(() =>
@@ -74,10 +71,6 @@ const statusText = computed(() => {
   }
   return statusLabel(props.message.status)
 })
-const masked = computed(
-  () => sealed.value && props.message.direction === 'in' && props.message.meta.opened !== true
-)
-
 function openImage(file: FileTaskInfo): void {
   void window.api.files.open(file.id)
 }
@@ -117,41 +110,26 @@ const statusClass = computed(() => {
           </div>
         </div>
 
-        <div
-          v-else
-          class="bubble text-bubble"
-          :class="{ failed: message.status === 'failed', masked }"
-        >
-          <template v-if="masked">
-            <button class="unseal" @click="emit('unseal', message.id)">
-              <Lock :size="15" :stroke-width="1.8" />
-              <span>密封消息，点击查看</span>
-            </button>
-          </template>
-          <template v-else>
-            <span v-if="sealed" class="sealed-tag">
-              <Lock :size="11" :stroke-width="1.9" /> 密封
-            </span>
-            {{ message.text }}
-            <div
-              v-if="imageTasks.length > 0 || (message.meta.images?.length ?? 0) > 0"
-              class="image-grid"
+        <div v-else class="bubble text-bubble" :class="{ failed: message.status === 'failed' }">
+          {{ message.text }}
+          <div
+            v-if="imageTasks.length > 0 || (message.meta.images?.length ?? 0) > 0"
+            class="image-grid"
+          >
+            <button
+              v-for="image in images"
+              :key="image.id"
+              class="image-item"
+              :title="image.name"
+              @click="openImage(image)"
             >
-              <button
-                v-for="image in images"
-                :key="image.id"
-                class="image-item"
-                :title="image.name"
-                @click="openImage(image)"
-              >
-                <img
-                  :src="`lanpost-media://file/${encodeURIComponent(image.id)}`"
-                  :alt="image.name"
-                />
-              </button>
-              <div v-if="imageStateText" class="image-placeholder">{{ imageStateText }}</div>
-            </div>
-          </template>
+              <img
+                :src="`lanpost-media://file/${encodeURIComponent(image.id)}`"
+                :alt="image.name"
+              />
+            </button>
+            <div v-if="imageStateText" class="image-placeholder">{{ imageStateText }}</div>
+          </div>
         </div>
 
         <div v-if="own" class="meta" :class="statusClass">
@@ -268,43 +246,6 @@ const statusClass = computed(() => {
 
 .row.own .text-bubble {
   background: var(--own-bubble);
-}
-
-.text-bubble.masked {
-  padding: 0;
-  background: transparent;
-}
-
-.unseal {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 9px 12px;
-  border-radius: var(--radius-bubble);
-  background: #f0f0f0;
-  color: var(--text-secondary);
-  font-size: var(--chat-font-size);
-}
-
-.unseal:hover {
-  color: var(--accent);
-}
-
-.sealed-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  margin-right: 5px;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(0, 0, 0, 0.05);
-  font-size: 10px;
-  color: var(--text-secondary);
-  vertical-align: 1px;
-}
-
-.text-bubble.failed {
-  box-shadow: 0 0 0 1px rgba(250, 81, 81, 0.55);
 }
 
 .image-grid {
