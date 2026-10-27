@@ -327,6 +327,17 @@ desktop/lib/ipmsg/
 | 中文化和微信风格 UI | 高 | Orbit 目前是英文 Discord 风格；如果坚持微信风格，这部分会抵消复用收益 |
 | Android 上的 IPMSG | 高 | Node 的 UDP/TCP 不能直接在 Capacitor WebView 跑，需要 Java 插件；建议桌面优先 |
 
+**当前确认的范围（2026-10-27）：**
+
+- 以 Orbit 桌面端为底座，保留 Orbit 自己的 UI
+- 不做双通道联系人合并
+- 不做旧数据迁移
+- 不做 Android，移除/不构建 Capacitor 端
+- IPMSG 只做用户发现、1:1 文本、文件传送；IPMSG 联系人不进群
+- 群聊和群聊离线仍使用 Orbit 自己的协议模型
+
+在这个范围内，IPMSG 协议层可以复用当前项目的核心，主要工作变成 Orbit 主进程适配、联系人/消息字段和文件传输 UI 对接；整体复杂度为中低，适合先做限时 spike。
+
 **判断：**
 
 - 只做桌面端、只做 IPMSG 1:1、接受 Orbit UI、暂不迁移旧数据：复杂度从“高”降到“中等”，值得做一个 spike。
