@@ -580,7 +580,7 @@ export class AppService {
   }
 
   applySettings(settings: Settings): void {
-    if (this.autoPresence !== null && this.autoPresence.status !== settings.identity.status) {
+    if (this.autoPresence !== null && settings.identity.status !== 2) {
       this.autoPresence = null
     }
     const statusChanged = settings.identity.status !== this.lastStatus

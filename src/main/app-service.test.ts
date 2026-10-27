@@ -7,7 +7,7 @@ import { createRepositories } from './store/repositories'
 import { SettingsStore } from './settings/store'
 import type { AppEvent } from '../shared/domain'
 import type { ProtocolPeer } from './protocol/engine'
-import { IDLE_AWAY_SECONDS, IDLE_BUSY_SECONDS } from './presence'
+import { IDLE_AWAY_SECONDS } from './presence'
 
 const electronMocks = vi.hoisted(() => ({
   showOpenDialog: vi.fn()
@@ -452,14 +452,11 @@ describe('AppService presence', () => {
     expect(() => service.setStatus(9)).toThrow('无效的在线状态')
   })
 
-  it('auto switches busy, away and back to online', () => {
+  it('auto switches to away and back to online', () => {
     const { service, settings, events } = setup()
 
-    service.evaluateIdleStatus(IDLE_BUSY_SECONDS - 1)
+    service.evaluateIdleStatus(10 * 60)
     expect(settings.get().identity.status).toBe(0)
-
-    service.evaluateIdleStatus(IDLE_BUSY_SECONDS)
-    expect(settings.get().identity.status).toBe(1)
 
     service.evaluateIdleStatus(IDLE_AWAY_SECONDS)
     expect(settings.get().identity.status).toBe(2)
@@ -471,7 +468,16 @@ describe('AppService presence', () => {
       events
         .filter((event) => event.type === 'local-status')
         .map((event) => (event.type === 'local-status' ? event.status : -1))
-    ).toEqual([1, 2, 0])
+    ).toEqual([2, 0])
+  })
+
+  it('keeps a manual busy status untouched by idle automation', () => {
+    const { service, settings } = setup()
+
+    service.setStatus(1)
+    service.evaluateIdleStatus(IDLE_AWAY_SECONDS)
+
+    expect(settings.get().identity.status).toBe(1)
   })
 
   it('does not override a manual away status with idle automation', () => {
@@ -487,8 +493,8 @@ describe('AppService presence', () => {
   it('clears automatic state when settings change the status elsewhere', () => {
     const { service, settings } = setup()
 
-    service.evaluateIdleStatus(IDLE_BUSY_SECONDS)
-    expect(settings.get().identity.status).toBe(1)
+    service.evaluateIdleStatus(IDLE_AWAY_SECONDS)
+    expect(settings.get().identity.status).toBe(2)
 
     settings.update({ identity: { status: 0 } })
     service.applySettings(settings.get())

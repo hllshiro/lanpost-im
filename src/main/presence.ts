@@ -1,7 +1,6 @@
 export type PresenceStatus = 0 | 1 | 2
 
 export interface AutoPresence {
-  status: 1 | 2
   restore: PresenceStatus
 }
 
@@ -10,8 +9,7 @@ export interface PresenceDecision {
   auto: AutoPresence | null
 }
 
-/** 10 分钟无操作进入忙碌，30 分钟无操作进入离开。 */
-export const IDLE_BUSY_SECONDS = 10 * 60
+/** 30 分钟无操作自动进入离开；忙碌只由用户手动切换。 */
 export const IDLE_AWAY_SECONDS = 30 * 60
 
 export function isPresenceStatus(value: number): value is PresenceStatus {
@@ -20,16 +18,14 @@ export function isPresenceStatus(value: number): value is PresenceStatus {
 
 export function idleTarget(idleSeconds: number): PresenceStatus {
   if (!Number.isFinite(idleSeconds) || idleSeconds <= 0) return 0
-  if (idleSeconds >= IDLE_AWAY_SECONDS) return 2
-  if (idleSeconds >= IDLE_BUSY_SECONDS) return 1
-  return 0
+  return idleSeconds >= IDLE_AWAY_SECONDS ? 2 : 0
 }
 
 /**
  * Decides whether the idle state should change the current presence.
- * Only a manually-online user is auto-promoted; manual busy/away is never
- * overridden. When the user becomes active again the status captured before
- * the automatic switch is restored.
+ * Only a manually-online user is auto-promoted to away; manual busy/away is
+ * never overridden. When the user becomes active again the status captured
+ * before the automatic switch is restored.
  */
 export function resolveIdlePresence(
   idleSeconds: number,
@@ -38,12 +34,11 @@ export function resolveIdlePresence(
 ): PresenceDecision {
   const target = idleTarget(idleSeconds)
   if (auto !== null) {
-    if (target === auto.status) return { status: current, auto }
     if (target === 0) return { status: auto.restore, auto: null }
-    return { status: target, auto: { status: target, restore: auto.restore } }
+    return { status: current, auto }
   }
-  if (current === 0 && (target === 1 || target === 2)) {
-    return { status: target, auto: { status: target, restore: current } }
+  if (target === 2 && current === 0) {
+    return { status: 2, auto: { restore: current } }
   }
   return { status: current, auto: null }
 }

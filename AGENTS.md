@@ -23,7 +23,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - `src/main/index.ts`：启动、数据目录、窗口、托盘、IPC 注册。
 - `src/main/app-service.ts`：主进程编排（协议、仓储、文件、通知）；新业务接这里，不要再塞回 `index.ts`。
 - `src/main/shortcuts.ts`：全局快捷键注册、录制期间释放与占用检测；默认值在 `src/shared/settings.ts`。
-- `src/main/presence.ts`：空闲状态判定（10 分钟忙碌、30 分钟离开），由 `src/main/index.ts` 定时读取系统空闲时间。
+- `src/main/presence.ts`：空闲状态判定（30 分钟自动离开），由 `src/main/index.ts` 定时读取系统空闲时间。
 - `src/main/protocol/`：标准 IPMSG 发现、文字、Entry/UTF-8/身份码、确认重传、目录流；`src/main/files/`：TCP 文件收发；`src/main/firewall.ts`：Windows/Linux 防火墙检测与修复；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
 - `src/shared/`：main/preload/renderer 的三方契约（`domain.ts`、`ipc.ts`、`settings.ts`），保持不依赖 Electron/Node。新增 IPC 必须同时改 shared 的 `Api`、preload、main handler 和 renderer 调用。
 - `src/renderer/src/`：Vue 3 + Pinia；`App.vue` 是外壳，`stores/app.ts` 管快照、事件、当前会话。
