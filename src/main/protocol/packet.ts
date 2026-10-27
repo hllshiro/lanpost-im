@@ -7,11 +7,8 @@ export class PacketError extends Error {
   }
 }
 
-export type Vendor = 'standard' | 'nwt' | 'feiq'
-
 export interface PacketHeader {
   version: string
-  vendor: Vendor
   seq: number
   user: string
   host: string
@@ -56,15 +53,8 @@ function parseDecimal(field: Buffer, name: string, max: number): number {
 }
 
 export function encodePacket(header: OutgoingPacket): Buffer {
-  return encodePacketVersioned('1', header)
-}
-
-export function encodePacketVersioned(version: string, header: OutgoingPacket): Buffer {
   const payload = header.payload ?? Buffer.alloc(0)
-  const head = Buffer.from(
-    `${version}:${header.seq}:${header.user}:${header.host}:${header.cmd}:`,
-    'utf8'
-  )
+  const head = Buffer.from(`1:${header.seq}:${header.user}:${header.host}:${header.cmd}:`, 'utf8')
   return Buffer.concat([head, payload])
 }
 
@@ -82,15 +72,8 @@ export function decodePacket(data: Buffer): PacketHeader {
   }
   const seq = parseDecimal(parts[1], 'seq', 0xffffffff)
   const cmd = parseDecimal(parts[4], 'cmd', 0xffffffff)
-  const vendor: Vendor =
-    privateNwt || version.endsWith('@shiyeline')
-      ? 'nwt'
-      : version.startsWith('1_lbt80')
-        ? 'feiq'
-        : 'standard'
   return {
     version: privateNwt ? NWT_PRIVATE_VERSION : '1',
-    vendor,
     seq,
     user: parts[2].toString('utf8'),
     host: parts[3].toString('utf8'),

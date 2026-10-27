@@ -1,7 +1,7 @@
 import { createSocket } from 'node:dgram'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeEntry } from './entry'
-import { encodePacket, encodePacketVersioned } from './packet'
+import { encodePacket } from './packet'
 import {
   ProtocolEngine,
   type MessageMeta,
@@ -386,53 +386,6 @@ describe('NWT private file cancel', () => {
     )
     await waitFor(() => (rawCancels.length > 0 ? true : null))
     expect(rawCancels[0]).toContain('17930643247')
-    raw.close()
-  }, 10000)
-})
-
-describe('NWT cancel sending', () => {
-  it('sends private 230 cancel packets to an NWT peer', async () => {
-    const port = await freeUdpPort()
-    const engine = new ProtocolEngine(config('alice', port, []), callbacks())
-    engines.push(engine)
-    const raw = createSocket('udp4')
-    const packets: Buffer[] = []
-    raw.on('message', (data) => packets.push(data))
-    await new Promise<void>((resolve, reject) => {
-      raw.once('error', reject)
-      raw.bind(0, '127.0.0.1', () => resolve())
-    })
-    await engine.start()
-    raw.send(
-      encodePacketVersioned('1@shiyeline', {
-        seq: 1,
-        user: 'peer',
-        host: 'peer-host',
-        cmd: 0x01,
-        payload: encodeEntry({
-          name: 'p',
-          group: '',
-          account: 'peer',
-          host: 'peer-host',
-          version: 'v'
-        })
-      }),
-      port,
-      '127.0.0.1'
-    )
-    const peer = await waitFor(() => engine.getPeers().find((item) => item.user === 'peer') ?? null)
-    raw.removeAllListeners('message')
-    packets.length = 0
-    raw.on('message', (data) => packets.push(data))
-    engine.releaseFiles(peer.key, 1793064324, [7])
-    await waitFor(() => (packets.length >= 2 ? true : null))
-    const versions = packets.map((packet) => packet.toString('ascii').split(':')[0])
-    expect(versions).toContain('1@shiyeline')
-    expect(versions).toContain('5@shiyeline')
-    const decimal = packets.find((packet) => packet.toString('ascii').startsWith('1@shiyeline:'))
-    expect(decimal?.toString('ascii')).toContain('230:17930643247:')
-    const hex = packets.find((packet) => packet.toString('ascii').startsWith('5@shiyeline:'))
-    expect(hex?.toString('ascii')).toContain('230:6adffd84:')
     raw.close()
   }, 10000)
 })
