@@ -293,7 +293,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-host">主机名</label>
-              <p class="hint">默认取当前计算机名，避免局域网内冲突</p>
+              <p class="hint">由系统主机名决定，不可修改</p>
             </div>
             <div class="control">
               <input
@@ -301,7 +301,7 @@ onBeforeUnmount(() => {
                 v-model="settings.identity.hostName"
                 class="input"
                 maxlength="64"
-                @change="saveField('identity', { hostName: settings.identity.hostName })"
+                readonly
               />
             </div>
           </div>
