@@ -17,7 +17,8 @@
     "test": "playwright test",
     "test:sharded": "playwright test --shard=1/2 && playwright test --shard=2/2",
     "build:ipmsg": "tsc -p lib/ipmsg/tsconfig.json",
-    "test:ipmsg": "vitest run --config lib/ipmsg/vitest.config.mjs"
+    "test:ipmsg": "vitest run --config lib/ipmsg/vitest.config.mjs",
+    "prestart": "npm run build:ipmsg"
   },
   "keywords": [],
   "license": "MIT",

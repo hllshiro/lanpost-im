@@ -72,6 +72,17 @@ contextBridge.exposeInMainWorld('orbitAPI', {
   checkDiskSpace: () => ipcRenderer.invoke('check-disk-space'),
   networkSetReconnect: (enabled, intervalMs) => ipcRenderer.sendSync('network-set-reconnect', enabled, intervalMs),
 
+  // IPMSG compatibility transport
+  ipmsgSendText: (peerKey, text) => ipcRenderer.invoke('ipmsg-send-text', peerKey, text),
+  ipmsgSendFile: (peerKey, filePath) => ipcRenderer.invoke('ipmsg-send-file', peerKey, filePath),
+  ipmsgAccept: (id) => ipcRenderer.send('ipmsg-accept', id),
+  ipmsgReject: (id) => ipcRenderer.send('ipmsg-reject', id),
+  ipmsgCancel: (id) => ipcRenderer.send('ipmsg-cancel', id),
+  onIpmsgPeers: (cb) => { const h = (_e, data) => cb(data); ipcRenderer.on('ipmsg-peers', h); return () => ipcRenderer.removeListener('ipmsg-peers', h); },
+  onIpmsgText: (cb) => { const h = (_e, data) => cb(data); ipcRenderer.on('ipmsg-text', h); return () => ipcRenderer.removeListener('ipmsg-text', h); },
+  onIpmsgTextStatus: (cb) => { const h = (_e, data) => cb(data); ipcRenderer.on('ipmsg-text-status', h); return () => ipcRenderer.removeListener('ipmsg-text-status', h); },
+  onIpmsgFile: (cb) => { const h = (_e, data) => cb(data); ipcRenderer.on('ipmsg-file', h); return () => ipcRenderer.removeListener('ipmsg-file', h); },
+
   // OS Integration
   showNotification: (title, body, icon) => ipcRenderer.send('show-notification', title, body, icon),
   toggleDevtools: () => ipcRenderer.send('toggle-devtools'),

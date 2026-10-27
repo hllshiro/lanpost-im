@@ -197,6 +197,7 @@ const SocketManager = require('./src/js/network/socket');
 const TransferManager = require('./src/js/network/transfer');
 const Protocol = require('./src/js/network/protocol');
 const OrbitDatabase = require('./src/js/database/database');
+const { createIpmsgBridge } = require('./lib/ipmsg/bridge');
 
 const persistentStore = new Store();
 // ⚠ Hand the settings store to the logging gate, HERE — everything above this
@@ -209,6 +210,7 @@ let socketInstance = null;
 let transferInstance = null;
 let currentIdentity = null;
 let mainWindow = null;
+let ipmsgBridge = null;
 let tray = null;
 let tempDirPath = null;
 // E2EE key material is owned by desktop/e2ee.js (see the e2ee instance below).
@@ -1503,6 +1505,21 @@ app.whenReady().then(() => {
   ipcMain.on('network-start', (event, identity, reconnectEnabled, reconnectIntervalMs) => {
     currentIdentity = identity;
     setupNetworkInstances();
+    if (!ipmsgBridge) {
+      ipmsgBridge = createIpmsgBridge({
+        sendToRenderer: (channel, payload) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(channel, payload);
+          }
+        },
+        receiveDir: path.join(app.getPath('downloads'), 'Orbit IPMSG'),
+        host: os.hostname(),
+        log: (message) => dlog(message)
+      });
+    }
+    ipmsgBridge.start(identity).catch((error) => {
+      dlog('[ipmsg] start failed: ' + (error && error.message ? error.message : String(error)));
+    });
 
     // Apply stored reconnect settings
     if (socketInstance) {
@@ -1556,6 +1573,10 @@ app.whenReady().then(() => {
   });
 
   ipcMain.on('network-stop', () => {
+    if (ipmsgBridge) {
+      void ipmsgBridge.stop();
+      ipmsgBridge = null;
+    }
     if (_lanScanTimer) {
       clearInterval(_lanScanTimer);
       _lanScanTimer = null;
@@ -1588,6 +1609,20 @@ app.whenReady().then(() => {
       socketInstance.connectToPeer('manual', ip, port || 46000);
     }
   });
+
+  ipcMain.handle('ipmsg-send-text', (_event, peerKey, text) => {
+    if (!ipmsgBridge) throw new Error('IPMSG transport is not started');
+    return ipmsgBridge.sendText(peerKey, text);
+  });
+
+  ipcMain.handle('ipmsg-send-file', (_event, peerKey, filePath) => {
+    if (!ipmsgBridge) throw new Error('IPMSG transport is not started');
+    return ipmsgBridge.sendFile(peerKey, filePath);
+  });
+
+  ipcMain.on('ipmsg-accept', (_event, id) => ipmsgBridge && ipmsgBridge.acceptFile(id));
+  ipcMain.on('ipmsg-reject', (_event, id) => ipmsgBridge && ipmsgBridge.rejectFile(id));
+  ipcMain.on('ipmsg-cancel', (_event, id) => ipmsgBridge && ipmsgBridge.cancelFile(id));
 
   ipcMain.on('network-send', (event, toPeerId, toIp, type, payload) => {
     if (socketInstance) {
