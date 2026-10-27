@@ -20,8 +20,9 @@ const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standar
 
 const shellStyle = computed<Record<string, string>>(() => ({
   '--chat-font-size': `${appearance.value.fontSize}px`,
-  '--row-height': appearance.value.density === 'compact' ? '56px' : '64px',
-  '--msg-gap': appearance.value.density === 'compact' ? '10px' : '16px'
+  '--row-height': appearance.value.density === 'compact' ? '52px' : '68px',
+  '--msg-gap': appearance.value.density === 'compact' ? '8px' : '18px',
+  '--avatar-size': appearance.value.density === 'compact' ? '34px' : '40px'
 }))
 
 let unsubscribeSettings: (() => void) | null = null

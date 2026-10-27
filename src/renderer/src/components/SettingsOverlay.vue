@@ -772,7 +772,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <span class="label">列表密度</span>
-              <p class="hint">紧凑模式缩短会话行与消息间距</p>
+              <p class="hint">紧凑模式缩小会话行、头像与消息间距</p>
             </div>
             <div class="control">
               <div class="segmented" role="group" aria-label="列表密度">

@@ -356,6 +356,7 @@ function badgeOf(count: number): string {
   gap: 10px;
   width: 100%;
   height: var(--row-height);
+  min-height: var(--row-height);
   padding: 0 12px;
   text-align: left;
   background: transparent;
@@ -373,15 +374,15 @@ function badgeOf(count: number): string {
 .avatar-wrap {
   position: relative;
   flex: 0 0 auto;
-  width: 40px;
-  height: 40px;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
 }
 
 .avatar {
   display: grid;
   place-items: center;
-  width: 40px;
-  height: 40px;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
   border-radius: var(--avatar-radius);
   background: #d9e2ea;
   color: #4c5a68;

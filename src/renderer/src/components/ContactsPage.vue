@@ -482,7 +482,7 @@ function openPeer(peer: PeerInfo): void {
   align-items: center;
   gap: 12px;
   width: 100%;
-  min-height: 72px;
+  min-height: calc(var(--avatar-size) + 32px);
   padding: 12px 16px;
   border-bottom: 1px solid #f0f0f0;
   text-align: left;
@@ -511,15 +511,15 @@ function openPeer(peer: PeerInfo): void {
 .avatar-wrap {
   position: relative;
   flex: 0 0 auto;
-  width: 42px;
-  height: 42px;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
 }
 
 .avatar {
   display: grid;
   place-items: center;
-  width: 42px;
-  height: 42px;
+  width: var(--avatar-size);
+  height: var(--avatar-size);
   border-radius: var(--avatar-radius);
   background: #d9e2ea;
   color: #4c5a68;

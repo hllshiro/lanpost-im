@@ -37,8 +37,9 @@
   --radius-button: 4px;
   --avatar-radius: 4px;
   --chat-font-size: 14px;
-  --row-height: 64px;
-  --msg-gap: 16px;
+  --row-height: 68px;
+  --msg-gap: 18px;
+  --avatar-size: 40px;
 }
 
 *,
