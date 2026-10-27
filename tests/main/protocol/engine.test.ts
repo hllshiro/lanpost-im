@@ -93,6 +93,32 @@ describe('engine discovery', () => {
     await waitFor(() => (b.getPeers().some((item) => item.user === 'alice') ? true : null))
   })
 
+  it('discovers an existing peer when starting in away mode', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), callbacks(), {
+      announceBurstMs: []
+    })
+    engines.push(b)
+    await b.start()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+
+    const a = new ProtocolEngine(
+      { ...config('alice', portA, [`127.0.0.1:${portB}`]), status: 2 },
+      callbacks()
+    )
+    engines.push(a)
+    await a.start()
+
+    const peer = await waitFor(() => a.getPeers().find((item) => item.user === 'bob') ?? null, 1500)
+    expect(peer.online).toBe(true)
+    const aliceForBob = await waitFor(
+      () => b.getPeers().find((item) => item.user === 'alice') ?? null,
+      1500
+    )
+    expect(aliceForBob).toMatchObject({ online: true, status: 2 })
+  })
+
   it('sends messages between discovered peers', async () => {
     const portA = await freeUdpPort()
     const portB = await freeUdpPort()

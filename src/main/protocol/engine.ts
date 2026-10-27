@@ -277,10 +277,12 @@ export class ProtocolEngine {
     this.refreshBroadcastTargets()
     this.refreshLocalAddresses()
     this.log(`协议引擎启动: ${this.config.account}@${this.config.host} UDP ${this.config.port}`)
-    this.announce()
+    // BR_ABSENCE 不会触发对端 ANSENTRY；启动时即使处于离开状态也必须用
+    // BR_ENTRY | ABSENCEOPT 主动触发一次应答，否则重启后无法重新发现成员。
+    this.announce(true)
     for (const delay of this.options.announceBurstMs) {
       if (delay <= 0) continue
-      const timer = setTimeout(() => this.announce(), delay)
+      const timer = setTimeout(() => this.announce(true), delay)
       timer.unref()
       this.burstTimers.add(timer)
     }
@@ -313,7 +315,7 @@ export class ProtocolEngine {
   refresh(): number {
     if (this.socket === null) throw new Error('协议引擎尚未启动')
     this.refreshBroadcastTargets()
-    this.announce()
+    this.announce(true)
     this.log(`手动刷新联系人：已发送上线通知，共 ${this.peers.size} 个联系人`)
     return this.peers.size
   }
@@ -493,10 +495,10 @@ export class ProtocolEngine {
     })
   }
 
-  private announce(): void {
+  private announce(forceEntry = false): void {
     if (this.socket === null) return
     this.refreshBroadcastTargets()
-    const cmd = this.config.status === 0 ? CMD_ENTRY : CMD_ABSENCE | OPT_ABSENCE
+    const cmd = forceEntry || this.config.status === 0 ? CMD_ENTRY : CMD_ABSENCE | OPT_ABSENCE
     const command = cmd | this.entryCommand()
     const payload = this.entryPayload()
     this.broadcast(command, payload)

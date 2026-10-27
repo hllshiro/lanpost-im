@@ -35,6 +35,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 
 - 端口 2425 同时承载 UDP 和 TCP，启动时两个服务都绑定；修改端口、监听地址、接收目录后需要重启。
 - IPMSG header 的 seq 是 32 位；不要用 `Date.now()*1000` 生成 header 或文件请求 seq。文件任务按 32 位 packetId 匹配。
+- 启动和手动刷新必须广播 `BR_ENTRY`（忙碌/离开时带 `OPT_ABSENCE`）；`BR_ABSENCE` 不会触发对端 `ANSENTRY`，不能用于重新发现成员。
 - 出站报文版本固定为 `1`；入站容忍带后缀的历史版本号。飞秋的 `1_lbt80_0#...#9:` 外层头在解析时归一化。
 - 有 `CAPUTF8OPT` 的对端默认 UTF-8（支持 emoji），否则回退 GBK。GETFILEDATA 扩展域为十六进制 `packetId:fileId:offset:`；GETDIRFILES 为 `packetId:fileId`。
 - 中文搜索使用 `LIKE`；这里的 FTS5 对两字中文查询不可用。
