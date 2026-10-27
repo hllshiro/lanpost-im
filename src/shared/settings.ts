@@ -54,6 +54,7 @@ export const DEFAULT_SHORTCUTS = {
 } as const
 
 const shortcutsSchema = z.object({
+  enabled: z.boolean().default(true),
   toggleWindow: z.string().default(DEFAULT_SHORTCUTS.toggleWindow),
   openReceiveDir: z.string().default(DEFAULT_SHORTCUTS.openReceiveDir)
 })

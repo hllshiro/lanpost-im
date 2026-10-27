@@ -23,6 +23,7 @@ function actions(): ShortcutAction[] {
 function registerAll(): ShortcutRegistration[] {
   const results: ShortcutRegistration[] = []
   if (currentSettings === null || currentHandlers === null || suspended) return results
+  if (!currentSettings.enabled) return results
   for (const action of actions()) {
     const accelerator = currentSettings[action].trim()
     if (accelerator === '') continue

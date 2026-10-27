@@ -11,6 +11,7 @@ import {
   Keyboard,
   Network,
   Palette,
+  RotateCcw,
   SlidersHorizontal,
   UserRound,
   X
@@ -273,10 +274,22 @@ async function commitRecording(accelerator: string): Promise<void> {
   }
 }
 
+function clearShortcut(action: ShortcutAction): void {
+  cancelRecording()
+  settings.value.shortcuts[action] = ''
+  void pushPatch({ shortcuts: { [action]: '' } })
+}
+
 function resetShortcut(action: ShortcutAction): void {
   cancelRecording()
   settings.value.shortcuts[action] = DEFAULT_SHORTCUTS[action]
   void pushPatch({ shortcuts: { [action]: DEFAULT_SHORTCUTS[action] } })
+}
+
+function setShortcutsEnabled(enabled: boolean): void {
+  settings.value.shortcuts.enabled = enabled
+  if (!enabled) cancelRecording()
+  void pushPatch({ shortcuts: { enabled } })
 }
 
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
@@ -841,6 +854,18 @@ onBeforeUnmount(() => {
 
         <div v-show="current === 'shortcuts'" class="group">
           <h2>全局快捷键</h2>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">启用全局快捷键</span>
+              <p class="hint">关闭后所有快捷键停止响应，已配置的组合会保留</p>
+            </div>
+            <div class="control control-auto">
+              <ToggleSwitch
+                v-model="settings.shortcuts.enabled"
+                @update:model-value="setShortcutsEnabled($event)"
+              />
+            </div>
+          </div>
           <div v-for="item in shortcutItems" :key="item.key" class="row">
             <div class="row-text">
               <span class="label">{{ item.label }}</span>
@@ -860,21 +885,34 @@ onBeforeUnmount(() => {
                 }}
               </button>
               <button
-                class="shortcut-reset"
+                class="shortcut-action"
+                :disabled="settings.shortcuts[item.key] === ''"
+                :title="`清除「${item.label}」快捷键`"
+                :aria-label="`清除「${item.label}」快捷键`"
+                @click="clearShortcut(item.key)"
+              >
+                <X :size="14" :stroke-width="1.8" />
+              </button>
+              <button
+                class="shortcut-action"
                 :disabled="settings.shortcuts[item.key] === item.fallback"
                 :title="`恢复默认 ${item.fallback}`"
+                aria-label="恢复默认快捷键"
                 @click="resetShortcut(item.key)"
               >
-                恢复默认
+                <RotateCcw :size="14" :stroke-width="1.8" />
               </button>
             </div>
           </div>
           <p v-if="recording" class="shortcut-tip">
             {{ recordTip || '请按下新的快捷键，Esc 取消' }}
           </p>
+          <p v-if="!settings.shortcuts.enabled" class="shortcut-tip">
+            全局快捷键当前已关闭，下面的组合不会响应；可随时重新启用。
+          </p>
           <p class="note">
             快捷键在程序运行期间全局生效；录制时会暂时释放已有快捷键，Esc
-            可取消。若组合被其他程序占用，会提示更换。
+            可取消。清空某一项后该项不再响应。若组合被其他程序占用，会提示更换。
           </p>
         </div>
 
@@ -1322,23 +1360,24 @@ select.input {
   background: rgba(7, 193, 96, 0.06);
 }
 
-.shortcut-reset {
+.shortcut-action {
+  display: grid;
+  place-items: center;
+  width: 30px;
   height: 30px;
-  padding: 0 10px;
   border-radius: var(--radius-button);
   border: 1px solid #e0e0e0;
   background: #ffffff;
-  font-size: 11.5px;
   color: var(--text-secondary);
 }
 
-.shortcut-reset:hover:enabled {
+.shortcut-action:hover:enabled {
   background: #f5f5f5;
   color: var(--text);
 }
 
-.shortcut-reset:disabled {
-  opacity: 0.5;
+.shortcut-action:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
