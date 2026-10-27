@@ -20,6 +20,10 @@ export const CMD_GETFILEDATA = 0x60
 export const CMD_RELEASEFILES = 0x61
 export const CMD_GETDIRFILES = 0x62
 
+// 内网通私有扩展：0xE6 用于文件取消/拒收，载荷携带 packetId 与本地文件标识。
+export const CMD_NWT_FILE_CANCEL = 230
+export const NWT_PRIVATE_VERSION = '5@shiyeline'
+
 export const OPT_ABSENCE = 0x00000100
 export const OPT_SENDCHECK = 0x00000100
 export const OPT_SECRET = 0x00000200

@@ -32,3 +32,16 @@ describe('packet', () => {
     expect(decodePacket(Buffer.from('1_lbt80_0#123#9:1:a:b:1:')).version).toBe('1')
   })
 })
+
+describe('private version compatibility', () => {
+  it('accepts the NWT private version used by file cancel', () => {
+    const packet = Buffer.concat([
+      Buffer.from('5@shiyeline:1:peer:host:230:6adffd84:', 'ascii'),
+      Buffer.from([0]),
+      Buffer.from('7', 'ascii'),
+      Buffer.from([0])
+    ])
+    expect(decodePacket(packet).version).toBe('5@shiyeline')
+    expect(() => decodePacket(Buffer.from('5:1:a:b:1:'))).toThrow(PacketError)
+  })
+})

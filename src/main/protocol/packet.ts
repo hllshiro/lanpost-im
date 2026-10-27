@@ -1,3 +1,5 @@
+import { NWT_PRIVATE_VERSION } from './commands'
+
 export class PacketError extends Error {
   constructor(message: string) {
     super(message)
@@ -64,13 +66,14 @@ export function decodePacket(data: Buffer): PacketHeader {
   const version = parts[0].toString('ascii')
   // 允许 1、1@shiyeline、1_lbt80_0#...#9 等历史外层头，但版本号必须是 1。
   const numeric = version.match(/^(\d+)/)
-  if (numeric === null || numeric[1] !== '1') {
+  const privateNwt = version === NWT_PRIVATE_VERSION
+  if (!privateNwt && (numeric === null || numeric[1] !== '1')) {
     throw new PacketError(`不支持的报文版本: ${JSON.stringify(version)}`)
   }
   const seq = parseDecimal(parts[1], 'seq', 0xffffffff)
   const cmd = parseDecimal(parts[4], 'cmd', 0xffffffff)
   return {
-    version: '1',
+    version: privateNwt ? NWT_PRIVATE_VERSION : '1',
     seq,
     user: parts[2].toString('utf8'),
     host: parts[3].toString('utf8'),

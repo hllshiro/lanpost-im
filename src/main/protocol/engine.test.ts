@@ -346,3 +346,46 @@ describe('file release protocol', () => {
     expect(released[0]).toEqual([bob.key, packetId, [0x21]])
   }, 10000)
 })
+
+describe('NWT private file cancel', () => {
+  it('turns version 5 command 230 into a file release', async () => {
+    const port = await freeUdpPort()
+    const releases: Array<[string, number, number[]]> = []
+    const rawCancels: string[] = []
+    const engine = new ProtocolEngine(config('alice', port, []), {
+      ...callbacks(),
+      onFileRelease: (peerKey, packetId, fileIds) => releases.push([peerKey, packetId, fileIds]),
+      onNwtFileCancel: (_peerKey, payload) => rawCancels.push(payload.toString('ascii'))
+    })
+    engines.push(engine)
+    await engine.start()
+    const raw = createSocket('udp4')
+    await new Promise<void>((resolve, reject) => {
+      raw.once('error', reject)
+      raw.bind(0, '127.0.0.1', () => resolve())
+    })
+    raw.send(
+      Buffer.concat([
+        Buffer.from('5@shiyeline:1:peer:peer-host:230:6adffd84:', 'ascii'),
+        Buffer.from([0]),
+        Buffer.from('7', 'ascii'),
+        Buffer.from([0])
+      ]),
+      port,
+      '127.0.0.1'
+    )
+    await waitFor(() => (releases.length > 0 ? true : null))
+    expect(releases[0][1]).toBe(0x6adffd84)
+    raw.send(
+      Buffer.concat([
+        Buffer.from('1@shiyeline:2:peer:peer-host:230:17930643247:', 'ascii'),
+        Buffer.from([0])
+      ]),
+      port,
+      '127.0.0.1'
+    )
+    await waitFor(() => (rawCancels.length > 0 ? true : null))
+    expect(rawCancels[0]).toContain('17930643247')
+    raw.close()
+  }, 10000)
+})

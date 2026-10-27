@@ -17,6 +17,7 @@ import {
   CMD_OKGETLIST,
   CMD_READMSG,
   CMD_RECVMSG,
+  CMD_NWT_FILE_CANCEL,
   CMD_RELEASEFILES,
   CMD_SENDABSENCEINFO,
   CMD_SENDINFO,
@@ -105,6 +106,8 @@ export interface ProtocolCallbacks {
     utf8: boolean
   ): void
   onFileRelease?(peerKey: string, packetId: number, fileIds: number[]): void
+  // 内网通 1@shiyeline 的私有 230 载荷没有分隔符，交给上层按已知 packetId 匹配。
+  onNwtFileCancel?(peerKey: string, payload: Buffer): void
   onLog(message: string): void
   onError(error: Error): void
 }
@@ -702,6 +705,18 @@ export class ProtocolEngine {
     }
     if (mode === CMD_ANSLIST) {
       this.mergeHostList(peer, header.payload)
+      return
+    }
+    if (mode === CMD_NWT_FILE_CANCEL) {
+      if (header.version === '5@shiyeline') {
+        const field = trimNul(header.payload).toString('ascii').split('\u0000')[0].replace(/:$/, '')
+        const packetId = Number.parseInt(field, 16)
+        if (Number.isSafeInteger(packetId) && packetId >= 0) {
+          this.callbacks.onFileRelease?.(peer.key, packetId, [])
+        }
+      } else {
+        this.callbacks.onNwtFileCancel?.(peer.key, header.payload)
+      }
       return
     }
     if (mode === CMD_RELEASEFILES) {

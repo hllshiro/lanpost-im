@@ -515,6 +515,29 @@ export class FileManager {
     }
   }
 
+  // 内网通 1@shiyeline 的 230 载荷是 packetId 十进制与本地文件标识直接拼接，
+  // 没有分隔符；用已知 outgoing packetId 做前缀匹配。
+  releaseByNwtPayload(peerKey: string, payload: Buffer): void {
+    const text = payload.toString('ascii').replaceAll('\u0000', '').trim()
+    const field = text.split(':')[0]?.trim() ?? ''
+    let best: OutgoingFile | null = null
+    let bestLength = 0
+    for (const task of this.tasks.values()) {
+      if (task.direction !== 'out' || task.peerKey !== peerKey) continue
+      if (task.state === 'done' || task.state === 'rejected' || task.state === 'canceled') continue
+      const decimal = String(task.packetId)
+      const hex = task.packetId.toString(16)
+      const matched =
+        (field.startsWith(decimal) && decimal.length > bestLength) ||
+        (field.toLowerCase() === hex && hex.length > bestLength)
+      if (matched) {
+        best = task
+        bestLength = Math.max(bestLength, decimal.length)
+      }
+    }
+    if (best !== null) this.markReleased(best.packetId, [best.fileId])
+  }
+
   markReleased(packetId: number, fileIds: number[]): void {
     for (const task of this.tasks.values()) {
       if (task.packetId !== packetId && !fileIds.includes(task.fileId)) continue

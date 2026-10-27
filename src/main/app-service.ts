@@ -125,6 +125,7 @@ export class AppService {
         void peerKey
         this.fileManager.markReleased(packetId, fileIds)
       },
+      onNwtFileCancel: (peerKey, payload) => this.fileManager.releaseByNwtPayload(peerKey, payload),
       onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
       onLog: (message) => logStartup('protocol: ' + message),
       onError: (error) => logStartup('protocol error: ' + error.message)

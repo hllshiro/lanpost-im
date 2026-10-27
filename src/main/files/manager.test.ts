@@ -283,3 +283,38 @@ describe('FileManager foreign fileId compatibility', () => {
     expect(readFileSync(target, 'utf8')).toBe('nwt-data')
   }, 20000)
 })
+
+describe('FileManager NWT cancel payload', () => {
+  it('releases by decimal and hex packetId payloads', () => {
+    const source = join(tempDir(), 'nwt-cancel.txt')
+    writeFileSync(source, 'x')
+    const instance = manager(tempDir())
+    const one = instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'nwt-cancel.txt',
+      size: 1,
+      mtime: 1,
+      fileId: 0x99,
+      packetId: 1793064324,
+      path: source
+    })
+    instance.releaseByNwtPayload('peer', Buffer.from('17930643247:\0', 'ascii'))
+    expect(instance.get(one.id)?.state).toBe('rejected')
+
+    const two = instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'nwt-cancel-2.txt',
+      size: 1,
+      mtime: 1,
+      fileId: 0x9a,
+      packetId: 1793064325,
+      path: source
+    })
+    instance.releaseByNwtPayload('peer', Buffer.from('6adffd85:\0 7\0', 'ascii'))
+    expect(instance.get(two.id)?.state).toBe('rejected')
+  })
+})
