@@ -21,8 +21,10 @@
     "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "pnpm run build && electron-builder --dir",
-    "build:win": "pnpm run build && electron-builder --win",
-    "build:linux": "pnpm run build && electron-builder --linux"
+    "build:win": "pnpm run build && electron-builder --win --x64",
+    "build:linux": "pnpm run build && electron-builder --linux",
+    "build:linux:x64": "pnpm run build && electron-builder --linux --x64",
+    "build:linux:arm64": "pnpm run build && electron-builder --linux --arm64"
   },
   "dependencies": {
     "@electron-toolkit/utils": "^4.0.0",

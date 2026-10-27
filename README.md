@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-第一版核心功能已实现；主动外发文件的入站防火墙问题已修复并实机验证。当前在补安装包/Linux 回归和少量边界项。文档按“设计 / 现状 / 计划 / 参考资料”分类，入口见：
+0.1.0 已发布。构建目标覆盖 Windows x64 与 Linux x64/arm64，Linux 提供 deb、rpm、AppImage；当前重点转向真实环境回归和边界项。文档按“设计 / 现状 / 计划 / 参考资料”分类，入口见：
 
 - 文档索引：`docs/README.md`
 - 变更记录：`CHANGELOG.md`
@@ -53,7 +53,7 @@ pnpm firewall:dev
 
 ### Linux 防火墙
 
-deb 安装时脚本会检测已启用的 ufw 或 firewalld，为默认端口 2425 添加 TCP/UDP 入站放行规则，并记录到 `/var/lib/lanpost-im/firewall-ports`；卸载时只删除脚本添加过的规则。AppImage、zip，或安装后才启用防火墙的机器，可以在“设置 → 网络 → 防火墙”点“修复”，应用会通过 `pkexec` 请求权限并按当前监听端口添加规则。修改监听端口后需要再点一次修复，安装时添加的 2425 规则不会自动删除。
+deb/rpm 安装时脚本会检测已启用的 ufw 或 firewalld，为默认端口 2425 添加 TCP/UDP 入站放行规则，并记录到 `/var/lib/lanpost-im/firewall-ports`；卸载时只删除脚本添加过的规则。AppImage、zip，或安装后才启用防火墙的机器，可以在“设置 → 网络 → 防火墙”点“修复”，应用会通过 `pkexec` 请求权限并按当前监听端口添加规则。修改监听端口后需要再点一次修复，安装时添加的 2425 规则不会自动删除。
 
 Linux 非 root 无法直接读取 ufw 规则，状态依据脚本写入的 `/var/lib/lanpost-im/firewall-ports` 记录；没有记录时显示“需确认”，重复修复是幂等的。没有 ufw/firewalld 或使用自定义 nftables/iptables 时不会自动修改，需要按现有策略手动放行：
 
@@ -66,8 +66,10 @@ sudo firewall-cmd --permanent --add-port=2425/tcp --add-port=2425/udp && sudo fi
 ## 构建
 
 ```bash
-pnpm build:win     # Windows x64，NSIS 安装包与 zip
-pnpm build:linux   # Linux ARM64，deb 与 AppImage
+pnpm build:win        # Windows x64，NSIS 安装包与 zip
+pnpm build:linux      # Linux x64 + arm64，deb / rpm / AppImage
+pnpm build:linux:x64  # 只构建 Linux x64
+pnpm build:linux:arm64 # 只构建 Linux arm64
 ```
 
 ### 数据目录
@@ -90,7 +92,7 @@ pnpm dev
 
 ### 发布
 
-推送 `v*` 标签会触发 Windows 和 Linux 构建；两个任务成功后，由 `softprops/action-gh-release` 创建 Release 并上传产物。
+推送 `v*` 标签会触发 Windows x64 和 Linux x64/arm64 构建；所有任务成功后，由 `softprops/action-gh-release` 创建 Release 并上传产物。
 
 - 构建阶段在 `electron-builder.yml` 中设置了 `publish: null`，不会隐式发布，也不需要 `GH_TOKEN`。
 - Release 默认使用仓库自动提供的 `GITHUB_TOKEN`（工作流已声明 `contents: write`）。

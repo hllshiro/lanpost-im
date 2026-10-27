@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs as root when the deb is removed. Never fail the package removal.
+# Runs as root when deb/rpm is removed. Never fail the package removal.
 
 STATE_DIR=/var/lib/lanpost-im
 STATE_FILE="$STATE_DIR/firewall-ports"
@@ -31,7 +31,7 @@ remove_rules() {
 }
 
 case "$1" in
-  remove|purge)
+  remove|purge|0)
     remove_rules
     ;;
 esac

@@ -15,7 +15,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 开发：`pnpm dev`；GPU 或沙箱启动失败时才用 `pnpm dev:no-sandbox`。不要用管理员终端启动，Electron 44 在提权环境会 GPU/渲染进程启动失败。
 - 验证顺序：`pnpm lint` → `pnpm typecheck` → `pnpm test`。CI 执行的是 typecheck → test → build。
 - 单测：`pnpm exec vitest run tests/main/protocol/engine.test.ts`；按名称过滤加 `-t "..."`。
-- 构建：`pnpm build` 会先跑 typecheck，输出到 `out/`；打包 `pnpm build:win` / `pnpm build:linux` 输出到 `dist/`。
+- 构建：`pnpm build` 会先跑 typecheck，输出到 `out/`；打包 `pnpm build:win`（x64）、`pnpm build:linux`（x64+arm64）输出到 `dist/`，也可用 `pnpm build:linux:x64` / `pnpm build:linux:arm64` 单独构建。
 - 不要直接跑 `tsc -p tsconfig.web.json`；用 `pnpm typecheck:web`，脚本里的 `--composite false` 是必需的（`src/shared` 不在 web 的 include 内）。
 
 ## 结构
@@ -54,7 +54,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 协议/文件测试使用真实 UDP/TCP 和随机高端口，禁止占用 2425；文件用真实临时文件。
 - 用 `mkdtemp` 创建的目录必须在 `afterEach` 删除（`rmSync(..., { recursive: true, force: true, maxRetries: 5 })`），否则会污染系统临时目录。
 - 端到端验证用两个实例，各自设置 `LANPOST_DATA_DIR`，并使用不同的 `network.port` 和 `seeds`。
-- CI `.github/workflows/build.yml`：Windows x64 + Linux ARM64；只有 `v*` 标签或手动 dispatch 才打包，Release 只在标签触发。
+- CI `.github/workflows/build.yml`：Windows x64 + Linux x64/arm64；Linux 产物包含 deb、rpm、AppImage；只有 `v*` 标签或手动 dispatch 才打包，Release 只在标签触发。
 
 ## 发布
 

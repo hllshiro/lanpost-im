@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs as root when the deb is configured. Never fail the package installation.
+# Runs as root when deb/rpm is configured. Never fail the package installation.
 
 PORT=2425
 STATE_DIR=/var/lib/lanpost-im
@@ -39,11 +39,8 @@ add_firewalld() {
   fi
 }
 
-case "$1" in
-  configure)
-    add_ufw
-    add_firewalld
-    ;;
-esac
+# 只在 deb/rpm 安装或升级时执行，重复添加是幂等的。
+add_ufw
+add_firewalld
 
 exit 0
