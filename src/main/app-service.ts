@@ -1,4 +1,4 @@
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from 'node:fs'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
@@ -374,11 +374,13 @@ export class AppService {
     }
     const result = await dialog.showOpenDialog({
       title: '发送文件',
+      defaultPath: this.lastDialogDir(),
       properties: ['openFile', 'multiSelections']
     })
     if (result.canceled || result.filePaths.length === 0) {
       return
     }
+    this.rememberDialogDir(dirname(result.filePaths[0]))
     this.sendFiles(conversationId, result.filePaths)
   }
 
@@ -389,9 +391,11 @@ export class AppService {
     }
     const result = await dialog.showOpenDialog({
       title: '发送文件夹',
+      defaultPath: this.lastDialogDir(),
       properties: ['openDirectory']
     })
     if (result.canceled || result.filePaths.length === 0) return
+    this.rememberDialogDir(result.filePaths[0])
     this.sendFiles(conversationId, result.filePaths)
   }
 
@@ -655,10 +659,12 @@ export class AppService {
     }
     const result = await dialog.showOpenDialog({
       title: '发送图片',
+      defaultPath: this.lastDialogDir(),
       properties: ['openFile', 'multiSelections'],
       filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'] }]
     })
     if (result.canceled || result.filePaths.length === 0) return
+    this.rememberDialogDir(dirname(result.filePaths[0]))
     this.sendImages(conversationId, result.filePaths)
   }
 
@@ -777,6 +783,17 @@ export class AppService {
       return null
     }
     return task.path
+  }
+
+  private lastDialogDir(): string | undefined {
+    const dir = this.settings.get().files.lastDialogDir
+    return dir.trim() !== '' && existsSync(dir) ? dir : undefined
+  }
+
+  private rememberDialogDir(dir: string): void {
+    if (dir === '' || !existsSync(dir)) return
+    if (this.settings.get().files.lastDialogDir === dir) return
+    this.settings.update({ files: { lastDialogDir: dir } })
   }
 
   private nextFileId(): number {

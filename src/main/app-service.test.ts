@@ -8,9 +8,13 @@ import { SettingsStore } from './settings/store'
 import type { AppEvent } from '../shared/domain'
 import type { ProtocolPeer } from './protocol/engine'
 
+const electronMocks = vi.hoisted(() => ({
+  showOpenDialog: vi.fn()
+}))
+
 vi.mock('electron', () => ({
   app: { getPath: () => tmpdir() },
-  dialog: {},
+  dialog: { showOpenDialog: electronMocks.showOpenDialog },
   shell: {},
   BrowserWindow: class {}
 }))
@@ -341,4 +345,34 @@ describe('two AppService sender cancel', () => {
       dbB.close()
     }
   }, 20000)
+})
+
+describe('AppService picker directory memory', () => {
+  it('uses the last directory and remembers the new one', async () => {
+    const { service, repos, settings } = setup()
+    const firstDir = mkdtempSync(join(tmpdir(), 'lanpost-pick-a-'))
+    const secondDir = mkdtempSync(join(tmpdir(), 'lanpost-pick-b-'))
+    dirs.push(firstDir, secondDir)
+    settings.update({ files: { lastDialogDir: firstDir } })
+    const conversation = repos.conversations.ensureDirect('127.0.0.1|peer', 'Peer')
+    ;(service as unknown as { engine: unknown }).engine = {
+      getPeers: () => [peer()],
+      sendFileOffer: () => 77
+    }
+
+    electronMocks.showOpenDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] })
+    await service.pickAndSend(conversation.id)
+    expect(electronMocks.showOpenDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ defaultPath: firstDir })
+    )
+
+    const picked = join(secondDir, 'picked.txt')
+    writeFileSync(picked, 'x')
+    electronMocks.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [picked] })
+    await service.pickAndSend(conversation.id)
+    expect(electronMocks.showOpenDialog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ defaultPath: firstDir })
+    )
+    expect(settings.get().files.lastDialogDir).toBe(secondDir)
+  })
 })
