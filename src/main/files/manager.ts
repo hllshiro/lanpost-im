@@ -16,6 +16,8 @@ const DEFAULT_HOST = hostname()
 
 export interface FileRecordBase {
   id: string
+  messageId: number | null
+  conversationId: string
   peerKey: string
   peerIp: string
   peerPort: number
@@ -187,6 +189,8 @@ export class FileManager {
         kind,
         utf8: input.utf8 ?? false,
         id,
+        messageId: null,
+        conversationId: '',
         peerKey: input.peerKey,
         peerIp: input.peerIp,
         peerPort: input.peerPort,
@@ -275,6 +279,8 @@ export class FileManager {
       kind,
       utf8: input.utf8 ?? false,
       id,
+      messageId: null,
+      conversationId: '',
       peerKey: input.peerKey,
       peerIp: input.peerIp,
       peerPort: input.peerPort,
@@ -311,9 +317,7 @@ export class FileManager {
     ) {
       throw new Error(`文件任务已经结束: ${task.name}`)
     }
-    if (task.direction === 'in') {
-      this.options.notifyReleased(task.peerKey, task.packetId, [task.fileId])
-    }
+    this.options.notifyReleased(task.peerKey, task.packetId, [task.fileId])
     task.state = 'canceled'
     task.error = ''
     this.touch(task)
@@ -331,6 +335,16 @@ export class FileManager {
   get(id: string): FileRecord | null {
     const task = this.tasks.get(id)
     return task === undefined ? null : { ...task }
+  }
+
+  // 消息建立后把任务挂到消息上，并返回最新的渲染快照。
+  linkTask(id: string, conversationId: string, messageId: number): FileTaskInfo | null {
+    const task = this.tasks.get(id)
+    if (task === undefined) return null
+    task.conversationId = conversationId
+    task.messageId = messageId
+    this.touch(task)
+    return this.toInfo(task)
   }
 
   private requireIncoming(id: string): IncomingFile {
@@ -416,7 +430,9 @@ export class FileManager {
       const failure = toError(error)
       if (entry.signal.aborted) {
         task.path = ''
-        if (this.stopping) {
+        if (task.state === 'rejected') {
+          // 对端取消时保持 rejected，方便界面显示“对方已取消”。
+        } else if (this.stopping) {
           task.state = 'failed'
           task.error = '应用正在退出'
         } else {
@@ -480,8 +496,10 @@ export class FileManager {
       await rm(temp, { recursive: true, force: true })
       const failure = toError(error)
       if (entry.signal.aborted) {
-        task.state = 'canceled'
-        task.error = ''
+        if (task.state !== 'rejected') {
+          task.state = 'canceled'
+          task.error = ''
+        }
       } else {
         task.state = 'failed'
         task.error = failure.message
@@ -499,11 +517,14 @@ export class FileManager {
 
   markReleased(packetId: number, fileIds: number[]): void {
     for (const task of this.tasks.values()) {
-      if (task.direction !== 'out') continue
       if (task.packetId !== packetId && !fileIds.includes(task.fileId)) continue
-      if (task.state === 'done' || task.state === 'canceled') continue
+      if (task.state === 'done' || task.state === 'canceled' || task.state === 'rejected') continue
       task.state = 'rejected'
       task.error = ''
+      if (task.direction === 'in') {
+        this.aborts.get(task.id)?.abort()
+        this.aborts.delete(task.id)
+      }
       this.touch(task)
       this.publish(task, true)
     }
@@ -519,6 +540,7 @@ export class FileManager {
       kind: task.kind === 'dir' ? 'dir' : 'file',
       utf8: task.utf8,
       offset: request.offset,
+      isCanceled: () => task.state === 'canceled',
       onStart: () => {
         if (task.state === 'canceled') {
           return
@@ -615,8 +637,8 @@ export class FileManager {
   private toInfo(task: FileRecord): FileTaskInfo {
     return {
       id: task.id,
-      messageId: null,
-      conversationId: '',
+      messageId: task.messageId,
+      conversationId: task.conversationId,
       peerKey: task.peerKey,
       direction: task.direction,
       kind: task.kind,

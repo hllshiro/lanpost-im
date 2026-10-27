@@ -28,6 +28,7 @@ export const IPC = {
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
+  fileCancel: 'files:cancel',
   fileOpen: 'files:open',
   fileReveal: 'files:reveal',
   fileSaveAs: 'files:save-as',
@@ -127,6 +128,7 @@ export type Api = {
   files: {
     accept(id: string): Promise<void>
     reject(id: string): Promise<void>
+    cancel(id: string): Promise<void>
     open(id: string): Promise<void>
     reveal(id: string): Promise<void>
     saveAs(id: string): Promise<void>

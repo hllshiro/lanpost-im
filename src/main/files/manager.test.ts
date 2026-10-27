@@ -140,3 +140,67 @@ describe('FileManager directory and multi-attachment', () => {
     expect(instance.list()[0].state).toBe('rejected')
   })
 })
+
+describe('FileManager message linking and cancellation', () => {
+  it('links a task to a message and returns the updated snapshot', () => {
+    const source = join(tempDir(), 'linked.txt')
+    writeFileSync(source, 'x')
+    const instance = manager(tempDir())
+    const task = instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'linked.txt',
+      size: 1,
+      mtime: 1,
+      fileId: 7,
+      packetId: 8,
+      path: source
+    })
+    const linked = instance.linkTask(task.id, 'direct:peer', 42)
+    expect(linked).toMatchObject({ messageId: 42, conversationId: 'direct:peer' })
+    expect(instance.list()[0]).toMatchObject({ messageId: 42, conversationId: 'direct:peer' })
+  })
+
+  it('marks an outgoing task canceled and tells the peer', () => {
+    const source = join(tempDir(), 'cancel.txt')
+    writeFileSync(source, 'x')
+    const releases: string[] = []
+    const instance = new FileManager({
+      bindAddr: '127.0.0.1',
+      port: 0,
+      receiveDir: tempDir(),
+      notifyAccepted: () => undefined,
+      notifyReleased: (peerKey, packetId) => releases.push(`${peerKey}:${packetId}`),
+      callbacks: { onUpdate: () => undefined, onLog: () => undefined, onError: () => undefined }
+    })
+    managers.push(instance)
+    const task = instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'cancel.txt',
+      size: 1,
+      mtime: 1,
+      fileId: 9,
+      packetId: 10,
+      path: source
+    })
+    instance.cancel(task.id)
+    expect(instance.list()[0].state).toBe('canceled')
+    expect(releases).toEqual(['peer:10'])
+  })
+
+  it('marks an incoming task rejected when the sender releases it', () => {
+    const instance = manager(tempDir())
+    const created = instance.offerIncoming({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      packetId: 11,
+      attachments: [{ id: 12, name: 'in.txt', size: 1, mtime: 1, attr: 1 }]
+    })
+    instance.markReleased(11, [12])
+    expect(instance.list().find((task) => task.id === created[0].id)?.state).toBe('rejected')
+  })
+})

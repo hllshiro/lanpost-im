@@ -30,7 +30,8 @@ async function sendFile(
   path: string,
   name: string,
   utf8: boolean,
-  sent: (n: number) => void
+  sent: (n: number) => void,
+  isCanceled?: () => boolean
 ): Promise<void> {
   const info = await stat(path)
   const attr = FILE_ATTR_REGULAR | (info.mode & 0o200 ? 0 : FILE_OPT_RONLY)
@@ -40,6 +41,7 @@ async function sendFile(
   try {
     const buffer = Buffer.alloc(CHUNK_SIZE)
     for (;;) {
+      if (isCanceled?.() === true) throw new Error('发送已取消')
       const { bytesRead } = await handle.read(buffer, 0, buffer.length, null)
       if (bytesRead === 0) break
       await writeAll(socket, buffer.subarray(0, bytesRead))
@@ -56,7 +58,8 @@ async function sendDir(
   name: string,
   root: boolean,
   utf8: boolean,
-  sent: (n: number) => void
+  sent: (n: number) => void,
+  isCanceled?: () => boolean
 ): Promise<void> {
   const info = await stat(path)
   const attr = FILE_ATTR_DIR | (info.mode & 0o200 ? 0 : FILE_OPT_RONLY)
@@ -69,9 +72,9 @@ async function sendDir(
     if (entry.isSymbolicLink()) continue
     const target = join(path, entry.name)
     if (entry.isDirectory()) {
-      await sendDir(socket, target, entry.name, false, utf8, sent)
+      await sendDir(socket, target, entry.name, false, utf8, sent, isCanceled)
     } else if (entry.isFile()) {
-      await sendFile(socket, target, entry.name, utf8, sent)
+      await sendFile(socket, target, entry.name, utf8, sent, isCanceled)
     }
   }
 
@@ -95,12 +98,22 @@ export async function sendDirectory(
   socket: Socket,
   rootPath: string,
   utf8: boolean,
-  onProgress?: (sent: number) => void
+  onProgress?: (sent: number) => void,
+  isCanceled?: () => boolean
 ): Promise<number> {
   let sent = 0
-  await sendDir(socket, rootPath, basename(rootPath), true, utf8, (count) => {
-    sent += count
-    onProgress?.(sent)
-  })
+  await sendDir(
+    socket,
+    rootPath,
+    basename(rootPath),
+    true,
+    utf8,
+    (count) => {
+      if (isCanceled?.() === true) throw new Error('发送已取消')
+      sent += count
+      onProgress?.(sent)
+    },
+    isCanceled
+  )
   return sent
 }

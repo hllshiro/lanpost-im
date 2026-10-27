@@ -351,6 +351,13 @@ export class AppService {
     this.fileManager.reject(id)
   }
 
+  cancelFile(id: string): void {
+    if (!this.filesStarted) {
+      throw new Error('文件服务未启动')
+    }
+    this.fileManager.cancel(id)
+  }
+
   acceptFile(id: string): void {
     if (!this.filesStarted) {
       throw new Error('文件服务未启动')
@@ -530,6 +537,7 @@ export class AppService {
       }
       return
     }
+    this.createFileMessage(peer.key, peer.name, text, packetId, created, 'in')
     const settings = this.settings.get()
     for (const file of created) {
       const limit = settings.files.autoAcceptMaxMB
@@ -567,6 +575,11 @@ export class AppService {
     for (const file of files) {
       this.fileLinks.set(file.id, { conversationId: conversation.id, messageId: message.id })
     }
+    this.linkTasks(
+      message.id,
+      conversation.id,
+      files.map((file) => file.id)
+    )
     this.emit({ type: 'message', message })
     this.emitConversation(conversation.id)
     if (direction === 'in') {
@@ -578,6 +591,15 @@ export class AppService {
         muted: conversation.muted,
         unread: this.unreadTotal()
       })
+    }
+  }
+
+  private linkTasks(messageId: number, conversationId: string, ids: string[]): void {
+    for (const id of ids) {
+      const linked = this.fileManager.linkTask(id, conversationId, messageId)
+      if (linked === null) continue
+      this.repos.files.upsert(linked)
+      this.emit({ type: 'file', file: linked })
     }
   }
 
@@ -611,6 +633,7 @@ export class AppService {
     for (const id of fileIds) {
       this.fileLinks.set(id, { conversationId: conversation.id, messageId: message.id })
     }
+    this.linkTasks(message.id, conversation.id, fileIds)
     this.emit({ type: 'message', message })
     this.emitConversation(conversation.id)
     if (direction === 'in') {

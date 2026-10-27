@@ -32,6 +32,7 @@ export function registerAppIpc(service: AppService): void {
   )
   ipcMain.handle(IPC.fileAccept, (_event, id: string) => service.acceptFile(id))
   ipcMain.handle(IPC.fileReject, (_event, id: string) => service.rejectFile(id))
+  ipcMain.handle(IPC.fileCancel, (_event, id: string) => service.cancelFile(id))
   ipcMain.handle(IPC.fileOpen, (_event, id: string) => service.openFile(id))
   ipcMain.handle(IPC.fileReveal, (_event, id: string) => service.revealFile(id))
   ipcMain.handle(IPC.fileSaveAs, (_event, id: string) => service.saveFileAs(id))

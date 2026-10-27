@@ -35,6 +35,19 @@ const flags = computed(() => props.message.meta.flags ?? {})
 const images = computed(() =>
   props.files.filter((file) => file.kind === 'image' && file.state === 'done' && file.path !== '')
 )
+
+const statusText = computed(() => {
+  if (props.message.kind === 'file' && props.own) {
+    if (props.files.some((file) => file.state === 'rejected')) return '对方已拒绝'
+    if (props.files.some((file) => file.state === 'canceled')) return '已取消'
+    if (props.files.some((file) => file.state === 'failed')) return '发送失败'
+    if (props.files.some((file) => file.state === 'transferring')) return '传输中'
+    if (props.files.some((file) => file.state === 'offered' || file.state === 'waiting')) {
+      return '等待接收'
+    }
+  }
+  return statusLabel(props.message.status)
+})
 const masked = computed(
   () => sealed.value && props.message.direction === 'in' && props.message.meta.opened !== true
 )
@@ -118,7 +131,7 @@ const statusClass = computed(() => {
             :stroke-width="1.9"
             :class="{ spin: message.status === 'sending' }"
           />
-          <span>{{ statusLabel(message.status) }}</span>
+          <span>{{ statusText }}</span>
         </div>
       </div>
     </div>

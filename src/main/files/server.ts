@@ -25,6 +25,7 @@ export interface FileServeTarget {
   kind: 'file' | 'dir'
   utf8?: boolean
   offset?: number
+  isCanceled?: () => boolean
   onStart?: () => void
   onProgress?: (sent: number) => void
   onDone?: (sent: number) => void
@@ -330,6 +331,7 @@ export class FileServer {
       let sent = target.offset ?? 0
       let position = sent
       for (;;) {
+        if (target.isCanceled?.() === true) throw new Error('发送已取消')
         const { bytesRead } = await handle.read(buffer, 0, buffer.length, position)
         if (bytesRead === 0) {
           break

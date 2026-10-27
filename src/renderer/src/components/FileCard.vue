@@ -7,7 +7,7 @@ import { formatSize, formatSpeed } from '../utils/format'
 
 const props = defineProps<{ file: FileTaskInfo }>()
 
-type Action = 'accept' | 'reject' | 'open' | 'reveal' | 'saveAs'
+type Action = 'accept' | 'reject' | 'cancel' | 'open' | 'reveal' | 'saveAs'
 
 const busy = ref<Action | ''>('')
 const error = ref('')
@@ -38,6 +38,11 @@ const canReceive = computed(
 )
 const transferring = computed(() => props.file.state === 'transferring')
 const done = computed(() => props.file.state === 'done')
+const canCancel = computed(
+  () =>
+    props.file.state === 'offered' ||
+    (props.file.state === 'transferring' && (incoming.value || props.file.direction === 'out'))
+)
 
 const percent = computed(() => {
   if (props.file.size <= 0) return 0
@@ -109,6 +114,10 @@ function reject(): void {
   void run('reject', () => window.api.files.reject(props.file.id))
 }
 
+function cancel(): void {
+  void run('cancel', () => window.api.files.cancel(props.file.id))
+}
+
 function open(): void {
   void run('open', () => window.api.files.open(props.file.id))
 }
@@ -163,10 +172,13 @@ function saveAs(): void {
 
     <p v-if="error" class="file-error">{{ error }}</p>
 
-    <div v-if="canReceive || done" class="actions">
+    <div v-if="canReceive || done || canCancel" class="actions">
       <template v-if="canReceive">
         <button class="action primary" :disabled="busy !== ''" @click="accept">接收</button>
         <button class="action" :disabled="busy !== ''" @click="reject">拒绝</button>
+      </template>
+      <template v-if="canCancel">
+        <button class="action" :disabled="busy !== ''" @click="cancel">取消</button>
       </template>
       <template v-else-if="done">
         <button class="action" :disabled="busy !== ''" @click="open">
