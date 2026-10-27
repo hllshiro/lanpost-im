@@ -49,7 +49,18 @@ Known limitations / issues:
   `winCodeSign` symlinks without the required privilege. `--dir` packaging and
   launching the unpacked app succeeded.
 - IPMSG files are auto-accepted in Phase 0; manual accept is deferred.
+- IPMSG attachments use `localPath` and are not duplicated into SQLite BLOBs.
 - IPMSG contacts do not participate in groups.
+- IPMSG contact keys include the IP (`ipmsg:<ip>|<account>`); a DHCP/IP change
+  creates a new contact and leaves the old one offline. Account/host-based
+  matching is a Phase 1 item.
+- Windows `SO_REUSEADDR` can make the UDP 2425 bind succeed even when another
+  IPMSG client owns the port; unicast replies can go to the wrong socket and
+  discovery fails silently. The renderer is not yet told that IPMSG failed to
+  start. This needs a Phase 1 probe/error surface.
+- `orbit-file://` is an upstream Orbit scheme that can serve any absolute path.
+  IPMSG filenames are escaped and path traversal is blocked, but restricting
+  the scheme to allow-listed roots is a Phase 1 hardening item.
 - Full Chinese i18n is deferred to Phase 1; Orbit UI remains English.
 - `docs/3rd/LANChat`, `docs/3rd/blip`, and `docs/3rd/Orbit-beta` are local
   research clones and are git-ignored.

@@ -3107,6 +3107,7 @@ window.ChatPanel = {
     const friend = state.friends.find(function(f) { return f.userId === activeChatId; });
     const activeGroup = state.groups.find(function(g) { return g.groupId === activeChatId; });
     const isGroup = !!activeGroup;
+    const myId = state.currentUser.userId;
     if (friend && friend.transport === 'ipmsg' && this.stagedFiles && this.stagedFiles.length > 0) {
       var ipmsgFiles = this.stagedFiles.filter(function(s) { return s && s.path; });
       var loaded = 0;
@@ -3126,7 +3127,8 @@ window.ChatPanel = {
               name: sf.name,
               size: sf.size,
               path: sf.path,
-              url: 'orbit-file://' + sf.path
+              localPath: sf.path,
+              url: 'orbit-file://' + encodeURIComponent(sf.path)
             }]
           });
           loaded++;
@@ -3144,7 +3146,6 @@ window.ChatPanel = {
         return;
       }
     }
-    const myId = state.currentUser.userId;
 
     // Get all recipients for this message
     var recipients = [];

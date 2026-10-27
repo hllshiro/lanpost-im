@@ -61,7 +61,8 @@
           name: file.name,
           size: file.size,
           path: file.path,
-          url: 'orbit-file://' + file.path
+          localPath: file.path,
+          url: 'orbit-file://' + encodeURIComponent(file.path)
         }]
       }
     }

@@ -4,6 +4,8 @@ import { join } from 'node:path'
 // 收到或发送的文件名可能包含相对路径、控制字符，或者 Windows 不允许的冒号。
 // 只保留最后一段文件名，保存路径必然落在接收目录内。
 const SEPARATORS = /[\\/]+/
+const ILLEGAL = /[<>:"|?*]/g
+const RESERVED = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$/i
 
 function stripControlChars(name: string): string {
   let out = ''
@@ -22,9 +24,12 @@ export function sanitizeFileName(name: string): string {
     .split(SEPARATORS)
     .filter((segment) => segment !== '' && segment !== '.' && segment !== '..')
   const base = segments.length > 0 ? segments[segments.length - 1] : ''
-  const safe = base.trim().replaceAll(':', '_')
+  var safe = base.trim().replace(/[. ]+$/, '').replace(ILLEGAL, '_')
   if (safe === '' || safe === '.' || safe === '..') {
     return ''
+  }
+  if (RESERVED.test(safe)) {
+    safe = '_' + safe
   }
   return safe
 }

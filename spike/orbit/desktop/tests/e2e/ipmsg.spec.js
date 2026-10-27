@@ -85,6 +85,47 @@ test('discovers, displays and exchanges text with an IPMSG peer', async () => {
   await expect.poll(() => texts.some((item) => item.text === 'hello from orbit'), { timeout: 15000 }).toBe(true);
 
   sourceDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-ipmsg-src-'));
+  await page.evaluate(async () => {
+    const chatId = 'ipmsg:127.0.0.1|ipmsg-test';
+    window.store.setState({ activeChatId: chatId });
+    await window.ChatPanel.sendMessage('hello from orbit ui');
+  });
+  await expect.poll(() => texts.some((item) => item.text === 'hello from orbit ui'), { timeout: 15000 }).toBe(true);
+
+  const uiName = 'ui-ipmsg-' + Date.now() + '.txt';
+  const uiPath = path.join(sourceDir, uiName);
+  fs.writeFileSync(uiPath, 'ipmsg file from ui');
+  await page.evaluate(async ({ filePath, name }) => {
+    const chatId = 'ipmsg:127.0.0.1|ipmsg-test';
+    window.store.setState({ activeChatId: chatId });
+    window.ChatPanel.stagedFiles = [{
+      path: filePath,
+      name,
+      size: 18,
+      type: 'file',
+      mimeType: 'text/plain'
+    }];
+    await window.ChatPanel.sendMessage('');
+  }, { filePath: uiPath, name: uiName });
+  await expect.poll(() => files.some((file) => file.direction === 'in' && file.state === 'done' && file.name === uiName), { timeout: 15000 }).toBe(true);
+  const localFileMessage = await page.evaluate((name) => {
+    const messages = Object.values(window.store.getState().messages).flat();
+    const message = messages.find((m) => (m.attachments || []).some((a) => a.name === name));
+    return message ? message.attachments[0].name : null;
+  }, uiName);
+  expect(localFileMessage).toBe(uiName);
+  const attachmentId = await page.evaluate((name) => {
+    const messages = Object.values(window.store.getState().messages).flat();
+    const message = messages.find((m) => (m.attachments || []).some((a) => a.name === name));
+    return message ? message.attachments[0].id : null;
+  }, uiName);
+  const stored = await page.evaluate((id) => {
+    const att = window.orbitAPI.dbGetAttachment(id);
+    return { localPath: att.localPath, dataLength: att.data ? att.data.length : 0 };
+  }, attachmentId);
+  expect(stored.localPath).toBe(uiPath);
+  expect(stored.dataLength).toBe(0);
+
   const incomingName = 'from-ipmsg-' + Date.now() + '.txt';
   const incomingFile = path.join(sourceDir, incomingName);
   fs.writeFileSync(incomingFile, 'ipmsg file from test');

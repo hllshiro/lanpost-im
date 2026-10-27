@@ -350,6 +350,10 @@ class OrbitDatabase {
         timestamp: m.timestamp,
         replyTo: m.replyTo != null ? m.replyTo : undefined,
         call: callObj,
+        transport: m.transport || 'orbit',
+        remoteId: m.remoteId != null ? m.remoteId : undefined,
+        remoteSeq: m.remoteSeq != null ? m.remoteSeq : undefined,
+        deliveryStatus: m.deliveryStatus != null ? m.deliveryStatus : undefined,
         attachments: attachments.length > 0 ? attachments : undefined
       };
     });
@@ -375,6 +379,10 @@ class OrbitDatabase {
         text: m.text,
         timestamp: m.timestamp,
         replyTo: m.replyTo != null ? m.replyTo : undefined,
+        transport: m.transport || 'orbit',
+        remoteId: m.remoteId != null ? m.remoteId : undefined,
+        remoteSeq: m.remoteSeq != null ? m.remoteSeq : undefined,
+        deliveryStatus: m.deliveryStatus != null ? m.deliveryStatus : undefined,
         attachments: attachments.length > 0 ? attachments : undefined
       });
     });
@@ -403,6 +411,10 @@ class OrbitDatabase {
         text: m.text,
         timestamp: m.timestamp,
         replyTo: m.replyTo != null ? m.replyTo : undefined,
+        transport: m.transport || 'orbit',
+        remoteId: m.remoteId != null ? m.remoteId : undefined,
+        remoteSeq: m.remoteSeq != null ? m.remoteSeq : undefined,
+        deliveryStatus: m.deliveryStatus != null ? m.deliveryStatus : undefined,
         attachments: attachments.length > 0 ? attachments : undefined
       });
     });
@@ -492,7 +504,7 @@ class OrbitDatabase {
                 try { bufferData = Buffer.from(att.data); } catch(e) { /* ignore */ }
               }
             }
-            if (bufferData.length === 0 && att.path && fs.existsSync(att.path)) {
+            if (bufferData.length === 0 && !localPath && att.path && fs.existsSync(att.path)) {
                try {
                  bufferData = fs.readFileSync(att.path);
                } catch(e) {
