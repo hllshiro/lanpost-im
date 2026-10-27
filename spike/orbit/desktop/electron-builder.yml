@@ -21,11 +21,12 @@ extraResources:
     to: shared
 
 # --- Windows ---
+# Arch is chosen on the command line (`--x64` / `--arm64`) so the CI matrix
+# decides what gets built; pinning arch here would override the matrix.
 win:
   target:
-    - target: nsis
-      arch:
-        - x64
+    - nsis
+    - zip
   icon: src/icons/app/orbit.ico
   requestedExecutionLevel: asInvoker
 
@@ -53,12 +54,9 @@ dmg:
 # --- Linux ---
 linux:
   target:
-    - target: AppImage
-      arch:
-        - x64
-    - target: deb
-      arch:
-        - x64
+    - AppImage
+    - deb
+    - rpm
   icon: src/icons/app/orbit_1024.png
   category: Network;InstantMessaging;Chat
   synopsis: "P2P chat without the cloud"
