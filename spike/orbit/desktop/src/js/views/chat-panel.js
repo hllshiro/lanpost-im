@@ -795,6 +795,7 @@ window.ChatPanel = {
     const activeFriend = state.friends.find(f => f.userId === state.activeChatId);
     const activeGroup = state.groups.find(g => g.groupId === state.activeChatId);
     const isGroup = !!activeGroup;
+    const ipmsgChat = !!(activeFriend && activeFriend.transport === 'ipmsg');
     const activeName = isGroup ? activeGroup.groupName : (activeFriend ? activeFriend.username : 'Chat');
     if (!activeFriend && !isGroup) return;
 
@@ -1052,10 +1053,10 @@ window.ChatPanel = {
       // Hover action bar
       const actionBtns =
         '<button class="msg-action-btn msg-reply-btn" data-msg-id="' + msg.id + '" title="Reply"><i data-lucide="reply" style="width:16px;height:16px;"></i></button>' +
-        '<button class="msg-action-btn msg-react-btn" data-msg-id="' + msg.id + '" data-msg-text="' + window.Sanitize.escapeHtml(msg.text || '').replace(/"/g, '&quot;') + '" title="React"><i data-lucide="smile-plus" style="width:16px;height:16px;"></i></button>' +
+        (ipmsgChat ? '' : '<button class="msg-action-btn msg-react-btn" data-msg-id="' + msg.id + '" data-msg-text="' + window.Sanitize.escapeHtml(msg.text || '').replace(/"/g, '&quot;') + '" title="React"><i data-lucide="smile-plus" style="width:16px;height:16px;"></i></button>') +
         '<button class="msg-action-btn msg-forward-btn" data-msg-id="' + msg.id + '" title="Forward"><i data-lucide="send" style="width:16px;height:16px;"></i></button>' +
-        (isMine ? '<button class="msg-action-btn msg-edit-btn" data-msg-id="' + msg.id + '" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>' : '') +
-        (state.settings.messageTranslate ? '<button class="msg-action-btn msg-translate-btn" data-msg-id="' + msg.id + '" title="Translate"><i data-lucide="languages" style="width:16px;height:16px;"></i></button>' : '') +
+        (!ipmsgChat && isMine ? '<button class="msg-action-btn msg-edit-btn" data-msg-id="' + msg.id + '" title="Edit"><i data-lucide="pencil" style="width:16px;height:16px;"></i></button>' : '') +
+        (!ipmsgChat && state.settings.messageTranslate ? '<button class="msg-action-btn msg-translate-btn" data-msg-id="' + msg.id + '" title="Translate"><i data-lucide="languages" style="width:16px;height:16px;"></i></button>' : '') +
         '<button class="msg-action-btn msg-delete-btn" data-msg-id="' + msg.id + '" data-is-mine="' + (isMine ? '1' : '0') + '" title="Delete"><i data-lucide="trash-2" style="width:16px;height:16px;"></i></button>';
 
       const actionsBar = '<div class="msg-actions-bar' + (isMine ? ' msg-actions-left' : ' msg-actions-right') + '">' + actionBtns + '</div>';
@@ -1716,7 +1717,9 @@ window.ChatPanel = {
         var chatId = state.activeChatId;
         if (!chatId || chatId === 'local-echo') return;
         var members = state.groups.find(function(g) { return g.groupId === chatId; });
-        var recipients = members ? members.members : [state.friends.find(function(f) { return f.userId === chatId; })].filter(Boolean);
+        var directFriend = state.friends.find(function(f) { return f.userId === chatId; });
+        if (directFriend && directFriend.transport === 'ipmsg') return;
+        var recipients = members ? members.members : [directFriend].filter(Boolean);
         var isGroup = !!members;
         recipients.forEach(function(r) {
           if (r.userId !== state.currentUser.userId) {

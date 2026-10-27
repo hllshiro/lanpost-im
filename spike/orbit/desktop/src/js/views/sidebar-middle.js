@@ -230,7 +230,7 @@ window.SidebarMiddle = {
 
   showCreateGroupModal(prefilledCode) {
     var state = window.store.getState();
-    var friends = state.friends.filter(function(f) { return f.userId !== state.currentUser.userId && f.userId !== 'local-echo'; });
+    var friends = state.friends.filter(function(f) { return f.userId !== state.currentUser.userId && f.userId !== 'local-echo' && f.transport !== 'ipmsg'; });
 
     var overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);z-index:9999;display:flex;align-items:center;justify-content:center;';
@@ -845,6 +845,9 @@ window.SidebarMiddle = {
     var mutedHtml = isMuted ? '<i data-lucide="bell-off" style="width:14px;height:14px;color:var(--text-muted);flex-shrink:0;"></i>' : '';
     var isPinned = pinnedDMs[friend.userId];
     var pinnedHtml = isPinned ? '<i data-lucide="pin" style="width:14px;height:14px;color:var(--accent-primary);flex-shrink:0;"></i>' : '';
+    var ipmsgBadge = friend.transport === 'ipmsg'
+      ? '<span style="margin-left:5px;padding:1px 5px;border-radius:4px;background:var(--bg-hover);border:1px solid var(--border-subtle);font-size:9px;font-weight:600;color:var(--text-muted);vertical-align:1px;">IPMSG</span>'
+      : '';
 
     return '<div class="list-row ' + (isActive ? 'active' : '') + '"' + (opts.reopen ? ' data-reopen="1"' : '') + ' data-id="' + window.Sanitize.escapeHtml(friend.userId) + '" data-debug="User: ' + window.Sanitize.escapeHtml(friend.username) + ' ID: ' + window.Sanitize.escapeHtml(friend.userId) + ' Status: ' + window.Sanitize.escapeHtml(friend.status || 'offline') + '">' +
       '<div class="avatar avatar-md list-row-avatar" style="position:relative;">' +
@@ -852,7 +855,7 @@ window.SidebarMiddle = {
         window.OrbitPresence.badge(friend.status || 'offline') +
       '</div>' +
       '<div class="list-row-info">' +
-        '<div class="list-row-title">' + window.Sanitize.escapeHtml(friend.username) + '</div>' +
+        '<div class="list-row-title">' + window.Sanitize.escapeHtml(friend.username) + ipmsgBadge + '</div>' +
         '<div class="list-row-subtitle">' + subtitleHtml + '</div>' +
       '</div>' +
       (pinnedHtml || badgeHtml || mutedHtml ? '<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">' + pinnedHtml + mutedHtml + badgeHtml + '</div>' : '') +
@@ -2087,7 +2090,7 @@ window.SidebarMiddle = {
       var friends = state2.friends || [];
       var memberIds = {};
       (group.members || []).forEach(function(m) { memberIds[m.userId] = true; });
-      var nonMembers = friends.filter(function(f) { return !memberIds[f.userId] && f.userId !== myId; });
+      var nonMembers = friends.filter(function(f) { return !memberIds[f.userId] && f.userId !== myId && f.transport !== 'ipmsg'; });
       if (nonMembers.length === 0) {
         return '<div style="padding:12px;text-align:center;color:var(--text-muted);font-size:12px;">No friends to add</div>';
       }
