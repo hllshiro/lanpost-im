@@ -253,6 +253,27 @@ const migrations = [
     } catch (e) {
       console.warn('[Migration] FTS5 backfill failed:', e.message);
     }
+  },
+  // v17 — IPMSG compatibility transport metadata.
+  // Keep IPMSG contacts and messages in the same tables as Orbit data, but
+  // tag them so the UI can hide Orbit-only capabilities and the router can
+  // choose the right transport. No dual-channel merge is attempted.
+  (db) => {
+    function addColumn(table, column, definition) {
+      var cols;
+      try { cols = db.pragma('table_info(' + table + ')'); } catch (e) { cols = []; }
+      if (!cols.some(function(c) { return c.name === column; })) {
+        try { db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + definition); } catch (e) {}
+      }
+    }
+    addColumn('friends', 'transport', "TEXT NOT NULL DEFAULT 'orbit'");
+    addColumn('friends', 'ipmsgAccount', 'TEXT');
+    addColumn('friends', 'ipmsgHost', 'TEXT');
+    addColumn('friends', 'lastIp', 'TEXT');
+    addColumn('messages', 'transport', "TEXT NOT NULL DEFAULT 'orbit'");
+    addColumn('messages', 'remoteId', 'TEXT');
+    addColumn('messages', 'remoteSeq', 'INTEGER');
+    addColumn('messages', 'deliveryStatus', 'TEXT');
   }
 ];
 

@@ -43,13 +43,13 @@ class OrbitDatabase {
       
       // Friends
       getFriends: this.db.prepare('SELECT * FROM friends'),
-      saveFriend: this.db.prepare('INSERT OR REPLACE INTO friends (userId, username, usertag, status, avatar, bio, accountOwnerId) VALUES (@userId, @username, @usertag, @status, @avatar, @bio, @accountOwnerId)'),
+      saveFriend: this.db.prepare('INSERT OR REPLACE INTO friends (userId, username, usertag, status, avatar, bio, accountOwnerId, transport, ipmsgAccount, ipmsgHost, lastIp) VALUES (@userId, @username, @usertag, @status, @avatar, @bio, @accountOwnerId, @transport, @ipmsgAccount, @ipmsgHost, @lastIp)'),
       deleteFriend: this.db.prepare('DELETE FROM friends WHERE userId = ?'),
       
       // Messages
       getMessages: this.db.prepare('SELECT * FROM messages WHERE chatId = ? ORDER BY timestamp ASC'),
       getAllMessagesRaw: this.db.prepare('SELECT * FROM messages'),
-      addMessage: this.db.prepare('INSERT INTO messages (id, chatId, sender, text, timestamp, replyTo, call) VALUES (@id, @chatId, @sender, @text, @timestamp, @replyTo, @call)'),
+      addMessage: this.db.prepare('INSERT INTO messages (id, chatId, sender, text, timestamp, replyTo, call, transport, remoteId, remoteSeq, deliveryStatus) VALUES (@id, @chatId, @sender, @text, @timestamp, @replyTo, @call, @transport, @remoteId, @remoteSeq, @deliveryStatus)'),
       editMessage: this.db.prepare('UPDATE messages SET text = ? WHERE id = ? AND chatId = ?'),
       deleteMessage: this.db.prepare('DELETE FROM messages WHERE id = ? AND chatId = ?'),
       
@@ -156,7 +156,11 @@ class OrbitDatabase {
       status: friend.status,
       avatar: (friend.avatar instanceof Buffer || typeof friend.avatar === 'string') ? friend.avatar : null,
       bio: friend.bio || '',
-      accountOwnerId: friend.accountOwnerId || friend.ownerId || null
+      accountOwnerId: friend.accountOwnerId || friend.ownerId || null,
+      transport: friend.transport || 'orbit',
+      ipmsgAccount: friend.ipmsgAccount || null,
+      ipmsgHost: friend.ipmsgHost || null,
+      lastIp: friend.lastIp || null
     });
   }
 
@@ -419,7 +423,11 @@ class OrbitDatabase {
           replyTo: msg.replyTo != null ? String(msg.replyTo) : null,
           // Call history rides as JSON — a finished call is a message with a `call`
           // object and no text, so without this it persisted as a blank line.
-          call: msg.call ? JSON.stringify(msg.call) : null
+          call: msg.call ? JSON.stringify(msg.call) : null,
+          transport: msg.transport || 'orbit',
+          remoteId: msg.remoteId != null ? String(msg.remoteId) : null,
+          remoteSeq: msg.remoteSeq != null ? msg.remoteSeq : null,
+          deliveryStatus: msg.deliveryStatus || (msg.transport === 'ipmsg' ? 'delivered' : null)
         });
       } catch (e) {
         if (e.code !== 'SQLITE_CONSTRAINT_PRIMARYKEY') throw e;

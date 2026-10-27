@@ -924,13 +924,18 @@ class Store {
         if (decrypted) text = decrypted;
       }
 
+      const transport = packet.payload.transport || (String(fromId).indexOf('ipmsg:') === 0 ? 'ipmsg' : 'orbit');
       this.addMessage(fromId, {
         id: packet.payload.msgId || packet.packetId || Date.now(),
         sender: packet.from,
         text: text,
         timestamp: packet.timestamp || new Date().toISOString(),
         replyTo: packet.payload.replyTo,
-        attachments: packet.payload.attachments
+        attachments: packet.payload.attachments,
+        transport: transport,
+        remoteId: packet.payload.msgId || null,
+        remoteSeq: packet.payload.remoteSeq != null ? packet.payload.remoteSeq : null,
+        deliveryStatus: transport === 'ipmsg' ? 'delivered' : null
       });
 
       // Auto-reopen DM if it was closed

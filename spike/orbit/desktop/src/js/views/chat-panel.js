@@ -3104,6 +3104,11 @@ window.ChatPanel = {
     const friend = state.friends.find(function(f) { return f.userId === activeChatId; });
     const activeGroup = state.groups.find(function(g) { return g.groupId === activeChatId; });
     const isGroup = !!activeGroup;
+    if (friend && friend.transport === 'ipmsg' && this.stagedFiles && this.stagedFiles.length > 0) {
+      if (window.Toast) window.Toast.show('IPMSG', 'File transfer integration is pending', 'info', 3000);
+      this._sending = false;
+      return;
+    }
     const myId = state.currentUser.userId;
 
     // Get all recipients for this message
@@ -3112,11 +3117,11 @@ window.ChatPanel = {
       var members = activeGroup.members || [];
       members.forEach(function(m) {
         if (m.userId !== myId) {
-          recipients.push({ userId: m.userId, ip: m.ip || '' });
+          recipients.push({ userId: m.userId, ip: m.ip || '', transport: 'orbit' });
         }
       });
     } else if (friend) {
-      recipients.push({ userId: friend.userId, ip: friend.ip || '' });
+      recipients.push({ userId: friend.userId, ip: friend.ip || '', transport: friend.transport || 'orbit' });
     }
 
     // Helper: send to all recipients (with packet size logging)
@@ -3127,6 +3132,12 @@ window.ChatPanel = {
           console.log('[SEND] type=' + type + ' size=' + (payloadStr.length / 1024).toFixed(1) + 'KB recipients=' + recipients.length);
         }
         recipients.forEach(function(r) {
+          if (r.transport === 'ipmsg') {
+            if (type === window.Protocol.Types.MESSAGE && payload.text && window.orbitAPI.ipmsgSendText) {
+              window.orbitAPI.ipmsgSendText(String(r.userId).replace(/^ipmsg:/, ''), payload.text);
+            }
+            return;
+          }
           window.orbitAPI.networkSend(r.userId, r.ip, type, payload);
           if (type === window.Protocol.Types.MESSAGE && window._p2pSentCount !== undefined) window._p2pSentCount++;
         });
@@ -3355,7 +3366,7 @@ window.ChatPanel = {
       // that promise. Block the send and say why instead.
       // See plans/docs/Orbit E2EE Unification Design.md §5.2
       var settings = window.store.getState().settings;
-      if (settings.e2eeEnabled && !isGroup && recipients.length === 1 && text) {
+      if (settings.e2eeEnabled && !isGroup && recipients.length === 1 && text && (!friend || friend.transport !== 'ipmsg')) {
         var peer = recipients[0];
         var pubKey = window.store.getPeerPublicKey(peer.userId);
         var encrypted = (pubKey && window.orbitAPI && window.orbitAPI.e2eeEncrypt)
@@ -3474,7 +3485,8 @@ window.ChatPanel = {
       id: localId,
       sender: myId,
       text: text || '',
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
+      transport: friend && friend.transport === 'ipmsg' ? 'ipmsg' : 'orbit'
     };
     if (localAttachments.length > 0) {
       localMsg.attachments = localAttachments;
@@ -4688,7 +4700,7 @@ window.ChatPanel = {
     var myId = state.currentUser && state.currentUser.userId;
     var recipients = [];
     (group.members || []).forEach(function(m) {
-      if (String(m.userId) !== String(myId)) recipients.push({ userId: m.userId, ip: m.ip || '' });
+      if (String(m.userId) !== String(myId)) recipients.push({ userId: m.userId, ip: m.ip || '', transport: 'orbit' });
     });
     var msgId = Date.now() + Math.floor(Math.random() * 1000);
     var payload = {

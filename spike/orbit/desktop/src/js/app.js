@@ -815,6 +815,31 @@ document.addEventListener('DOMContentLoaded', () => {
         window.store.addOrUpdatePeer(peer);
       });
 
+      if (window.orbitAPI.onIpmsgPeers) {
+        window.orbitAPI.onIpmsgPeers((peers) => {
+          if (!window.IpmsgMap || !window.store) return;
+          (peers || []).forEach((peer) => {
+            window.store.addOrUpdatePeer(window.IpmsgMap.peerToFriend(peer));
+          });
+        });
+      }
+
+      if (window.orbitAPI.onIpmsgText) {
+        window.orbitAPI.onIpmsgText((text) => {
+          if (!window.IpmsgMap || !window.store) return;
+          window.store.handleIncomingPacket(window.IpmsgMap.textToPacket(text));
+        });
+      }
+
+      if (window.orbitAPI.onIpmsgTextStatus) {
+        window.orbitAPI.onIpmsgTextStatus((status) => {
+          // IPMSG delivery/read receipts are intentionally not surfaced in Phase 0.
+          if (status && status.status === 'failed' && window.Toast) {
+            window.Toast.show('IPMSG', 'Message delivery failed', 'error', 3000);
+          }
+        });
+      }
+
       window.orbitAPI.on('peer-gone', (peerId) => {
         if (peerId === 'local-echo') return;
         console.log('[Renderer] peer-gone:', peerId);
