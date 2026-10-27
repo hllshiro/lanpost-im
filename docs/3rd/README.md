@@ -15,6 +15,7 @@
 
 - `docs/3rd/blip/`：<https://github.com/krwg/blip>，GPL-3.0，浅克隆自 `a2f49a8`（2026-07-28）
 - `docs/3rd/LANChat/`：<https://github.com/cap153/LANChat>，MIT，浅克隆自 `95a645c`（2026-09-11）
+- `docs/3rd/Orbit-beta/`：<https://github.com/D4niel-dev/Orbit-beta>，MIT，克隆自 `e947539`（2026-10-20，v0.9.0-beta）
 
 `.gitignore` 已忽略以上目录。**不要把 BLIP 源码复制进本项目再分发**，GPL-3.0 会要求衍生作品同样开源。
 
@@ -24,8 +25,9 @@
 
 - **BLIP** 是目前最接近“Web 技术 + 零服务器 + 功能丰富”的局域网 IM，群聊、文件、表情、回执、剪贴板、音视频都有实现。但它使用自有协议，不支持 IPMSG；GPL-3.0；群聊没有离线补发；UI 是像素风格、非 Vue。
 - **LANChat** 的工程方向更贴近“轻量、跨平台、MIT、离线补发”，已经有可借鉴的发送方离线队列和 Web 端。但它是 Tauri + Rust + 原生 JS，没有 IPMSG，没有群聊，整体 UI/业务也比较简单。
-- 两者都不解决本项目最关键的两件事：**IPMSG 兼容**和**群聊离线同步**。
-- 建议继续当前 Electron + Vue + IPMSG 代码库，新增自有 P2P 协议，把这两个项目作为协议设计、WebRTC/群聊/离线队列的参考，而不是整体 fork。
+- **Orbit-beta** 是三者中最接近“完整 IM”的产品：Electron + SQLite + MIT，群聊、角色、邀请码、表情回应、已读、Markdown、文件/图片、相册、搜索、E2EE、Android、测试都有。但它没有 IPMSG，桌面端没有持久化发送队列，群聊也没有离线历史同步。
+- 三个项目都不解决本项目最关键的两件事：**IPMSG 兼容**和**群聊离线同步**。
+- 建议继续当前 Electron + Vue + IPMSG 代码库，新增自有 P2P 协议，把这三个项目作为协议设计、群聊/离线队列/文件续传的参考，而不是整体 fork。
 
 ## BLIP
 
@@ -144,20 +146,76 @@ clipboard-push / mesh-proj-pad / seed-*
 - Web 端需要运行一个本地/独立 HTTP 服务，和“纯 P2P 零服务端”的直觉不完全一致
 - 消息协议较简单，缺少 ACK、去重、版本协商、群组状态机
 
+## Orbit-beta
+
+### 基本信息
+
+- 技术栈：Electron 32 + 原生 HTML/CSS/JavaScript；SQLite（better-sqlite3）
+- 移动端：Capacitor Android，复用 `shared/` 协议、数据库、UI 模块
+- 许可：MIT
+- 版本：v0.9.0-beta（2026-10-20），有 Playwright E2E 和一组单元测试
+- 目标：local-first、P2P、LAN-first、无云服务
+
+### 网络与协议
+
+- UDP 45678：组播 `224.0.0.251` 发现，5 秒一次 beacon
+- TCP 46000：长度前缀 + JSON 包
+- 包类型：`MESSAGE`、`TYPING`、`REACTION`、`MESSAGE_EDIT/DELETE`、`READ/READ_RECEIPT`、群组 `GROUP_CREATE/JOIN/LEAVE/MEMBER_ADDED/OWNER_TRANSFER`、文件分块、`CALL_*`、E2EE 密钥交换、账号迁移
+- 文件：64 KB 分块，`FILE_TRANSFER_RESUME` 带已收块数和部分文件 SHA-256，支持续传
+- E2EE：DM 可选 ECDH + AES-256-GCM
+- 发现和连接层没有 IPMSG 兼容
+
+### 功能完整度
+
+已经具备：
+
+- 单聊、群聊、群角色（Owner/Admin/Member）、邀请码、群头像、群公告
+- 消息回应、编辑、删除、置顶、已读回执、输入状态
+- Markdown、代码高亮、链接预览、表情面板、语音消息、图片/视频/文件
+- 全局相册、聊天搜索（SQLite FTS5）、活动中心、未读角标
+- 主题/自定义颜色、聊天背景、字体、紧凑模式
+- 备份/恢复、账号迁移、QR 配对、Android App
+- 桌面托盘、通知、自动更新、测试体系
+
+### 群聊与离线行为
+
+- 群消息由发送方对成员逐个 `networkSend`，没有消息 ACK 和群历史同步
+- 群成员变更依靠 `GROUP_CREATE/JOIN_REQUEST/JOIN_RESPONSE/MEMBER_ADDED/OWNER_TRANSFER` 广播
+- 桌面端没有持久化 outbox：只有连接建立过程中的内存 pending 队列；对端离线时消息不会落库等待
+- Android 端有 `mobile/src/js/components/outbox.js`：localStorage 持久化、15 秒重试、7 天过期、最多 500 条，只缓存真实消息内容，不缓存 typing/reaction/call
+- 群聊没有“成员上线后补齐历史”的机制，和 BLIP 一样只覆盖在线成员
+
+### 可借鉴
+
+- 群角色、邀请码、Owner 转移、成员变更广播的产品模型
+- 文件 64 KB 分块 + 前缀哈希续传
+- Android outbox 的“先入队再尝试发送”、过期/上限、待发送气泡状态
+- 端到端加密作为可选功能，而不是默认阻断
+- SQLite FTS5 搜索、相册、活动中心、备份恢复
+- Playwright E2E 的测试组织方式
+
+### 不适合直接采用
+
+- 没有 IPMSG 兼容，仍需单独写兼容层
+- 原生 JS + Electron 32 + better-sqlite3，和当前 Electron 44 + Vue + `node:sqlite` 差异大
+- 桌面端没有持久化离线队列，群聊没有离线同步
+- UI 是 Discord/现代 IM 风格，不是当前微信风格
+- 直接 fork 会同时承担陌生代码库、原生模块构建、Android 工程和后续上游合并
+
 ## 对比
 
-| 需求 | 当前项目 | BLIP | LANChat |
-| --- | --- | --- | --- |
-| 零服务器 | 是 | 是 | 桌面端是；Web 端需要本地服务 |
-| Web 技术 | Electron + Vue | Electron + 原生 JS | Tauri + 原生 JS |
-| IPMSG 文本/文件 | 已有 | 无 | 无 |
-| 群聊 | 无 | 有，在线成员 | 无 |
-| 群聊离线补发 | 无 | 无 | 无 |
-| 单聊离线队列 | 无 | 无 | 有，发送方队列 |
-| 文件传输 | 已有 | 有，分块 | 有，分块 |
-| 音视频 | 无 | 有 | 无 |
-| 许可 | 未声明 | GPL-3.0 | MIT |
-| 代码/社区成熟度 | 新项目 | 中，个人项目 | 中，个人项目 |
+| 需求 | 当前项目 | BLIP | LANChat | Orbit-beta |
+| --- | --- | --- | --- | --- |
+| 零服务器 | 是 | 是 | 桌面端是；Web 端需要本地服务 | 是 |
+| Web 技术 | Electron + Vue | Electron + 原生 JS | Tauri + 原生 JS | Electron + 原生 JS |
+| IPMSG 文本/文件 | 已有 | 无 | 无 | 无 |
+| 群聊 | 无 | 有，在线成员 | 无 | 有，在线成员 |
+| 群聊离线补发 | 无 | 无 | 无 | 无 |
+| 单聊离线队列 | 无 | 无 | 有，发送方队列 | 桌面无；Android 有 outbox |
+| 文件传输 | 已有 | 有，分块 | 有，分块 | 有，分块+续传 |
+| 音视频 | 无 | 有 | 无 | 有（通话/语音消息） |
+| 许可 | 未声明 | GPL-3.0 | MIT | MIT |
+| 代码/社区成熟度 | 新项目 | 中，个人项目 | 中，个人项目 | 较高，beta 但功能/测试最完整 |
 
 ## 对群聊离线消息的建议
 
