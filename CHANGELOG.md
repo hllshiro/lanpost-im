@@ -53,6 +53,7 @@
 ### 文档
 
 - 新增 `docs/superpowers/specs/2026-10-26-ipmsg-standard-0.1.0-design.md` 与实施计划。
+- 测试用例从 `src/` 迁出到 `tests/`，`src/` 只保留运行时代码；`vitest.config.mts` 会阻止在 `src/` 下重新放置测试文件。
 - 更新已知限制、文件传输说明与仓库协作约定。
 
 ### 已知限制
