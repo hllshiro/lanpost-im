@@ -217,6 +217,99 @@ clipboard-push / mesh-proj-pad / seed-*
 | 许可 | 未声明 | GPL-3.0 | MIT | MIT |
 | 代码/社区成熟度 | 新项目 | 中，个人项目 | 中，个人项目 | 较高，beta 但功能/测试最完整 |
 
+## 基于 Orbit 增加 IPMSG 通道的可行性
+
+结论：**技术上可行，而且接入点比较干净；但这是“换底座”，不是给当前项目加一个适配器。工作量中等偏大，是否划算取决于对 Orbit UI 和现有功能的接受程度。**
+
+### 可行的接入方式
+
+Orbit 已经有明确的主进程边界：
+
+```text
+desktop/main.js
+  ├─ Discovery（UDP 45678）
+  ├─ SocketManager（TCP 46000）
+  ├─ TransferManager（文件分块）
+  ├─ SQLite（friends / messages / groups / attachments）
+  └─ preload.js → renderer
+```
+
+可以并列增加一个 IPMSG transport：
+
+```text
+desktop/lib/ipmsg/
+  ├─ engine.ts/engine.js      # 复用当前项目的 IPMSG 核心
+  ├─ files.ts/files.js        # 复用当前项目的 IPMSG 文件收发
+  └─ bridge.js                # IPMSG 事件 → Orbit 主进程事件
+```
+
+- IPMSG 使用 UDP/TCP 2425，Orbit 使用 45678/46000，端口不冲突。
+- IPMSG 联系人作为 `friends` 记录写入，`userId` 使用类似 `ipmsg:<ip>|<account>` 的稳定键。
+- IPMSG 文本转换成 `MESSAGE` 包，交给 Orbit 的 `store.handleIncomingPacket` 或一个 transport-neutral 的消息服务。
+- 发送时由主进程按联系人 `transport` 路由：Orbit 联系人走 `SocketManager`，IPMSG 联系人走 IPMSG。
+- 文件：Orbit 联系人走 `TransferManager`，IPMSG 联系人走现有 `FileManager`；两边都写入同一个 `attachments`/消息记录。
+- 状态：IPMSG 的 0/1/2 映射到 Orbit 的在线/忙碌/离开；IPMSG 在线状态作为 Orbit 的一个 presence source。
+- 身份合并：Orbit BEACON 可以额外携带 IPMSG 身份码，IPMSG Entry 已经携带身份码；两边都存在时按身份码合并，否则保留 `ipmsg:<ip>|<account>` 独立联系人。
+
+### 需要改造的地方
+
+1. **数据模型**
+   - `friends` 增加 `transport`、`ipmsgAccount`、`ipmsgIdentityId`、`lastIp` 等字段。
+   - `messages` 增加 `transport`、`remoteSeq`、`remoteId`、`deliveredAt` 等字段。
+   - 现有 Orbit 的 `chatId` 继续复用：Orbit 联系人用 userId，IPMSG 联系人用 `ipmsg:...`。
+
+2. **收发路由**
+   - `networkSend` 增加 transport 选择，或在主进程内部按 `toPeerId` 前缀路由。
+   - IPMSG 文本/文件进入 Orbit 的消息表和 UI。
+   - IPMSG 不支持 typing/reaction/read receipt/群邀请，IPMSG 联系人要隐藏或禁用这些入口。
+   - 文件传输 UI 需要统一 Orbit 的 `transfer-progress` 和 IPMSG 的进度事件。
+
+3. **联系人和群**
+   - Orbit 群成员只接受 Orbit 联系人；IPMSG 联系人先按单聊处理，避免“群消息退化成多条私聊”的语义混乱。
+   - 若必须把 IPMSG 联系人加入群，需要定义群消息的 fan-out 规则和成员能力标记。
+
+4. **现有功能迁移**
+   - 当前项目的目录传输、身份码、快捷键、开机启动、状态自动离开、第三方客户端识别、设置缓存等，Orbit 并非全部具备，需要逐项补。
+   - Orbit 没有中文界面，只有消息翻译功能；要么接受英文 UI，要么做一轮完整 i18n。
+   - Orbit 的 UI 是 Discord 风格，不是当前微信风格。
+
+5. **数据迁移**
+   - 当前项目 SQLite schema 4 → Orbit 的 `friends/messages/groups/attachments` 需要写一次性导入。
+   - 会话、消息、文件路径、联系人备注、置顶、草稿等要映射，否则老用户升级后历史丢失。
+
+6. **构建与依赖**
+   - Orbit 使用 Electron 32 + better-sqlite3 原生模块；当前项目是 Electron 44 + `node:sqlite`。
+   - 迁到 Orbit 需要重新处理 Windows/Linux/ARM64 原生模块、rpm 打包和 CI。
+   - Orbit 有 Android/Capacitor 工程；如果保留 Android，IPMSG 只能在桌面端实现，移动端需要另写 Java 插件或不支持 IPMSG。
+
+### 关键判断
+
+如果满足以下条件，Orbit 底座值得认真考虑：
+
+- 能接受 Orbit 的 Discord 风格 UI，或愿意投入一轮完整 UI/i18n 改造；
+- 更看重群聊、角色、邀请码、回应、已读、Markdown、相册、搜索、E2EE、Android 等现成功能；
+- 接受维护一个约 10 万行、原生 JS + better-sqlite3 的 fork；
+- 愿意承担当前项目已有功能的迁移和数据迁移。
+
+如果以下条件更重要，则继续当前项目更划算：
+
+- 必须保留微信风格和中文界面；
+- 当前 IPMSG、目录传输、设置、发布链路已经稳定；
+- 只缺群聊和离线队列，而这两个本来就要自己设计；
+- 希望代码库小、可维护、测试可控。
+
+### 建议的验证方式
+
+不要直接决定全量迁移，先做一个限时 spike：
+
+1. 在 Orbit 分支增加一个最小 IPMSG transport：UDP 2425 发现、双向文本、单文件传输。
+2. 把 IPMSG 联系人写入 Orbit 的 `friends`，在联系人和聊天列表里显示。
+3. 文本/文件进入 Orbit 的 SQLite 和消息 UI。
+4. 验证 Orbit 的 UI、消息模型、文件进度和现有功能是否能承载 IPMSG 语义。
+5. 记录改造点数、代码冲突点、构建/打包问题，再决定是否全量切换。
+
+如果 spike 表明“UI 和数据模型不用大改”，Orbit 底座可行；如果一开始就发现群聊、消息模型、i18n 和迁移要重写，那就回到当前项目，只移植 Orbit 的局部实现。
+
 ## 对群聊离线消息的建议
 
 结合当前约束，建议采用“发送方队列 + 上线同步”的 A 方案，不引入服务端或复杂 gossip：
