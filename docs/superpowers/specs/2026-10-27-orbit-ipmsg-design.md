@@ -1,6 +1,6 @@
 # 基于 Orbit 的 lanpost 0.2 设计
 
-- 状态：方向已确认，Phase 0 技术验证待执行
+- 状态：Phase 0 技术验证完成（Windows）；Linux 运行验证待补
 - 日期：2026-10-27
 - 目标分支：`spike/orbit-ipmsg`
 - 参考代码：`docs/3rd/Orbit-beta`（MIT，v0.9.0-beta）
