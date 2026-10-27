@@ -8,6 +8,7 @@ export const IPC = {
   settingsDefaults: 'settings:defaults',
   shortcutsRecording: 'shortcuts:recording',
   shortcutsAvailable: 'shortcuts:available',
+  identityStatus: 'identity:status',
   firewallCheck: 'firewall:check',
   firewallRepair: 'firewall:repair',
   uiOpenSettings: 'ui:open-settings',
@@ -99,6 +100,9 @@ export type Api = {
   conversations: {
     pin(conversationId: string, pinned: boolean): Promise<void>
     open(conversationId: string): Promise<void>
+  }
+  identity: {
+    setStatus(status: number): Promise<void>
   }
   settings: {
     get(): Promise<Settings>

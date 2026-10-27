@@ -19,6 +19,9 @@ const api: Api = {
       ipcRenderer.invoke(IPC.conversationPin, conversationId, pinned),
     open: (conversationId) => ipcRenderer.invoke(IPC.conversationOpen, conversationId)
   },
+  identity: {
+    setStatus: (status) => ipcRenderer.invoke(IPC.identityStatus, status)
+  },
   ui: {
     onOpenSettings: (listener: () => void) => {
       const handler = (): void => listener()

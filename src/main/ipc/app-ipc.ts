@@ -26,6 +26,7 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.conversationPin, (_event, conversationId: string, pinned: boolean) =>
     service.setPinned(conversationId, pinned)
   )
+  ipcMain.handle(IPC.identityStatus, (_event, status: number) => service.setStatus(status))
   ipcMain.handle(IPC.peerAlias, (_event, peerKey: string, alias: string) =>
     service.setAlias(peerKey, alias)
   )

@@ -7,6 +7,7 @@ import { createRepositories } from './store/repositories'
 import { SettingsStore } from './settings/store'
 import type { AppEvent } from '../shared/domain'
 import type { ProtocolPeer } from './protocol/engine'
+import { IDLE_AWAY_SECONDS, IDLE_BUSY_SECONDS } from './presence'
 
 const electronMocks = vi.hoisted(() => ({
   showOpenDialog: vi.fn()
@@ -437,5 +438,62 @@ describe('AppService third-party notice', () => {
     expect(
       events.some((event) => event.type === 'message' && event.message.kind === 'system')
     ).toBe(true)
+  })
+})
+
+describe('AppService presence', () => {
+  it('persists a manual status and tells the renderer', () => {
+    const { service, settings, events } = setup()
+
+    service.setStatus(1)
+
+    expect(settings.get().identity.status).toBe(1)
+    expect(events).toContainEqual({ type: 'local-status', status: 1 })
+    expect(() => service.setStatus(9)).toThrow('无效的在线状态')
+  })
+
+  it('auto switches busy, away and back to online', () => {
+    const { service, settings, events } = setup()
+
+    service.evaluateIdleStatus(IDLE_BUSY_SECONDS - 1)
+    expect(settings.get().identity.status).toBe(0)
+
+    service.evaluateIdleStatus(IDLE_BUSY_SECONDS)
+    expect(settings.get().identity.status).toBe(1)
+
+    service.evaluateIdleStatus(IDLE_AWAY_SECONDS)
+    expect(settings.get().identity.status).toBe(2)
+
+    service.evaluateIdleStatus(0)
+    expect(settings.get().identity.status).toBe(0)
+
+    expect(
+      events
+        .filter((event) => event.type === 'local-status')
+        .map((event) => (event.type === 'local-status' ? event.status : -1))
+    ).toEqual([1, 2, 0])
+  })
+
+  it('does not override a manual away status with idle automation', () => {
+    const { service, settings } = setup()
+
+    service.setStatus(2)
+    service.evaluateIdleStatus(0)
+    service.evaluateIdleStatus(IDLE_AWAY_SECONDS)
+
+    expect(settings.get().identity.status).toBe(2)
+  })
+
+  it('clears automatic state when settings change the status elsewhere', () => {
+    const { service, settings } = setup()
+
+    service.evaluateIdleStatus(IDLE_BUSY_SECONDS)
+    expect(settings.get().identity.status).toBe(1)
+
+    settings.update({ identity: { status: 0 } })
+    service.applySettings(settings.get())
+    service.evaluateIdleStatus(0)
+
+    expect(settings.get().identity.status).toBe(0)
   })
 })

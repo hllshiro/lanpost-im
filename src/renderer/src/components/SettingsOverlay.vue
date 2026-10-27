@@ -437,24 +437,10 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
-          <div class="row">
-            <div class="row-text">
-              <label class="label" for="setting-status">在线状态</label>
-              <p class="hint">广播给局域网内其他人的状态</p>
-            </div>
-            <div class="control">
-              <select
-                id="setting-status"
-                v-model.number="settings.identity.status"
-                class="input"
-                @change="saveField('identity', { status: settings.identity.status })"
-              >
-                <option :value="0">在线</option>
-                <option :value="1">忙碌</option>
-                <option :value="2">离开</option>
-              </select>
-            </div>
-          </div>
+          <p class="note">
+            在线状态：点击左上角头像右下角的圆点切换；超过 10 分钟无操作自动忙碌，超过 30
+            分钟自动离开。
+          </p>
         </div>
 
         <div v-show="current === 'network'" class="group">

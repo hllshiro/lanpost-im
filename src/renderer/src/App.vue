@@ -74,6 +74,10 @@ function handleRead(): void {
   void store.markReadCurrent()
 }
 
+function handleStatusSelect(status: number): void {
+  void store.setStatus(status)
+}
+
 function handleLoadMore(beforeId: number): void {
   const id = store.currentConversationId
   if (id) void store.loadMessages(id, beforeId)
@@ -151,6 +155,7 @@ onBeforeUnmount(() => {
       :active="view"
       @settings="settingsOpen = true"
       @select="handleViewSelect"
+      @status="handleStatusSelect"
     />
 
     <div class="workspace">

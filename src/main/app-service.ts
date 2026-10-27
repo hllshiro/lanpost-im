@@ -29,6 +29,12 @@ import { FileManager } from './files/manager'
 import { NotificationManager } from './notify/manager'
 import { createRepositories, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
+import {
+  isPresenceStatus,
+  resolveIdlePresence,
+  type AutoPresence,
+  type PresenceStatus
+} from './presence'
 import type { SettingsStore } from './settings/store'
 import { logStartup } from './startup-log'
 
@@ -82,6 +88,8 @@ export class AppService {
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
   private readonly noticeShown = new Set<string>()
   private readonly receiveDir: string
+  private autoPresence: AutoPresence | null = null
+  private lastStatus: number
 
   constructor(
     private readonly db: DatabaseSync,
@@ -101,6 +109,7 @@ export class AppService {
       }
     }
     this.receiveDir = receiveDir
+    this.lastStatus = settings.get().identity.status
     this.fileManager = new FileManager({
       bindAddr: settings.get().network.bindAddr,
       port: settings.get().network.port,
@@ -545,7 +554,37 @@ export class AppService {
     copyFileSync(task.path, result.filePath)
   }
 
+  setStatus(status: number): void {
+    if (!isPresenceStatus(status)) throw new Error('无效的在线状态')
+    this.autoPresence = null
+    this.applyStatus(status)
+  }
+
+  evaluateIdleStatus(idleSeconds: number): void {
+    const current = this.settings.get().identity.status
+    if (!isPresenceStatus(current)) return
+    const decision = resolveIdlePresence(idleSeconds, current, this.autoPresence)
+    this.autoPresence = decision.auto
+    if (decision.status !== current) {
+      logStartup(
+        `presence: idle ${Math.floor(idleSeconds)}s, status ${current} -> ${decision.status}`
+      )
+      this.applyStatus(decision.status)
+    }
+  }
+
+  private applyStatus(status: PresenceStatus): void {
+    if (this.settings.get().identity.status === status) return
+    this.settings.update({ identity: { status } })
+    this.applySettings(this.settings.get())
+  }
+
   applySettings(settings: Settings): void {
+    if (this.autoPresence !== null && this.autoPresence.status !== settings.identity.status) {
+      this.autoPresence = null
+    }
+    const statusChanged = settings.identity.status !== this.lastStatus
+    this.lastStatus = settings.identity.status
     this.engine.updateProfile({
       name: settings.identity.displayName,
       account: settings.identity.account,
@@ -559,6 +598,7 @@ export class AppService {
       dialup: settings.network.dialup
     })
     this.engine.updateStatus(settings.identity.status)
+    if (statusChanged) this.emit({ type: 'local-status', status: settings.identity.status })
   }
 
   private handleFileOffer(

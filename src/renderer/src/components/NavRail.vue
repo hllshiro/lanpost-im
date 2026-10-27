@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { FolderOpen, MessageSquare, Settings, UserRound, Users } from '@lucide/vue'
+import { computed, ref } from 'vue'
+import { onClickOutside, useEventListener } from '@vueuse/core'
+import { Check, FolderOpen, MessageSquare, Settings, UserRound, Users } from '@lucide/vue'
 import type { LocalInfo } from '../../../shared/domain'
 import { initialOf } from '../utils/format'
 
@@ -16,7 +17,33 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [view: 'chat' | 'contacts' | 'files']
   settings: []
+  status: [status: number]
 }>()
+
+const statusOptions = [
+  { value: 0, label: '在线', tone: 'online' },
+  { value: 1, label: '忙碌', tone: 'busy' },
+  { value: 2, label: '离开', tone: 'away' }
+] as const
+
+const profileRef = ref<HTMLElement | null>(null)
+const statusMenuOpen = ref(false)
+
+onClickOutside(profileRef, () => {
+  statusMenuOpen.value = false
+})
+useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+  if (event.key === 'Escape') statusMenuOpen.value = false
+})
+
+function toggleStatusMenu(): void {
+  statusMenuOpen.value = !statusMenuOpen.value
+}
+
+function chooseStatus(status: number): void {
+  statusMenuOpen.value = false
+  if (props.local?.status !== status) emit('status', status)
+}
 
 const displayName = computed(() => props.local?.name ?? '未识别')
 const initial = computed(() => initialOf(props.local?.name ?? ''))
@@ -39,13 +66,44 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
 
 <template>
   <aside class="rail">
-    <button class="profile" :title="profileTitle" aria-label="账号与设置" @click="emit('settings')">
-      <span class="avatar">
-        <UserRound v-if="!local" :size="20" :stroke-width="1.7" />
-        <template v-else>{{ initial }}</template>
-      </span>
-      <span class="status" :class="statusClass" />
-    </button>
+    <div ref="profileRef" class="profile-wrap">
+      <button
+        class="profile"
+        :title="`${profileTitle} · 点击打开设置`"
+        aria-label="账号与设置"
+        @click="emit('settings')"
+      >
+        <span class="avatar">
+          <UserRound v-if="!local" :size="20" :stroke-width="1.7" />
+          <template v-else>{{ initial }}</template>
+        </span>
+      </button>
+      <button
+        class="status"
+        :class="statusClass"
+        :title="`当前状态：${statusText}，点击切换`"
+        aria-label="切换在线状态"
+        aria-haspopup="menu"
+        :aria-expanded="statusMenuOpen"
+        @click="toggleStatusMenu"
+      />
+      <div v-if="statusMenuOpen" class="status-menu" role="menu" aria-label="在线状态">
+        <p class="status-menu-title">在线状态</p>
+        <button
+          v-for="option in statusOptions"
+          :key="option.value"
+          class="status-option"
+          :class="{ active: local?.status === option.value }"
+          role="menuitemradio"
+          :aria-checked="local?.status === option.value"
+          @click="chooseStatus(option.value)"
+        >
+          <span class="dot" :class="option.tone" />
+          <span>{{ option.label }}</span>
+          <Check v-if="local?.status === option.value" :size="13" :stroke-width="2" class="check" />
+        </button>
+      </div>
+    </div>
 
     <nav class="nav" aria-label="主导航">
       <button
@@ -103,10 +161,14 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
   user-select: none;
 }
 
-.profile {
+.profile-wrap {
   position: relative;
   flex: 0 0 auto;
   margin-bottom: 26px;
+}
+
+.profile {
+  display: block;
   border-radius: var(--avatar-radius);
 }
 
@@ -128,13 +190,20 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
 
 .status {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 10px;
-  height: 10px;
+  right: -3px;
+  bottom: -3px;
+  width: 14px;
+  height: 14px;
+  padding: 0;
   border: 2px solid var(--rail-bg);
   border-radius: 50%;
   background: #8d8d8d;
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.status:hover {
+  transform: scale(1.15);
 }
 
 .status.online {
@@ -151,6 +220,70 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
 
 .status.offline {
   background: #8d8d8d;
+}
+
+.status-menu {
+  position: absolute;
+  left: 46px;
+  top: 30px;
+  z-index: 60;
+  width: 126px;
+  padding: 5px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  text-align: left;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.status-menu-title {
+  margin: 4px 8px 6px;
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.status-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.status-option:hover {
+  background: #f2f2f2;
+}
+
+.status-option.active {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.status-option .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8d8d8d;
+}
+
+.status-option .dot.online {
+  background: var(--accent);
+}
+
+.status-option .dot.busy {
+  background: var(--warning);
+}
+
+.status-option .dot.away {
+  background: #d9c04a;
+}
+
+.status-option .check {
+  margin-left: auto;
 }
 
 .nav {

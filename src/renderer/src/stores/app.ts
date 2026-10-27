@@ -134,6 +134,9 @@ export const useAppStore = defineStore('app', () => {
       case 'peers':
         peers.value = event.peers
         break
+      case 'local-status':
+        if (local.value) local.value = { ...local.value, status: event.status }
+        break
       case 'peer': {
         const index = peers.value.findIndex((peer) => peer.key === event.peer.key)
         if (index >= 0) peers.value[index] = event.peer
@@ -414,6 +417,14 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function setStatus(status: number): Promise<void> {
+    try {
+      await window.api.identity.setStatus(status)
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
   async function setAlias(peerKey: string, alias: string): Promise<void> {
     const name = alias.trim()
     try {
@@ -462,6 +473,7 @@ export const useAppStore = defineStore('app', () => {
     markRead,
     markReadCurrent,
     setPinned,
+    setStatus,
     setAlias,
     requestPeerInfo,
     broadcast,
