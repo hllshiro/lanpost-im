@@ -38,6 +38,8 @@ const emit = defineEmits<{
 
 const search = ref('')
 const infoOpen = ref(false)
+const dropActive = ref(false)
+let dragDepth = 0
 const infoAnchor = ref<HTMLElement | null>(null)
 const copied = ref(false)
 const copyError = ref('')
@@ -105,6 +107,43 @@ function handleSend(text: string): void {
   emit('send', text)
 }
 
+function dragEnter(event: DragEvent): void {
+  if (!props.conversation || !event.dataTransfer?.types.includes('Files')) return
+  event.preventDefault()
+  dragDepth += 1
+  dropActive.value = true
+}
+
+function dragOver(event: DragEvent): void {
+  if (!props.conversation || !event.dataTransfer?.types.includes('Files')) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'copy'
+}
+
+function dragLeave(): void {
+  if (!props.conversation) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) dropActive.value = false
+}
+
+async function drop(event: DragEvent): Promise<void> {
+  if (!props.conversation) return
+  event.preventDefault()
+  dragDepth = 0
+  dropActive.value = false
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (files.length === 0) return
+  try {
+    const paths = files
+      .map((file) => window.api.files.pathForFile(file))
+      .filter((path) => path !== '')
+    if (paths.length === 0) throw new Error('无法读取拖入文件的本地路径')
+    await window.api.files.sendPaths(props.conversation.id, paths)
+  } catch (reason) {
+    store.reportError(reason)
+  }
+}
+
 async function refreshInfo(): Promise<void> {
   if (!props.peer || infoBusy.value) return
   infoBusy.value = true
@@ -139,7 +178,15 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <section class="chat" aria-label="聊天区">
+  <section
+    class="chat"
+    aria-label="聊天区"
+    @dragenter="dragEnter"
+    @dragover="dragOver"
+    @dragleave="dragLeave"
+    @drop="drop"
+  >
+    <div v-if="dropActive" class="drop-overlay">释放以发送文件或文件夹</div>
     <template v-if="conversation">
       <header class="chat-head">
         <div class="title-block">
@@ -298,6 +345,20 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.drop-overlay {
+  position: absolute;
+  inset: 8px;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-card);
+  background: rgba(7, 193, 96, 0.08);
+  color: var(--accent);
+  font-size: 14px;
+  pointer-events: none;
+}
+
 .chat {
   position: relative;
   flex: 1;

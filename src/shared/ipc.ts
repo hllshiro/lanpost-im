@@ -128,6 +128,7 @@ export type Api = {
     requestInfo(peerKey: string): Promise<PeerInfo>
   }
   files: {
+    pathForFile(file: unknown): string
     accept(id: string): Promise<void>
     reject(id: string): Promise<void>
     cancel(id: string): Promise<void>

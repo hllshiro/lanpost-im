@@ -30,6 +30,36 @@ const folderBlockedReason = computed(() =>
   props.peer?.clientType === 'nwt' ? '内网通客户端不支持接收文件夹' : ''
 )
 
+async function sendDroppedPaths(paths: string[]): Promise<void> {
+  if (paths.length === 0) return
+  fileBusy.value = true
+  fileError.value = ''
+  try {
+    await window.api.files.sendPaths(props.conversationId, paths)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
+
+async function handlePaste(event: ClipboardEvent): Promise<void> {
+  const files = Array.from(event.clipboardData?.files ?? [])
+  if (files.length === 0 || props.conversationId === '') return
+  event.preventDefault()
+  try {
+    const paths = files
+      .map((file) => window.api.files.pathForFile(file))
+      .filter((path) => path !== '')
+    if (paths.length === 0) {
+      throw new Error('当前剪贴板内容没有可发送的本地文件或文件夹')
+    }
+    await sendDroppedPaths(paths)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  }
+}
+
 async function pickImages(): Promise<void> {
   if (imageBlockedReason.value !== '') return
   if (fileBusy.value || props.conversationId === '') return
@@ -135,6 +165,7 @@ onMounted(async () => {
       spellcheck="false"
       @input="onInput"
       @keydown="onKeydown"
+      @paste="handlePaste"
     />
 
     <div class="toolbar">

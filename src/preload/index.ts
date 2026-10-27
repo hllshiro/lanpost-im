@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type Api, type NotifyPayload } from '../shared/ipc'
 import type { AppEvent } from '../shared/domain'
 
@@ -56,6 +56,8 @@ const api: Api = {
     requestInfo: (peerKey) => ipcRenderer.invoke(IPC.peerInfo, peerKey)
   },
   files: {
+    pathForFile: (file) =>
+      webUtils.getPathForFile(file as Parameters<typeof webUtils.getPathForFile>[0]),
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
     cancel: (id) => ipcRenderer.invoke(IPC.fileCancel, id),
