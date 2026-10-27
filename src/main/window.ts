@@ -110,6 +110,17 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+export function toggleMainWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    mainWindow.hide()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
 export function showMainWindow(): void {
   if (!mainWindow) {
     return

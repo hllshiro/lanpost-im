@@ -81,6 +81,7 @@ export class AppService {
   private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
   private readonly noticeShown = new Set<string>()
+  private readonly receiveDir: string
 
   constructor(
     private readonly db: DatabaseSync,
@@ -99,6 +100,7 @@ export class AppService {
         logStartup(`下载目录不可写，接收目录改为 ${receiveDir}`)
       }
     }
+    this.receiveDir = receiveDir
     this.fileManager = new FileManager({
       bindAddr: settings.get().network.bindAddr,
       port: settings.get().network.port,
@@ -495,6 +497,12 @@ export class AppService {
       )
       text = ''
     }
+  }
+
+  async openReceiveDir(): Promise<void> {
+    mkdirSync(this.receiveDir, { recursive: true })
+    const error = await shell.openPath(this.receiveDir)
+    if (error !== '') throw new Error(error)
   }
 
   async openFile(id: string): Promise<void> {

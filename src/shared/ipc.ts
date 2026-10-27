@@ -6,6 +6,8 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsDefaults: 'settings:defaults',
+  shortcutsRecording: 'shortcuts:recording',
+  shortcutsAvailable: 'shortcuts:available',
   firewallCheck: 'firewall:check',
   firewallRepair: 'firewall:repair',
   uiOpenSettings: 'ui:open-settings',
@@ -102,6 +104,10 @@ export type Api = {
     get(): Promise<Settings>
     update(patch: SettingsPatch): Promise<Settings>
     defaults(): Promise<Settings>
+  }
+  shortcuts: {
+    setRecording(active: boolean): Promise<void>
+    available(accelerator: string): Promise<boolean>
   }
   firewall: {
     check(): Promise<FirewallStatus>

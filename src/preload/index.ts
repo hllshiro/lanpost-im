@@ -74,6 +74,10 @@ const api: Api = {
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
     defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
   },
+  shortcuts: {
+    setRecording: (active) => ipcRenderer.invoke(IPC.shortcutsRecording, active),
+    available: (accelerator) => ipcRenderer.invoke(IPC.shortcutsAvailable, accelerator)
+  },
   firewall: {
     check: () => ipcRenderer.invoke(IPC.firewallCheck),
     repair: () => ipcRenderer.invoke(IPC.firewallRepair)

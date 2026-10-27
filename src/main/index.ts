@@ -14,8 +14,15 @@ import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
 import { parseMediaRequest } from './files/media'
-import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
+import {
+  createMainWindow,
+  getMainWindow,
+  setQuitting,
+  showMainWindow,
+  toggleMainWindow
+} from './window'
 import { createTray, destroyTray } from './tray'
+import { applyGlobalShortcuts, unregisterGlobalShortcuts } from './shortcuts'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
@@ -120,10 +127,25 @@ if (!gotLock) {
         return net.fetch(pathToFileURL(path).toString())
       })
 
+      const shortcutHandlers = {
+        toggleWindow: toggleMainWindow,
+        openReceiveDir: () => {
+          void appService.openReceiveDir().catch((error: unknown) => {
+            logStartup(
+              'open receive directory failed: ' +
+                (error instanceof Error ? error.message : String(error))
+            )
+          })
+        }
+      }
+
       const handlers = createHandlers({
         settings,
         appInfo,
-        onSettingsChanged: (next) => appService.applySettings(next)
+        onSettingsChanged: (next) => {
+          appService.applySettings(next)
+          applyGlobalShortcuts(next, shortcutHandlers)
+        }
       })
       registerIpc(handlers)
       registerAppIpc(appService)
@@ -131,6 +153,7 @@ if (!gotLock) {
 
       createMainWindow(settings)
       appService.attachWindow(getMainWindow())
+      applyGlobalShortcuts(settings.get(), shortcutHandlers)
       logStartup('main window created')
 
       createTray({
@@ -184,6 +207,7 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    unregisterGlobalShortcuts()
     void service?.stop()
     database?.close()
     database = null

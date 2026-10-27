@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '../../shared/ipc'
 import type { AppService } from '../app-service'
+import { setShortcutRecording, shortcutAvailable } from '../shortcuts'
 
 export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
@@ -53,5 +54,11 @@ export function registerAppIpc(service: AppService): void {
   )
   ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
     service.setActiveConversation(conversationId)
+  )
+  ipcMain.handle(IPC.shortcutsRecording, (_event, active: boolean) =>
+    setShortcutRecording(active === true)
+  )
+  ipcMain.handle(IPC.shortcutsAvailable, (_event, accelerator: string) =>
+    shortcutAvailable(accelerator)
   )
 }
