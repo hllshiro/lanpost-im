@@ -204,3 +204,48 @@ describe('FileManager message linking and cancellation', () => {
     expect(instance.list().find((task) => task.id === created[0].id)?.state).toBe('rejected')
   })
 })
+
+describe('FileManager stale request handling', () => {
+  it('revives a canceled task when the peer requests it again', async () => {
+    const source = join(tempDir(), 'stale.txt')
+    writeFileSync(source, 'stale')
+    const releases: string[] = []
+    const instance = new FileManager({
+      bindAddr: '127.0.0.1',
+      port: 0,
+      receiveDir: tempDir(),
+      notifyAccepted: () => undefined,
+      notifyReleased: (peerKey, packetId) => releases.push(`${peerKey}:${packetId}`),
+      callbacks: { onUpdate: () => undefined, onLog: () => undefined, onError: () => undefined }
+    })
+    managers.push(instance)
+    const task = instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'stale.txt',
+      size: 5,
+      mtime: 1,
+      fileId: 0x41,
+      packetId: 0x42,
+      path: source
+    })
+    instance.cancel(task.id)
+    await instance.start()
+    const target = join(tempDir(), 'revived.bin')
+    await pullFile({
+      peerIp: '127.0.0.1',
+      peerPort: instance.address().port,
+      packetId: 0x42,
+      fileId: 0x41,
+      seq: 2,
+      user: 'u',
+      host: 'h',
+      path: target,
+      size: 5
+    })
+    expect(readFileSync(target, 'utf8')).toBe('stale')
+    expect(instance.list()[0].state).toBe('done')
+    expect(releases.length).toBe(1)
+  }, 20000)
+})

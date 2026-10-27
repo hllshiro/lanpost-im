@@ -365,7 +365,15 @@ export class ProtocolEngine {
     const peer = this.peers.get(peerKey)
     if (peer === undefined) return
     const payload = [packetId, ...fileIds].map((value) => value.toString(16)).join(':')
-    this.sendPacket(peer, CMD_RELEASEFILES, Buffer.from(payload, 'ascii'))
+    // RELEASEFILES 没有确认机制，单包丢失会让对端一直停在等待态；重发几次提高可靠性。
+    for (const delay of [0, 250, 750]) {
+      const timer = setTimeout(() => {
+        this.burstTimers.delete(timer)
+        this.sendPacket(peer, CMD_RELEASEFILES, Buffer.from(payload, 'ascii'))
+      }, delay)
+      timer.unref()
+      this.burstTimers.add(timer)
+    }
   }
 
   updateStatus(status: number): void {

@@ -318,3 +318,31 @@ describe('engine discovery', () => {
     expect(released[0][2]).toEqual([0x1f])
   }, 10000)
 })
+
+describe('file release protocol', () => {
+  it('delivers RELEASEFILES from receiver to sender', async () => {
+    const portA = await freeUdpPort()
+    const portB = await freeUdpPort()
+    const released: Array<[string, number, number[]]> = []
+    const offers: Array<{ peer: ProtocolPeer; packetId: number }> = []
+    const a = new ProtocolEngine(config('alice', portA, [`127.0.0.1:${portB}`]), {
+      ...callbacks(),
+      onFileRelease: (peerKey, packetId, fileIds) => released.push([peerKey, packetId, fileIds])
+    })
+    const b = new ProtocolEngine(config('bob', portB, [`127.0.0.1:${portA}`]), {
+      ...callbacks(),
+      onFileOffer: (peer, packetId) => offers.push({ peer, packetId })
+    })
+    engines.push(a, b)
+    await a.start()
+    await b.start()
+    const bob = await waitFor(() => a.getPeers().find((item) => item.user === 'bob') ?? null)
+    const packetId = a.sendFileOffer(bob.key, '', [
+      { id: 0x21, name: 'x.txt', size: 1, mtime: 1, attr: 1 }
+    ])
+    const offer = await waitFor(() => offers.find((item) => item.packetId === packetId) ?? null)
+    b.releaseFiles(offer.peer.key, packetId, [0x21])
+    await waitFor(() => (released.length > 0 ? true : null))
+    expect(released[0]).toEqual([bob.key, packetId, [0x21]])
+  }, 10000)
+})

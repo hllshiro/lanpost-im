@@ -184,3 +184,161 @@ describe('AppService outgoing file status', () => {
     })
   })
 })
+
+async function freePort(): Promise<number> {
+  const { createServer } = await import('node:net')
+  const server = createServer()
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => resolve())
+  })
+  const address = server.address()
+  const port = typeof address === 'object' && address !== null ? address.port : 0
+  await new Promise<void>((resolve) => server.close(() => resolve()))
+  return port
+}
+
+async function waitUntil(probe: () => boolean, timeout = 5000): Promise<void> {
+  const started = Date.now()
+  while (!probe()) {
+    if (Date.now() - started > timeout) throw new Error('等待状态超时')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
+describe('two AppService file rejection', () => {
+  it('marks the sender task rejected when the receiver rejects', async () => {
+    const portA = await freePort()
+    const portB = await freePort()
+    const dirA = mkdtempSync(join(tmpdir(), 'lanpost-a-'))
+    const dirB = mkdtempSync(join(tmpdir(), 'lanpost-b-'))
+    dirs.push(dirA, dirB)
+    const dbA = openDatabase(':memory:')
+    const dbB = openDatabase(':memory:')
+    const settingsA = new SettingsStore(join(dirA, 'settings.json'), {
+      displayName: 'Alice',
+      account: 'alice',
+      hostName: 'alice-host'
+    })
+    settingsA.update({
+      files: { receiveDir: dirA, autoAccept: false },
+      network: { port: portA, bindAddr: '127.0.0.1', seeds: [`127.0.0.1:${portB}`] }
+    })
+    const settingsB = new SettingsStore(join(dirB, 'settings.json'), {
+      displayName: 'Bob',
+      account: 'bob',
+      hostName: 'bob-host'
+    })
+    settingsB.update({
+      files: { receiveDir: dirB, autoAccept: false },
+      network: { port: portB, bindAddr: '127.0.0.1', seeds: [`127.0.0.1:${portA}`] }
+    })
+    const a = new AppService(dbA, settingsA, {
+      name: 'test',
+      version: '0.1.0',
+      platform: 'win32',
+      appId: 'test'
+    })
+    const b = new AppService(dbB, settingsB, {
+      name: 'test',
+      version: '0.1.0',
+      platform: 'win32',
+      appId: 'test'
+    })
+    const source = join(dirA, 'send.txt')
+    writeFileSync(source, 'hello file')
+    const events: AppEvent[] = []
+    a.attachWindow({
+      webContents: { send: (_channel: string, event: AppEvent) => events.push(event) }
+    } as never)
+    try {
+      await a.start()
+      await b.start()
+      await waitUntil(() => a.snapshot().peers.some((peer) => peer.user === 'bob' && peer.online))
+      await waitUntil(() => b.snapshot().peers.some((peer) => peer.user === 'alice' && peer.online))
+      const conversation = a.snapshot().conversations.find((item) => item.peerKey?.endsWith('|bob'))
+      expect(conversation).toBeDefined()
+      a.sendFiles(conversation!.id, [source])
+      await waitUntil(() => b.snapshot().files.length === 1)
+      const incoming = b.snapshot().files[0]
+      b.rejectFile(incoming.id)
+      await waitUntil(() => a.snapshot().files[0]?.state === 'rejected')
+      expect(a.snapshot().files[0].state).toBe('rejected')
+      const rejected = [...events]
+        .reverse()
+        .find((event): event is Extract<AppEvent, { type: 'file' }> => event.type === 'file')
+      expect(rejected?.file).toMatchObject({
+        state: 'rejected',
+        messageId: a.snapshot().files[0].messageId
+      })
+    } finally {
+      await a.stop()
+      await b.stop()
+      dbA.close()
+      dbB.close()
+    }
+  }, 20000)
+})
+
+describe('two AppService sender cancel', () => {
+  it('cancels a waiting offer and marks the receiver rejected', async () => {
+    const portA = await freePort()
+    const portB = await freePort()
+    const dirA = mkdtempSync(join(tmpdir(), 'lanpost-ca-'))
+    const dirB = mkdtempSync(join(tmpdir(), 'lanpost-cb-'))
+    dirs.push(dirA, dirB)
+    const dbA = openDatabase(':memory:')
+    const dbB = openDatabase(':memory:')
+    const settingsA = new SettingsStore(join(dirA, 'settings.json'), {
+      displayName: 'Alice',
+      account: 'alice',
+      hostName: 'alice-host'
+    })
+    settingsA.update({
+      files: { receiveDir: dirA, autoAccept: false },
+      network: { port: portA, bindAddr: '127.0.0.1', seeds: [`127.0.0.1:${portB}`] }
+    })
+    const settingsB = new SettingsStore(join(dirB, 'settings.json'), {
+      displayName: 'Bob',
+      account: 'bob',
+      hostName: 'bob-host'
+    })
+    settingsB.update({
+      files: { receiveDir: dirB, autoAccept: false },
+      network: { port: portB, bindAddr: '127.0.0.1', seeds: [`127.0.0.1:${portA}`] }
+    })
+    const a = new AppService(dbA, settingsA, {
+      name: 'test',
+      version: '0.1.0',
+      platform: 'win32',
+      appId: 'test'
+    })
+    const b = new AppService(dbB, settingsB, {
+      name: 'test',
+      version: '0.1.0',
+      platform: 'win32',
+      appId: 'test'
+    })
+    const source = join(dirA, 'cancel.txt')
+    writeFileSync(source, 'cancel me')
+    try {
+      await a.start()
+      await b.start()
+      await waitUntil(() => a.snapshot().peers.some((peer) => peer.user === 'bob' && peer.online))
+      await waitUntil(() => b.snapshot().peers.some((peer) => peer.user === 'alice' && peer.online))
+      const conversation = a.snapshot().conversations.find((item) => item.peerKey?.endsWith('|bob'))
+      a.sendFiles(conversation!.id, [source])
+      await waitUntil(() => b.snapshot().files.length === 1)
+      const outgoing = a.snapshot().files[0]
+      a.cancelFile(outgoing.id)
+      await waitUntil(() => b.snapshot().files[0]?.state === 'rejected')
+      expect(a.snapshot().files[0].state).toBe('canceled')
+      expect(b.snapshot().files[0].state).toBe('rejected')
+    } finally {
+      await a.stop()
+      await b.stop()
+      dbA.close()
+      dbB.close()
+    }
+  }, 20000)
+})

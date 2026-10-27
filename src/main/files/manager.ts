@@ -531,6 +531,12 @@ export class FileManager {
   }
 
   private resolveOutgoing(request: GetFileRequest): FileServeTarget | null {
+    const stale = this.findEnded(request.packetId, request.fileIds, request.remoteIp)
+    if (stale !== null) {
+      // 对端已拒绝：再次请求时补发 RELEASEFILES，不再提供文件。
+      this.options.notifyReleased(stale.peerKey, stale.packetId, [stale.fileId])
+      return null
+    }
     const task = this.findOutgoing(request.packetId, request.fileIds, request.remoteIp)
     if (task === null) {
       return null
@@ -542,9 +548,6 @@ export class FileManager {
       offset: request.offset,
       isCanceled: () => task.state === 'canceled',
       onStart: () => {
-        if (task.state === 'canceled') {
-          return
-        }
         task.state = 'transferring'
         task.received = 0
         task.error = ''
@@ -581,6 +584,18 @@ export class FileManager {
     }
   }
 
+  private findEnded(packetId: number, fileIds: number[], remoteIp: string): OutgoingFile | null {
+    const remote = normalizeIp(remoteIp)
+    for (const task of this.tasks.values()) {
+      if (task.direction !== 'out') continue
+      if (task.state !== 'rejected') continue
+      const samePeer = remote === '' || normalizeIp(task.peerIp) === remote
+      if (!samePeer) continue
+      if (task.packetId === packetId || fileIds.includes(task.fileId)) return task
+    }
+    return null
+  }
+
   private findOutgoing(packetId: number, fileIds: number[], remoteIp: string): OutgoingFile | null {
     const remote = normalizeIp(remoteIp)
     let fileFallback: OutgoingFile | null = null
@@ -589,7 +604,7 @@ export class FileManager {
       if (task.direction !== 'out') {
         continue
       }
-      if (task.state === 'canceled' || task.state === 'rejected' || task.state === 'failed') {
+      if (task.state === 'rejected' || task.state === 'failed') {
         continue
       }
       const samePeer = remote === '' || normalizeIp(task.peerIp) === remote
