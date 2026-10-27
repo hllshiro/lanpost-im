@@ -249,3 +249,37 @@ describe('FileManager stale request handling', () => {
     expect(releases.length).toBe(1)
   }, 20000)
 })
+
+describe('FileManager foreign fileId compatibility', () => {
+  it('matches by packetId when the peer sends its own fileId', async () => {
+    const receive = tempDir()
+    const source = join(tempDir(), 'nwt.bin')
+    writeFileSync(source, 'nwt-data')
+    const instance = manager(receive)
+    instance.addOutgoing({
+      peerKey: 'peer',
+      peerIp: '127.0.0.1',
+      peerPort: 1,
+      name: 'nwt.bin',
+      size: 8,
+      mtime: 1,
+      fileId: 0x99,
+      packetId: 0x1234,
+      path: source
+    })
+    await instance.start()
+    const target = join(receive, 'nwt-received.bin')
+    await pullFile({
+      peerIp: '127.0.0.1',
+      peerPort: instance.address().port,
+      packetId: 0x1234,
+      fileId: 7,
+      seq: 3,
+      user: 'u',
+      host: 'h',
+      path: target,
+      size: 8
+    })
+    expect(readFileSync(target, 'utf8')).toBe('nwt-data')
+  }, 20000)
+})

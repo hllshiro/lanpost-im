@@ -599,32 +599,29 @@ export class FileManager {
   private findOutgoing(packetId: number, fileIds: number[], remoteIp: string): OutgoingFile | null {
     const remote = normalizeIp(remoteIp)
     let fileFallback: OutgoingFile | null = null
+    let packetMatch: OutgoingFile | null = null
     let newest: OutgoingFile | null = null
     for (const task of this.tasks.values()) {
-      if (task.direction !== 'out') {
-        continue
-      }
-      if (task.state === 'rejected' || task.state === 'failed') {
-        continue
-      }
+      if (task.direction !== 'out') continue
+      if (task.state === 'rejected' || task.state === 'failed') continue
       const samePeer = remote === '' || normalizeIp(task.peerIp) === remote
-      if (fileIds.includes(task.fileId) && samePeer) {
-        return task
-      }
-      if (packetId !== 0 && task.packetId === packetId && samePeer && fileIds.length === 0) {
-        return task
+      if (!samePeer) continue
+      // 先按我们广告的 fileId 匹配；对端若回传自己的 fileId，再按 packetId 匹配。
+      if (fileIds.includes(task.fileId)) return task
+      if (packetId !== 0 && task.packetId === packetId && packetMatch === null) {
+        packetMatch = task
       }
       if (fileIds.includes(task.fileId) && fileFallback === null) {
         fileFallback = task
       }
-      if ((task.state === 'offered' || task.state === 'transferring') && samePeer) {
+      if (task.state === 'offered' || task.state === 'transferring') {
         if (newest === null || task.createdAt > newest.createdAt) {
           newest = task
         }
       }
     }
-    // 内网通部分版本会回传自己的文件标识。按对端取最新的待发送任务作为兜底。
-    return newest ?? fileFallback
+    // 兼容不回传我们 fileId 的客户端：packetId 优先，最后才按同 IP 最新任务兜底。
+    return packetMatch ?? newest ?? fileFallback
   }
 
   private identity(): FileManagerIdentity {
