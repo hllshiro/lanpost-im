@@ -3,3 +3,5 @@ desktop/dist*/
 desktop/src/icons/screenshots/
 desktop/src/icons/frames/
 *.log
+desktop/test-results/
+desktop/playwright-report/
