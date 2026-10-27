@@ -40,7 +40,13 @@ import { buildHostList, parseHostList, type HostListEntry } from './host-list'
 import { Retransmitter } from './retransmit'
 import { decodeMessageText, encodeMessageText } from './text'
 import { encodeEntry, parseEntry } from './entry'
-import { decodePacket, encodePacket, trimNul, type PacketHeader } from './packet'
+import {
+  decodePacket,
+  encodePacket,
+  encodePacketVersioned,
+  trimNul,
+  type PacketHeader
+} from './packet'
 
 const ANNOUNCE_INTERVAL_FALLBACK = 30
 const OFFLINE_TIMEOUT_MS = 120_000
@@ -76,6 +82,7 @@ export interface ProtocolPeer {
   group: string
   status: number
   online: boolean
+  vendor?: 'standard' | 'nwt' | 'feiq'
   capUtf8: boolean
   capFile: boolean
   capClipboard: boolean
@@ -367,6 +374,10 @@ export class ProtocolEngine {
   releaseFiles(peerKey: string, packetId: number, fileIds: number[]): void {
     const peer = this.peers.get(peerKey)
     if (peer === undefined) return
+    if (peer.vendor === 'nwt') {
+      this.sendNwtCancel(peer, packetId, fileIds[0] ?? 0)
+      return
+    }
     const payload = [packetId, ...fileIds].map((value) => value.toString(16)).join(':')
     // RELEASEFILES 没有确认机制，单包丢失会让对端一直停在等待态；重发几次提高可靠性。
     for (const delay of [0, 250, 750]) {
@@ -377,6 +388,41 @@ export class ProtocolEngine {
       timer.unref()
       this.burstTimers.add(timer)
     }
+  }
+
+  // 内网通取消文件使用私有 230；同时发 1@ 的十进制拼接和 5@ 的十六进制两种形式。
+  private sendNwtCancel(peer: ProtocolPeer, packetId: number, fileId: number): void {
+    const seq1 = this.nextSeq()
+    const decimal = Buffer.from(`${packetId}${fileId}:`, 'ascii')
+    this.sendRaw(
+      peer.ip,
+      peer.port,
+      encodePacketVersioned('1@shiyeline', {
+        seq: seq1,
+        user: this.config.account,
+        host: this.config.host,
+        cmd: CMD_NWT_FILE_CANCEL,
+        payload: decimal
+      })
+    )
+    const seq2 = this.nextSeq()
+    const hex = Buffer.concat([
+      Buffer.from(`${packetId.toString(16)}:`, 'ascii'),
+      Buffer.from([0]),
+      Buffer.from(String(fileId), 'ascii'),
+      Buffer.from([0])
+    ])
+    this.sendRaw(
+      peer.ip,
+      peer.port,
+      encodePacketVersioned('5@shiyeline', {
+        seq: seq2,
+        user: this.config.account,
+        host: this.config.host,
+        cmd: CMD_NWT_FILE_CANCEL,
+        payload: hex
+      })
+    )
   }
 
   updateStatus(status: number): void {
@@ -621,6 +667,7 @@ export class ProtocolEngine {
     peer.host = header.host
     peer.lastSeen = now
     peer.online = true
+    peer.vendor = header.vendor
     try {
       this.dispatch(peer, header)
     } catch (error) {
