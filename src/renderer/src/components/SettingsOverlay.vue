@@ -27,7 +27,7 @@ const emit = defineEmits<{
 const categories = [
   { id: 'identity', label: '账号', icon: UserRound },
   { id: 'network', label: '网络', icon: Network },
-  { id: 'notify', label: '消息', icon: Bell },
+  { id: 'notify', label: '通知', icon: Bell },
   { id: 'files', label: '文件', icon: FolderOpen },
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'general', label: '通用', icon: SlidersHorizontal },
@@ -287,20 +287,6 @@ onBeforeUnmount(() => {
                 class="input"
                 maxlength="32"
                 @change="saveField('identity', { account: settings.identity.account })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <label class="label" for="setting-identity-id">身份码</label>
-              <p class="hint">用于跨设备/重装后合并历史，请妥善备份</p>
-            </div>
-            <div class="control">
-              <input
-                id="setting-identity-id"
-                :value="settings.identity.identityId"
-                class="input"
-                readonly
               />
             </div>
           </div>
