@@ -3,6 +3,7 @@ import { decodeBeacon } from './beacon'
 import {
   ENET_CMD_ACK,
   ENET_CMD_CONNECT,
+  ENET_CMD_DISCONNECT,
   ENET_CMD_PING,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
@@ -44,6 +45,8 @@ const CONNECT_HEADER_PEER_ID = 0x0fff
 const HANDSHAKE_CHANNEL = 0xff
 const HANDSHAKE_SEQ = 1
 const ASSIGNED_PEER_ID = 1
+// 接收侧（server）自己选定的会话号，写进 VERIFY_CONNECT 载荷第 2、3 字节与出站头部
+const SERVER_SESSION_ID = 1
 
 const CONNECT_RETRY_MS = 5000
 const CONNECT_MAX_RETRIES = 3
@@ -112,6 +115,7 @@ export class PrivateSession {
   private currentState: SessionState = 'idle'
   private reliable: ReliableEnd | null = null
   private peerId = 0
+  private sessionId = 0
   private connectId = 0
   private verifyDatagram: Buffer | null = null
   private verifySentTime = 0
@@ -209,6 +213,11 @@ export class PrivateSession {
   private accept(data: Buffer): void {
     if (this.currentState === 'closed') return
     this.lastInboundAt = this.now()
+    if (this.hasDisconnect(data)) {
+      this.callbacks.onLog(`私有会话 ${this.remoteLabel} 收到对端 DISCONNECT，关闭`)
+      this.shutdown(false)
+      return
+    }
     if (this.reliable === null) {
       this.acceptHandshake(data)
       return
@@ -264,16 +273,23 @@ export class PrivateSession {
     )
   }
 
+  private hasDisconnect(data: Buffer): boolean {
+    const { commands } = decodeDatagram(data)
+    return commands.some((command) => (command.command & COMMAND_MASK) === ENET_CMD_DISCONNECT)
+  }
+
   private acceptConnect(payload: Buffer): void {
     const { connectId } = parseConnectPayload(payload)
     const outgoingPeerId = payload.readUInt16BE(0)
     this.connectId = connectId
     this.peerId = outgoingPeerId
+    this.sessionId = SERVER_SESSION_ID
     this.setState('verifying')
     this.awaitingVerifyAck = true
     this.sendVerify()
     this.reliable = new ReliableEnd({
       peerId: outgoingPeerId,
+      sessionId: this.sessionId,
       send: this.sendRaw,
       now: this.now
     })
@@ -290,7 +306,7 @@ export class PrivateSession {
   }
 
   private acceptVerify(data: Buffer, payload: Buffer): void {
-    const { peerId, connectId } = parseVerifyPayload(payload)
+    const { peerId, connectId, outgoingSessionId } = parseVerifyPayload(payload)
     if (connectId !== this.connectId) {
       this.callbacks.onLog(
         `私有会话 ${this.remoteLabel} 收到连接标识 ${connectId} 的 VERIFY_CONNECT，与本次连接 ${this.connectId} 不一致，忽略`
@@ -299,7 +315,13 @@ export class PrivateSession {
     }
     this.setState('verifying')
     this.peerId = peerId
-    this.reliable = new ReliableEnd({ peerId, send: this.sendRaw, now: this.now })
+    this.sessionId = outgoingSessionId
+    this.reliable = new ReliableEnd({
+      peerId,
+      sessionId: outgoingSessionId,
+      send: this.sendRaw,
+      now: this.now
+    })
     const delivered = this.reliable.receive(data)
     this.sendPing()
     this.setState('handshaking')
@@ -327,14 +349,19 @@ export class PrivateSession {
     if (this.verifyDatagram === null) {
       const now = this.now()
       this.verifySentTime = now & 0xffff
-      this.verifyDatagram = encodeDatagram(this.peerId, this.verifySentTime, [
-        {
-          command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
-          channelId: HANDSHAKE_CHANNEL,
-          reliableSeq: HANDSHAKE_SEQ,
-          payload: buildVerifyPayload(ASSIGNED_PEER_ID, this.connectId)
-        }
-      ])
+      this.verifyDatagram = encodeDatagram(
+        this.peerId,
+        this.verifySentTime,
+        [
+          {
+            command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+            channelId: HANDSHAKE_CHANNEL,
+            reliableSeq: HANDSHAKE_SEQ,
+            payload: buildVerifyPayload(ASSIGNED_PEER_ID, this.connectId, this.sessionId)
+          }
+        ],
+        this.sessionId
+      )
     }
     this.verifySentAt = this.now()
     this.sendRaw(this.verifyDatagram)
@@ -342,14 +369,19 @@ export class PrivateSession {
 
   private sendPing(): void {
     this.sendRaw(
-      encodeDatagram(this.peerId, this.now(), [
-        {
-          command: ENET_CMD_PING | ENET_FLAG_ACK,
-          channelId: HANDSHAKE_CHANNEL,
-          reliableSeq: HANDSHAKE_SEQ + 1,
-          payload: Buffer.alloc(0)
-        }
-      ])
+      encodeDatagram(
+        this.peerId,
+        this.now(),
+        [
+          {
+            command: ENET_CMD_PING | ENET_FLAG_ACK,
+            channelId: HANDSHAKE_CHANNEL,
+            reliableSeq: HANDSHAKE_SEQ + 1,
+            payload: Buffer.alloc(0)
+          }
+        ],
+        this.sessionId
+      )
     )
   }
 

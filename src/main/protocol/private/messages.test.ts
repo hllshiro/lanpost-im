@@ -56,6 +56,18 @@ describe('private messages', () => {
 })
 
 describe('private messages round-trip', () => {
+  it('falls back to a non-empty group because the sample rejects a blank one', () => {
+    const xml = handshakeXml(
+      { name: '本机', group: '  ', corporation: '', department: '', sign: '', status: 0 },
+      '0123456789abcdef0123456789abcdef'
+    )
+    expect(xml).toContain('<GROUP>Default</GROUP>')
+    expect(parsePrivate(1000, xml)).toMatchObject({
+      kind: 'handshake',
+      profile: { group: 'Default' }
+    })
+  })
+
   it('round-trips a handshake that only enables MSG and HIDE_RECORD', () => {
     const profile: PrivateProfile = {
       name: '本机',

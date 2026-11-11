@@ -28,6 +28,8 @@ const SUPPORTED_MSG = '2:1'
 
 const XML_SPACE = '&nbsp;'
 const XML_QUOTE = '&quot;'
+// 样本按非空分组校验握手；空分组会被回 DISCONNECT。它自己的默认分组就是 Default
+const DEFAULT_GROUP = 'Default'
 
 export interface PrivateProfile {
   name: string
@@ -104,7 +106,7 @@ function userInfo(profile: PrivateProfile, userId: string): UserInfo {
     CorpID: userId,
     CorpTime: 0,
     Name: profile.name,
-    Group: profile.group,
+    Group: profile.group.trim() === '' ? DEFAULT_GROUP : profile.group,
     Corporation: profile.corporation,
     Department: profile.department,
     Sex: 0,

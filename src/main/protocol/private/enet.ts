@@ -1,6 +1,7 @@
 export const ENET_CMD_ACK = 0x01
 export const ENET_CMD_CONNECT = 0x02
 export const ENET_CMD_VERIFY = 0x03
+export const ENET_CMD_DISCONNECT = 0x04
 export const ENET_CMD_PING = 0x05
 export const ENET_CMD_SEND_RELIABLE = 0x06
 export const ENET_CMD_SEND_FRAGMENT = 0x08
@@ -10,7 +11,9 @@ export const ENET_MTU = 1400
 export const ENET_MAX_PAYLOAD = 1280
 
 const COMMAND_MASK = 0x7f
-const PEER_ID_MASK = 0x7fff
+const PEER_ID_MASK = 0x0fff
+const SESSION_MASK = 0x3
+const SESSION_SHIFT = 12
 const PEER_ID_FLAG = 0x8000
 const DATAGRAM_HEADER_SIZE = 4
 const SHORT_DATAGRAM_HEADER_SIZE = 2
@@ -20,6 +23,7 @@ const VERIFY_PAYLOAD_SIZE = 40
 const RELIABLE_HEADER_SIZE = 2
 const FRAGMENT_HEADER_SIZE = 20
 const ACK_PAYLOAD_SIZE = 4
+const DISCONNECT_PAYLOAD_SIZE = 4
 const BANDWIDTH_PAYLOAD_SIZE = 8
 
 const CONNECT_OUTGOING_PEER_ID = 0
@@ -31,7 +35,6 @@ const PACKET_THROTTLE_ACCELERATION = 2
 const PACKET_THROTTLE_DECELERATION = 2
 
 const APPLICATION_CHANNEL_ID = 0
-const ACK_CHANNEL_ID = 0xff
 const SEQUENCE_HALF = 0x8000
 const FIRST_RELIABLE_SEQ = 1
 const DEFAULT_RETRANSMIT_MS = 500
@@ -73,6 +76,8 @@ function commandPayloadSize(base: number, data: Buffer, payloadOffset: number): 
       return CONNECT_PAYLOAD_SIZE
     case ENET_CMD_VERIFY:
       return VERIFY_PAYLOAD_SIZE
+    case ENET_CMD_DISCONNECT:
+      return DISCONNECT_PAYLOAD_SIZE
     case ENET_CMD_SEND_RELIABLE: {
       if (data.length - payloadOffset < RELIABLE_HEADER_SIZE) {
         throw new EnetError('SEND_RELIABLE 命令缺少长度字段')
@@ -92,13 +97,21 @@ function commandPayloadSize(base: number, data: Buffer, payloadOffset: number): 
   }
 }
 
-export function encodeDatagram(peerId: number, sentTime: number, commands: EnetCommand[]): Buffer {
+export function encodeDatagram(
+  peerId: number,
+  sentTime: number,
+  commands: EnetCommand[],
+  sessionId = 0
+): Buffer {
   const size = commands.reduce(
     (total, command) => total + COMMAND_HEADER_SIZE + command.payload.length,
     DATAGRAM_HEADER_SIZE
   )
   const out = Buffer.alloc(size)
-  out.writeUInt16BE((peerId & PEER_ID_MASK) | PEER_ID_FLAG, 0)
+  out.writeUInt16BE(
+    (peerId & PEER_ID_MASK) | PEER_ID_FLAG | ((sessionId & SESSION_MASK) << SESSION_SHIFT),
+    0
+  )
   out.writeUInt16BE(sentTime & 0xffff, 2)
   let offset = DATAGRAM_HEADER_SIZE
   for (const command of commands) {
@@ -113,6 +126,7 @@ export function encodeDatagram(peerId: number, sentTime: number, commands: EnetC
 
 export function decodeDatagram(data: Buffer): {
   peerId: number
+  sessionId: number
   sentTime: number | null
   commands: EnetCommand[]
 } {
@@ -126,6 +140,7 @@ export function decodeDatagram(data: Buffer): {
     throw new EnetError(`数据报长度 ${data.length} 小于头部长度 ${headerSize}`)
   }
   const peerId = rawPeerId & PEER_ID_MASK
+  const sessionId = (rawPeerId >> SESSION_SHIFT) & SESSION_MASK
   const sentTime = hasSentTime ? data.readUInt16BE(2) : null
   const commands: EnetCommand[] = []
   let offset = headerSize
@@ -152,7 +167,7 @@ export function decodeDatagram(data: Buffer): {
     })
     offset = payloadOffset + payloadSize
   }
-  return { peerId, sentTime, commands }
+  return { peerId, sessionId, sentTime, commands }
 }
 
 export function buildAckPayload(receivedSeq: number, sentTime: number): Buffer {
@@ -197,9 +212,15 @@ export function parseConnectPayload(payload: Buffer): { connectId: number; mtu: 
   }
 }
 
-export function buildVerifyPayload(assignedPeerId: number, connectId: number): Buffer {
+export function buildVerifyPayload(
+  assignedPeerId: number,
+  connectId: number,
+  sessionId = 0
+): Buffer {
   const payload = Buffer.alloc(VERIFY_PAYLOAD_SIZE)
   payload.writeUInt16BE(assignedPeerId & 0xffff, 0)
+  payload.writeUInt8(sessionId & 0xff, 2)
+  payload.writeUInt8(sessionId & 0xff, 3)
   payload.writeUInt32BE(ENET_MTU, CONNECT_MTU_OFFSET)
   payload.writeUInt32BE(WINDOW_SIZE, 8)
   payload.writeUInt32BE(CHANNEL_COUNT, 12)
@@ -210,13 +231,20 @@ export function buildVerifyPayload(assignedPeerId: number, connectId: number): B
   return payload
 }
 
-export function parseVerifyPayload(payload: Buffer): { peerId: number; connectId: number } {
+export function parseVerifyPayload(payload: Buffer): {
+  peerId: number
+  connectId: number
+  incomingSessionId: number
+  outgoingSessionId: number
+} {
   if (payload.length < VERIFY_PAYLOAD_SIZE) {
     throw new EnetError(`VERIFY_CONNECT 载荷长度 ${payload.length} 小于 ${VERIFY_PAYLOAD_SIZE}`)
   }
   return {
     peerId: payload.readUInt16BE(0),
-    connectId: payload.readUInt32BE(CONNECT_ID_OFFSET)
+    connectId: payload.readUInt32BE(CONNECT_ID_OFFSET),
+    incomingSessionId: payload.readUInt8(2),
+    outgoingSessionId: payload.readUInt8(3)
   }
 }
 
@@ -287,6 +315,8 @@ export function parseFragmentPayload(payload: Buffer): {
 export interface ReliableOptions {
   // 本端在对端侧的编号，写入每个数据报头部；VERIFY_CONNECT 握手时确定
   peerId: number
+  // 对端分配的 ENet 会话号（0–3），写入头部第 12–13 位；VERIFY_CONNECT 握手时确定
+  sessionId?: number
   send: (data: Buffer) => void
   now?: () => number
   retransmitMs?: number
@@ -322,6 +352,7 @@ function isNewerSequence(candidate: number, reference: number): boolean {
 // 单通道（通道 0）可靠传输：自增序号、重传、ACK、分片拆分与重组、按序交付
 export class ReliableEnd {
   private readonly peerId: number
+  private readonly sessionId: number
   private readonly sendRaw: (data: Buffer) => void
   private readonly now: () => number
   private readonly retransmitMs: number
@@ -334,6 +365,7 @@ export class ReliableEnd {
 
   constructor(options: ReliableOptions) {
     this.peerId = options.peerId
+    this.sessionId = options.sessionId ?? 0
     this.sendRaw = options.send
     this.now = options.now ?? Date.now
     this.retransmitMs = options.retransmitMs ?? DEFAULT_RETRANSMIT_MS
@@ -391,7 +423,7 @@ export class ReliableEnd {
         continue
       }
       if ((command.command & ENET_FLAG_ACK) !== 0) {
-        this.sendAck(command.reliableSeq, sentTime ?? 0)
+        this.sendAck(command.channelId, command.reliableSeq, sentTime ?? 0)
       }
       if (base === ENET_CMD_SEND_RELIABLE || base === ENET_CMD_SEND_FRAGMENT) {
         this.accept(command, delivered)
@@ -437,14 +469,15 @@ export class ReliableEnd {
   }
 
   private writeCommand(command: EnetCommand, sentTime: number): void {
-    this.sendRaw(encodeDatagram(this.peerId, sentTime, [command]))
+    this.sendRaw(encodeDatagram(this.peerId, sentTime, [command], this.sessionId))
   }
 
-  private sendAck(seq: number, peerSentTime: number): void {
+  // ACK 用被确认命令所在的通道，样本按通道匹配；握手命令在 0xff，业务命令在 0
+  private sendAck(channelId: number, seq: number, peerSentTime: number): void {
     this.writeCommand(
       {
         command: ENET_CMD_ACK,
-        channelId: ACK_CHANNEL_ID,
+        channelId,
         reliableSeq: seq,
         payload: buildAckPayload(seq, peerSentTime)
       },

@@ -76,7 +76,7 @@ describe('reliable end', () => {
     expect(flush().map((b) => b.toString())).toEqual(['x', 'y', 'z'])
   })
 
-  it('acks each reliable command on channel 0xff', () => {
+  it('acks each reliable command on the channel it arrived on', () => {
     const clock = 1000
     const aOut: Buffer[] = []
     const bOut: Buffer[] = []
@@ -89,11 +89,35 @@ describe('reliable end', () => {
     expect(ack.peerId).toBe(2)
     expect(ack.commands).toHaveLength(1)
     expect(ack.commands[0].command).toBe(ENET_CMD_ACK)
-    expect(ack.commands[0].channelId).toBe(0xff)
+    expect(ack.commands[0].channelId).toBe(0)
     expect(ack.commands[0].reliableSeq).toBe(1)
     expect(parseAckPayload(ack.commands[0].payload)).toEqual({ receivedSeq: 1, sentTime: 1000 })
     expect(a.receive(bOut[0])).toEqual([])
     expect(a.pendingCount).toBe(0)
+  })
+
+  it('writes the session id into every outgoing header', () => {
+    const clock = 1000
+    const aOut: Buffer[] = []
+    const bOut: Buffer[] = []
+    const a = new ReliableEnd({
+      peerId: 1,
+      sessionId: 2,
+      send: (d) => aOut.push(d),
+      now: () => clock
+    })
+    const b = new ReliableEnd({
+      peerId: 2,
+      sessionId: 3,
+      send: (d) => bOut.push(d),
+      now: () => clock
+    })
+    a.send(Buffer.from('hi'))
+    expect(aOut[0]!.readUInt16BE(0)).toBe(0xa001)
+    expect(decodeDatagram(aOut[0]!).sessionId).toBe(2)
+    expect(b.receive(aOut[0]!)).toHaveLength(1)
+    expect(bOut[0]!.readUInt16BE(0)).toBe(0xb002)
+    expect(decodeDatagram(bOut[0]!).sessionId).toBe(3)
   })
 
   it('waits for the expected first sequence instead of moving the baseline', () => {

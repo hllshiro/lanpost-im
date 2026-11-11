@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ENET_CMD_DISCONNECT,
   ENET_CMD_PING,
   ENET_CMD_SEND_FRAGMENT,
   ENET_CMD_VERIFY,
@@ -33,15 +34,62 @@ describe('enet codec', () => {
 
   it('re-encodes the captured verify datagram', () => {
     const d = decodeDatagram(Buffer.from(VERIFY_DATAGRAM, 'hex'))
+    expect(d.sessionId).toBe(0)
     expect(d.commands[0].command).toBe(ENET_CMD_VERIFY | ENET_FLAG_ACK)
     expect(parseVerifyPayload(d.commands[0].payload)).toEqual({
       peerId: 1,
-      connectId: 0xe417824b
+      connectId: 0xe417824b,
+      incomingSessionId: 0,
+      outgoingSessionId: 0
     })
     expect(encodeDatagram(d.peerId, d.sentTime ?? 0, d.commands).toString('hex')).toBe(
       VERIFY_DATAGRAM
     )
     expect(buildVerifyPayload(1, 0xe417824b).equals(d.commands[0].payload)).toBe(true)
+  })
+
+  it('writes and reads the session id in the datagram header', () => {
+    const raw = encodeDatagram(
+      0,
+      0x1234,
+      [
+        {
+          command: ENET_CMD_PING | ENET_FLAG_ACK,
+          channelId: 0xff,
+          reliableSeq: 2,
+          payload: Buffer.alloc(0)
+        }
+      ],
+      2
+    )
+    expect(raw.readUInt16BE(0)).toBe(0xa000)
+    const d = decodeDatagram(raw)
+    expect(d.peerId).toBe(0)
+    expect(d.sessionId).toBe(2)
+  })
+
+  it('writes both verify session bytes and reads them back', () => {
+    const payload = buildVerifyPayload(1, 0xe417824b, 2)
+    expect(payload.readUInt8(2)).toBe(2)
+    expect(payload.readUInt8(3)).toBe(2)
+    expect(parseVerifyPayload(payload)).toEqual({
+      peerId: 1,
+      connectId: 0xe417824b,
+      incomingSessionId: 2,
+      outgoingSessionId: 2
+    })
+  })
+
+  it('decodes the disconnect command', () => {
+    const payload = Buffer.alloc(4)
+    payload.writeUInt32BE(0x1234, 0)
+    const raw = encodeDatagram(1, 7, [
+      { command: ENET_CMD_DISCONNECT, channelId: 0xff, reliableSeq: 0, payload }
+    ])
+    const command = decodeDatagram(raw).commands[0]!
+    expect(command.command).toBe(ENET_CMD_DISCONNECT)
+    expect(command.payload.length).toBe(4)
+    expect(command.payload.readUInt32BE(0)).toBe(0x1234)
   })
 
   it('decodes the captured ACK + PING datagram', () => {

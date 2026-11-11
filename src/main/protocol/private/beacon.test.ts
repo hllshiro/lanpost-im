@@ -25,13 +25,12 @@ describe('beacon', () => {
       broadcast: '192.168.1.255',
       userId: '0123456789abcdef0123456789abcdef',
       peerId,
-      enetPort: 54321,
-      timestamp: 1792726793
+      enetPort: 54321
     })
     expect(raw.length).toBe(304)
     expect(raw.readUInt32BE(0x04)).toBe(4)
     expect(raw.readUInt32BE(0x08)).toBe(1)
-    expect(raw.readUInt32BE(0x0c)).toBe(1792726793)
+    expect(raw.readUInt32BE(0x0c)).toBe(0x5fc1d8ec)
     expect(raw.readUInt32BE(0xa0)).toBe(500)
     expect(decodeBeacon(raw)).toMatchObject({
       type: 4,

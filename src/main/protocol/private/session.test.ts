@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { decodeBeacon } from './beacon'
 import {
+  ENET_CMD_ACK,
   ENET_CMD_CONNECT,
+  ENET_CMD_DISCONNECT,
   ENET_CMD_SEND_RELIABLE,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
@@ -205,7 +207,7 @@ describe('private session', () => {
     expect(aEvents).toContain('receipt:7')
   })
 
-  it('replies VERIFY_CONNECT with the assigned peer id', () => {
+  it('replies VERIFY_CONNECT with the assigned peer id and its own session', () => {
     const clock = 0
     const pair = connectPair(() => clock)
     pair.a.start()
@@ -216,9 +218,68 @@ describe('private session', () => {
     pair.b.receive(connectDatagram)
     const verify = decodeDatagram(pair.toA[0]!)
     expect(verify.peerId).toBe(0)
+    expect(verify.sessionId).toBe(1)
     expect(verify.commands[0]!.command).toBe(ENET_CMD_VERIFY | ENET_FLAG_ACK)
     expect(verify.commands[0]!.payload.readUInt16BE(0)).toBe(1)
+    expect(verify.commands[0]!.payload.readUInt8(2)).toBe(1)
+    expect(verify.commands[0]!.payload.readUInt8(3)).toBe(1)
     expect(pair.b.state).toBe('verifying')
+  })
+
+  it('adopts the session id from the VERIFY_CONNECT', () => {
+    const clock = 0
+    const sent: Buffer[] = []
+    const statuses: string[] = []
+    const client = makeSession(
+      'client',
+      (d) => sent.push(d),
+      statuses,
+      () => clock
+    )
+    client.start()
+    const connectId = parseConnectPayload(decodeDatagram(sent[0]!).commands[0]!.payload).connectId
+    client.receive(
+      encodeDatagram(
+        0,
+        0x1111,
+        [
+          {
+            command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+            channelId: 0xff,
+            reliableSeq: 1,
+            payload: buildVerifyPayload(0, connectId, 2)
+          }
+        ],
+        2
+      )
+    )
+    expect(client.state).toBe('handshaking')
+    const afterVerify = sent.slice(1).map((datagram) => decodeDatagram(datagram))
+    expect(afterVerify[0]!.commands[0]!.command).toBe(ENET_CMD_ACK)
+    expect(afterVerify.every((datagram) => datagram.sessionId === 2)).toBe(true)
+    expect(afterVerify[0]!.commands[0]!.channelId).toBe(0xff)
+    expect(
+      afterVerify.some((datagram) =>
+        datagram.commands.some((command) => (command.command & 0x7f) === ENET_CMD_SEND_RELIABLE)
+      )
+    ).toBe(true)
+  })
+
+  it('closes the session when the peer sends DISCONNECT', () => {
+    const clock = 0
+    const pair = connectPair(() => clock)
+    pair.a.start()
+    flushAll(pair)
+    expect(pair.a.state).toBe('ready')
+    const payload = Buffer.alloc(4)
+    payload.writeUInt32BE(0x41424344, 0)
+    pair.a.receive(
+      encodeDatagram(1, 0, [
+        { command: ENET_CMD_DISCONNECT, channelId: 0xff, reliableSeq: 0, payload }
+      ])
+    )
+    expect(pair.a.state).toBe('closed')
+    expect(pair.a.sendText(9, 'hi')).toBe(false)
   })
 
   it('resends the same VERIFY_CONNECT when the CONNECT is repeated', () => {
