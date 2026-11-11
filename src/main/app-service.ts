@@ -159,16 +159,24 @@ export class AppService {
         onError: (error) => logStartup('files error: ' + error.message)
       }
     })
-    this.engine = new ProtocolEngine(engineConfig(settings.get()), {
-      onPeers: (peers) => this.handlePeers(peers),
-      onMessage: (peer, text, remoteSeq) =>
-        this.handleIncoming(peer.key, peer.name, text, remoteSeq),
-      onFileOffer: (peer, packetId, text, attachments) =>
-        this.handleFileOffer(peer, packetId, text, attachments),
-      onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
-      onLog: (message) => logStartup('protocol: ' + message),
-      onError: (error) => logStartup('protocol error: ' + error.message)
-    })
+    this.engine = new ProtocolEngine(
+      engineConfig(settings.get()),
+      {
+        onPeers: (peers) => this.handlePeers(peers),
+        onMessage: (peer, text, remoteSeq) =>
+          this.handleIncoming(peer.key, peer.name, text, remoteSeq),
+        onFileOffer: (peer, packetId, text, attachments) =>
+          this.handleFileOffer(peer, packetId, text, attachments),
+        onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
+        onLog: (message) => logStartup('protocol: ' + message),
+        onError: (error) => logStartup('protocol error: ' + error.message)
+      },
+      this.repos.peers.list().map((peer) => ({
+        key: peer.key,
+        ip: peer.ip,
+        lastSeen: peer.lastSeen
+      }))
+    )
     this.notifications = new NotificationManager(settings, () => this.window)
   }
 

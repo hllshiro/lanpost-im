@@ -266,9 +266,28 @@ export class ProtocolEngine {
   private announceTimer: ReturnType<typeof setInterval> | null = null
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
-  constructor(config: ProtocolConfig, callbacks: ProtocolCallbacks) {
+  constructor(
+    config: ProtocolConfig,
+    callbacks: ProtocolCallbacks,
+    initialPeers: Array<{ key: string; ip: string; lastSeen: number }> = []
+  ) {
     this.config = normalizeConfig(config)
     this.callbacks = callbacks
+    // 同一地址只保留一个 key，跨重启沿用上次用过的联系人，避免私有会话与 IPMSG
+    // 谁先到达决定 key、另一条通道再建出一个重复联系人
+    const latest = new Map<string, { key: string; lastSeen: number }>()
+    for (const peer of initialPeers) {
+      if (peer.ip === '' || peer.key === '') {
+        continue
+      }
+      const previous = latest.get(peer.ip)
+      if (previous === undefined || peer.lastSeen > previous.lastSeen) {
+        latest.set(peer.ip, { key: peer.key, lastSeen: peer.lastSeen })
+      }
+    }
+    for (const [ip, entry] of latest) {
+      this.ipIndex.set(ip, entry.key)
+    }
   }
 
   async start(): Promise<void> {

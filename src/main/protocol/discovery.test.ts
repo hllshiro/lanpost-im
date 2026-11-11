@@ -694,6 +694,49 @@ describe('protocol engine over real UDP', () => {
     }
   }, 20000)
 
+  it('reuses the persisted peer key for the same IP after a restart', async () => {
+    const port = await freeUdpPort()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(makeConfig({ port }), recorder.callbacks, [
+      { key: '127.0.0.1|persisted', ip: '127.0.0.1', lastSeen: 1000 }
+    ])
+    const raw = await openRawSocket()
+    try {
+      await engine.start()
+      expect(engine.peerKeyForIp('127.0.0.1')).toBe('127.0.0.1|persisted')
+      const peer = engine.upsertPrivatePeer({
+        ip: '127.0.0.1',
+        userId: '0123456789abcdef0123456789abcdef',
+        name: '上网机 3',
+        group: '',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        online: true
+      })
+      expect(peer.key).toBe('127.0.0.1|persisted')
+
+      raw.socket.send(
+        Encode({
+          seq: 1,
+          user: 'account-b',
+          host: 'host-b',
+          cmd: CMD_ENTRY,
+          payload: entryPayload('乙', '', ''),
+          legacy: true
+        }),
+        port,
+        '127.0.0.1'
+      )
+      await waitFor(() => (recorder.peers.size > 0 ? recorder.peers : null))
+      expect([...recorder.peers.keys()]).toEqual(['127.0.0.1|persisted'])
+    } finally {
+      raw.socket.close()
+      await engine.stop()
+    }
+  })
+
   it('reuses the IPMSG peer when the private session arrives later', async () => {
     const port = await freeUdpPort()
     const recorder = createRecorder()
