@@ -74,7 +74,9 @@ function commandPayloadSize(base: number, data: Buffer, payloadOffset: number): 
       return FRAGMENT_HEADER_SIZE + data.readUInt16BE(payloadOffset + 2)
     }
     default:
-      return data.length - payloadOffset
+      throw new EnetError(
+        `无法确定命令 0x${base.toString(16)} 的载荷长度，命令偏移 ${payloadOffset - COMMAND_HEADER_SIZE}`
+      )
   }
 }
 

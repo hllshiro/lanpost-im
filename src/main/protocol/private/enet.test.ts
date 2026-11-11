@@ -4,6 +4,7 @@ import {
   ENET_CMD_SEND_FRAGMENT,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
+  EnetError,
   buildAckPayload,
   buildFragmentPayload,
   buildVerifyPayload,
@@ -94,6 +95,13 @@ describe('enet codec', () => {
       { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 5, payload }
     ])
     expect(() => decodeDatagram(datagram.subarray(0, datagram.length - 2))).toThrow()
+  })
+
+  it('rejects an unknown command', () => {
+    const datagram = encodeDatagram(1, 7, [
+      { command: 0x0e, channelId: 0, reliableSeq: 1, payload: Buffer.alloc(0) }
+    ])
+    expect(() => decodeDatagram(datagram)).toThrow(EnetError)
   })
 
   it('builds a ping command with the ack flag', () => {
