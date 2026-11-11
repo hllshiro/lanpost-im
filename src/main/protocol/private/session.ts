@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { decodeBeacon } from './beacon'
 import {
+  ENET_CMD_ACK,
   ENET_CMD_CONNECT,
   ENET_CMD_PING,
   ENET_CMD_VERIFY,
@@ -38,6 +39,7 @@ const CMD_READY = 1018
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
+const ACK_PAYLOAD_SIZE = 4
 const CONNECT_HEADER_PEER_ID = 0x0fff
 const HANDSHAKE_CHANNEL = 0xff
 const HANDSHAKE_SEQ = 1
@@ -108,6 +110,9 @@ export class PrivateSession {
   private reliable: ReliableEnd | null = null
   private peerId = 0
   private connectId = 0
+  private verifyDatagram: Buffer | null = null
+  private verifySentTime = 0
+  private awaitingVerifyAck = false
   private connectSentAt = 0
   private connectRetries = 0
   private lastInboundAt = 0
@@ -200,7 +205,17 @@ export class PrivateSession {
       this.acceptHandshake(data)
       return
     }
+    if (this.role === 'server' && this.currentState !== 'ready' && this.isRetriedConnect(data)) {
+      this.sendVerify()
+      return
+    }
     const delivered = this.reliable.receive(data)
+    if (this.awaitingVerifyAck && this.hasVerifyAck(data)) {
+      this.awaitingVerifyAck = false
+      this.setState('handshaking')
+      this.sendHello()
+      this.sendHandshake()
+    }
     for (const payload of delivered) {
       this.acceptPayload(payload)
     }
@@ -222,33 +237,51 @@ export class PrivateSession {
     this.callbacks.onLog(`私有会话 ${this.remoteLabel} 在握手完成前收到无关数据报`)
   }
 
+  // 对端重复 CONNECT 说明它还没收到 VERIFY_CONNECT；按原样重发同一条报文，
+  // 保持 (序号, sentTime) 不变，这样它对第一份 VERIFY 的 ACK 仍然算数
+  private isRetriedConnect(data: Buffer): boolean {
+    const { commands } = decodeDatagram(data)
+    return commands.some(
+      (command) =>
+        (command.command & COMMAND_MASK) === ENET_CMD_CONNECT &&
+        parseConnectPayload(command.payload).connectId === this.connectId
+    )
+  }
+
+  private hasVerifyAck(data: Buffer): boolean {
+    const { commands } = decodeDatagram(data)
+    return commands.some(
+      (command) =>
+        (command.command & COMMAND_MASK) === ENET_CMD_ACK &&
+        command.payload.length >= ACK_PAYLOAD_SIZE &&
+        command.payload.readUInt16BE(0) === HANDSHAKE_SEQ &&
+        command.payload.readUInt16BE(2) === this.verifySentTime
+    )
+  }
+
   private acceptConnect(payload: Buffer): void {
     const { connectId } = parseConnectPayload(payload)
     const outgoingPeerId = payload.readUInt16BE(0)
-    this.setState('verifying')
-    this.sendRaw(
-      encodeDatagram(outgoingPeerId, this.now(), [
-        {
-          command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
-          channelId: HANDSHAKE_CHANNEL,
-          reliableSeq: HANDSHAKE_SEQ,
-          payload: buildVerifyPayload(ASSIGNED_PEER_ID, connectId)
-        }
-      ])
-    )
+    this.connectId = connectId
     this.peerId = outgoingPeerId
+    this.setState('verifying')
+    this.sendVerify()
     this.reliable = new ReliableEnd({
       peerId: outgoingPeerId,
       send: this.sendRaw,
       now: this.now
     })
-    this.setState('handshaking')
-    this.sendHello()
-    this.sendHandshake()
+    this.awaitingVerifyAck = true
   }
 
   private acceptVerify(data: Buffer, payload: Buffer): void {
-    const { peerId } = parseVerifyPayload(payload)
+    const { peerId, connectId } = parseVerifyPayload(payload)
+    if (connectId !== this.connectId) {
+      this.callbacks.onLog(
+        `私有会话 ${this.remoteLabel} 收到连接标识 ${connectId} 的 VERIFY_CONNECT，与本次连接 ${this.connectId} 不一致，忽略`
+      )
+      return
+    }
     this.setState('verifying')
     this.peerId = peerId
     this.reliable = new ReliableEnd({ peerId, send: this.sendRaw, now: this.now })
@@ -273,6 +306,24 @@ export class PrivateSession {
         }
       ])
     )
+  }
+
+  private sendVerify(): void {
+    if (this.verifyDatagram !== null) {
+      this.sendRaw(this.verifyDatagram)
+      return
+    }
+    const sentTime = this.now() & 0xffff
+    this.verifySentTime = sentTime
+    this.verifyDatagram = encodeDatagram(this.peerId, sentTime, [
+      {
+        command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+        channelId: HANDSHAKE_CHANNEL,
+        reliableSeq: HANDSHAKE_SEQ,
+        payload: buildVerifyPayload(ASSIGNED_PEER_ID, this.connectId)
+      }
+    ])
+    this.sendRaw(this.verifyDatagram)
   }
 
   private sendPing(): void {
