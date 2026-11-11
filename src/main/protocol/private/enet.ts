@@ -37,6 +37,10 @@ const FIRST_RELIABLE_SEQ = 1
 const DEFAULT_RETRANSMIT_MS = 500
 const DEFAULT_MAX_RETRIES = 6
 const RETRANSMIT_BACKOFF = 1.5
+const MAX_MESSAGE_BYTES = 1024 * 1024
+const MAX_FRAGMENT_COUNT = Math.ceil(MAX_MESSAGE_BYTES / ENET_MAX_PAYLOAD)
+const FRAGMENT_TIMEOUT_MS = 30_000
+const MAX_FRAGMENT_GROUPS = 8
 
 const CONNECT_MTU_OFFSET = 4
 const CONNECT_THROTTLE_OFFSET = 24
@@ -289,11 +293,14 @@ export interface ReliableOptions {
   maxRetries?: number
   // 通道 0 的第一个可靠序号；ENet 从 1 开始
   initialSeq?: number
+  // 接收侧期望的第一个可靠序号，取对端发送侧的起始序号
+  initialPeerSeq?: number
 }
 
 interface OutboundCommand {
   seq: number
   command: EnetCommand
+  sentTime: number
   sentAt: number
   retries: number
 }
@@ -303,6 +310,7 @@ interface FragmentGroup {
   totalLength: number
   data: Buffer
   numbers: Set<number>
+  lastSeen: number
 }
 
 // 16 位序号比较：候选是否比参照更晚（含回绕）
@@ -320,8 +328,7 @@ export class ReliableEnd {
   private readonly maxRetries: number
   private nextSeq: number
   private readonly pending = new Map<number, OutboundCommand>()
-  // 对端第一个可靠命令的序号作为交付起点：本层看不到握手过程，无法预先得知对端起始序号
-  private expectedSeq: number | null = null
+  private expectedSeq: number
   private readonly received = new Map<number, EnetCommand>()
   private readonly fragments = new Map<number, FragmentGroup>()
 
@@ -332,6 +339,7 @@ export class ReliableEnd {
     this.retransmitMs = options.retransmitMs ?? DEFAULT_RETRANSMIT_MS
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
     this.nextSeq = options.initialSeq ?? FIRST_RELIABLE_SEQ
+    this.expectedSeq = options.initialPeerSeq ?? FIRST_RELIABLE_SEQ
   }
 
   get pendingCount(): number {
@@ -339,6 +347,9 @@ export class ReliableEnd {
   }
 
   send(data: Buffer): void {
+    if (data.length > MAX_MESSAGE_BYTES) {
+      throw new EnetError(`消息长度 ${data.length} 超出单条消息上限 ${MAX_MESSAGE_BYTES}`)
+    }
     if (data.length <= ENET_MAX_PAYLOAD) {
       this.transmit({
         command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
@@ -391,6 +402,7 @@ export class ReliableEnd {
 
   pump(): void {
     const now = this.now()
+    this.expireFragmentGroups(now)
     for (const entry of this.pending.values()) {
       const interval = this.retransmitMs * RETRANSMIT_BACKOFF ** entry.retries
       if (now - entry.sentAt < interval) continue
@@ -400,7 +412,8 @@ export class ReliableEnd {
       }
       entry.retries += 1
       entry.sentAt = now
-      this.sendDatagram(entry.command)
+      entry.sentTime = now & 0xffff
+      this.writeCommand(entry.command, entry.sentTime)
     }
   }
 
@@ -411,63 +424,66 @@ export class ReliableEnd {
   }
 
   private transmit(command: EnetCommand): void {
-    this.pending.set(command.reliableSeq, {
+    const now = this.now()
+    const entry: OutboundCommand = {
       seq: command.reliableSeq,
       command,
-      sentAt: this.now(),
+      sentTime: now & 0xffff,
+      sentAt: now,
       retries: 0
-    })
-    this.sendDatagram(command)
+    }
+    this.pending.set(entry.seq, entry)
+    this.writeCommand(command, entry.sentTime)
   }
 
-  private sendDatagram(command: EnetCommand): void {
-    this.sendRaw(encodeDatagram(this.peerId, this.now() & 0xffff, [command]))
+  private writeCommand(command: EnetCommand, sentTime: number): void {
+    this.sendRaw(encodeDatagram(this.peerId, sentTime, [command]))
   }
 
   private sendAck(seq: number, peerSentTime: number): void {
-    this.sendRaw(
-      encodeDatagram(this.peerId, this.now() & 0xffff, [
-        {
-          command: ENET_CMD_ACK,
-          channelId: ACK_CHANNEL_ID,
-          reliableSeq: seq,
-          payload: buildAckPayload(seq, peerSentTime)
-        }
-      ])
+    this.writeCommand(
+      {
+        command: ENET_CMD_ACK,
+        channelId: ACK_CHANNEL_ID,
+        reliableSeq: seq,
+        payload: buildAckPayload(seq, peerSentTime)
+      },
+      this.now() & 0xffff
     )
   }
 
+  // 同一序号可能属于不同通道（如通道 0 的业务命令与通道 0xff 的握手命令），
+  // 用该次发送的数据报 sentTime 一并匹配，过期重传的 ACK 不清除当前未确认项
   private acknowledge(payload: Buffer): void {
-    const { receivedSeq } = parseAckPayload(payload)
-    this.pending.delete(receivedSeq)
+    const { receivedSeq, sentTime } = parseAckPayload(payload)
+    const entry = this.pending.get(receivedSeq)
+    if (entry !== undefined && entry.sentTime === sentTime) {
+      this.pending.delete(receivedSeq)
+    }
   }
 
   // 按 16 位序号顺序交付；乱序命令缓存到缺口补齐
   private accept(command: EnetCommand, delivered: Buffer[]): void {
     const seq = command.reliableSeq
-    let expected = this.expectedSeq
-    if (expected === null) expected = seq
-    if (seq === expected) {
+    if (seq === this.expectedSeq) {
       this.dispatch(command, delivered)
       this.expectedSeq = (seq + 1) & 0xffff
       this.drain(delivered)
       return
     }
-    if (isNewerSequence(seq, expected)) {
+    if (isNewerSequence(seq, this.expectedSeq)) {
       this.received.set(seq, command)
     }
   }
 
   private drain(delivered: Buffer[]): void {
-    let expected = this.expectedSeq
-    while (expected !== null) {
-      const command = this.received.get(expected)
-      if (command === undefined) break
-      this.received.delete(expected)
+    let command = this.received.get(this.expectedSeq)
+    while (command !== undefined) {
+      this.received.delete(this.expectedSeq)
       this.dispatch(command, delivered)
-      expected = (expected + 1) & 0xffff
+      this.expectedSeq = (this.expectedSeq + 1) & 0xffff
+      command = this.received.get(this.expectedSeq)
     }
-    this.expectedSeq = expected
   }
 
   private dispatch(command: EnetCommand, delivered: Buffer[]): void {
@@ -482,6 +498,16 @@ export class ReliableEnd {
         `分片编号 ${fragment.fragmentNumber} 超出分片总数 ${fragment.fragmentCount}`
       )
     }
+    if (fragment.fragmentCount > MAX_FRAGMENT_COUNT) {
+      throw new EnetError(
+        `分片总数 ${fragment.fragmentCount} 超出单条消息上限 ${MAX_FRAGMENT_COUNT} 片`
+      )
+    }
+    if (fragment.totalLength > MAX_MESSAGE_BYTES) {
+      throw new EnetError(
+        `分片总长 ${fragment.totalLength} 超出单条消息上限 ${MAX_MESSAGE_BYTES} 字节`
+      )
+    }
     if (fragment.totalLength > fragment.fragmentCount * ENET_MTU) {
       throw new EnetError(
         `分片总长 ${fragment.totalLength} 超出 ${fragment.fragmentCount} 片按 MTU ${ENET_MTU} 计算的上限`
@@ -494,11 +520,13 @@ export class ReliableEnd {
     }
     let group = this.fragments.get(fragment.startSeq)
     if (group === undefined) {
+      this.evictOldestFragmentGroup()
       group = {
         fragmentCount: fragment.fragmentCount,
         totalLength: fragment.totalLength,
         data: Buffer.alloc(fragment.totalLength),
-        numbers: new Set<number>()
+        numbers: new Set<number>(),
+        lastSeen: this.now()
       }
       this.fragments.set(fragment.startSeq, group)
     } else if (
@@ -509,9 +537,34 @@ export class ReliableEnd {
     }
     fragment.data.copy(group.data, fragment.offset)
     group.numbers.add(fragment.fragmentNumber)
+    group.lastSeen = this.now()
     if (group.numbers.size === group.fragmentCount) {
       this.fragments.delete(fragment.startSeq)
       delivered.push(group.data)
+    }
+  }
+
+  // 未收齐的分片组超时后释放，避免对端丢片时永久占用内存
+  private expireFragmentGroups(now: number): void {
+    for (const [startSeq, group] of this.fragments) {
+      if (now - group.lastSeen > FRAGMENT_TIMEOUT_MS) {
+        this.fragments.delete(startSeq)
+      }
+    }
+  }
+
+  private evictOldestFragmentGroup(): void {
+    if (this.fragments.size < MAX_FRAGMENT_GROUPS) return
+    let oldestSeq: number | null = null
+    let oldestSeen = Number.POSITIVE_INFINITY
+    for (const [startSeq, group] of this.fragments) {
+      if (group.lastSeen < oldestSeen) {
+        oldestSeen = group.lastSeen
+        oldestSeq = startSeq
+      }
+    }
+    if (oldestSeq !== null) {
+      this.fragments.delete(oldestSeq)
     }
   }
 }
