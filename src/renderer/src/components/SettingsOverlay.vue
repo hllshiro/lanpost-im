@@ -328,6 +328,18 @@ onBeforeUnmount(() => {
           <h2>发现与连接</h2>
           <div class="row">
             <div class="row-text">
+              <span class="label">飞鸽兼容协议<span class="restart">重启生效</span></span>
+              <p class="hint">关闭后只使用内网通私有协议，不再收发 IPMSG</p>
+            </div>
+            <div class="control">
+              <ToggleSwitch
+                v-model="settings.network.ipmsg"
+                @update:model-value="saveField('network', { ipmsg: $event })"
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
               <span class="label">监听端口<span class="restart">重启生效</span></span>
               <p class="hint">默认 2425，需与对端一致</p>
             </div>

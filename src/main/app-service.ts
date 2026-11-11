@@ -179,13 +179,17 @@ export class AppService {
   async start(): Promise<void> {
     this.importLegacyHistory()
     this.ensurePrivateId()
-    try {
-      await this.fileManager.start()
-      this.filesStarted = true
-    } catch (error) {
-      logStartup('file service start failed: ' + (error as Error).message)
+    if (this.settings.get().network.ipmsg) {
+      try {
+        await this.fileManager.start()
+        this.filesStarted = true
+      } catch (error) {
+        logStartup('file service start failed: ' + (error as Error).message)
+      }
+      await this.engine.start()
+    } else {
+      logStartup('IPMSG 兼容层已关闭，仅使用内网通私有协议')
     }
-    await this.engine.start()
     this.started = true
     await this.startPrivateService()
     this.handlePeers(this.engine.getPeers())
@@ -338,6 +342,9 @@ export class AppService {
     if (peer.port <= 0) {
       throw new Error('联系人不在线')
     }
+    if (!this.settings.get().network.ipmsg) {
+      throw new Error('内网通私有会话未就绪，请稍后重试')
+    }
     const seq = this.engine.sendText(peer.key, request.text)
     return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
   }
@@ -463,7 +470,9 @@ export class AppService {
   }
 
   refreshPeers(): void {
-    this.engine.refresh()
+    if (this.settings.get().network.ipmsg) {
+      this.engine.refresh()
+    }
     this.handlePeers(this.engine.getPeers())
   }
 
@@ -520,6 +529,9 @@ export class AppService {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
+    }
+    if (!this.settings.get().network.ipmsg) {
+      throw new Error('当前仅启用内网通协议，暂不支持发送文件')
     }
     if (!this.filesStarted) {
       throw new Error('文件服务未启动')

@@ -17,6 +17,8 @@ const identitySchema = z.object({
 const networkSchema = z.object({
   port: z.number().int().min(1).max(65535).default(2425),
   bindAddr: z.string().default('0.0.0.0'),
+  // 关闭后只使用内网通私有协议，不再收发 IPMSG（飞鸽/飞秋兼容层）
+  ipmsg: z.boolean().default(true),
   subnets: z.array(z.string()).default([]),
   seeds: z.array(z.string()).default([]),
   broadcastInterval: z.number().int().min(5).max(3600).default(30),
