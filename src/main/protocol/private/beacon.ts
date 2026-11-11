@@ -1,6 +1,8 @@
 const BEACON_SIZE = 304
 
 const TYPE_OFFSET = 0x04
+const VERSION_OFFSET = 0x08
+const TIMESTAMP_OFFSET = 0x0c
 const IP_OFFSET = 0x10
 const BROADCAST_OFFSET = 0x14
 const BEACON_PORT_OFFSET = 0x18
@@ -10,8 +12,11 @@ const USER_ID_OFFSET = 0x1e
 const USER_ID_SIZE = 32
 const PEER_ID_OFFSET = 0x5f
 const PEER_ID_SIZE = 16
+const RESERVED_OFFSET = 0xa0
 const SESSION_PORT_OFFSET = 0xa5
 
+const BEACON_VERSION = 1
+const BEACON_RESERVED = 500
 const DEFAULT_BEACON_PORT = 9011
 const PRINTABLE_ASCII = /^[\x21-\x7e]+$/
 
@@ -54,10 +59,13 @@ export function encodeBeacon(input: {
   peerId: Buffer
   enetPort: number
   beaconPort?: number
+  timestamp?: number
 }): Buffer {
   const beaconPort = input.beaconPort ?? DEFAULT_BEACON_PORT
+  const timestamp = input.timestamp ?? Math.floor(Date.now() / 1000)
   assertPort('enetPort', input.enetPort)
   assertPort('beaconPort', beaconPort)
+  assertUint32('timestamp', timestamp)
   if (input.peerId.length !== PEER_ID_SIZE) {
     throw new Error(`发现报文标识必须为 ${PEER_ID_SIZE} 字节，实际 ${input.peerId.length} 字节`)
   }
@@ -71,6 +79,8 @@ export function encodeBeacon(input: {
   const out = Buffer.alloc(BEACON_SIZE)
   out.writeUInt32BE(BEACON_SIZE, 0)
   out.writeUInt32BE(input.type, TYPE_OFFSET)
+  out.writeUInt32BE(BEACON_VERSION, VERSION_OFFSET)
+  out.writeUInt32BE(timestamp, TIMESTAMP_OFFSET)
   writeIpv4(out, input.ip, IP_OFFSET)
   writeIpv4(out, input.broadcast, BROADCAST_OFFSET)
   out.writeUInt16BE(beaconPort, BEACON_PORT_OFFSET)
@@ -78,6 +88,7 @@ export function encodeBeacon(input: {
   out.writeUInt16BE(input.enetPort, ENET_PORT_OFFSET)
   userId.copy(out, USER_ID_OFFSET)
   input.peerId.copy(out, PEER_ID_OFFSET)
+  out.writeUInt32BE(BEACON_RESERVED, RESERVED_OFFSET)
   out.writeUInt16BE(input.enetPort, SESSION_PORT_OFFSET)
   return out
 }
@@ -85,6 +96,12 @@ export function encodeBeacon(input: {
 function assertPort(name: string, port: number): void {
   if (!Number.isInteger(port) || port < 0 || port > 0xffff) {
     throw new Error(`发现报文端口 ${name} 超出 u16 范围: ${port}`)
+  }
+}
+
+function assertUint32(name: string, value: number): void {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {
+    throw new Error(`发现报文字段 ${name} 超出 u32 范围: ${value}`)
   }
 }
 
