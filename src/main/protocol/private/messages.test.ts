@@ -101,6 +101,18 @@ describe('private messages round-trip', () => {
     expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 4, text: 'ab' })
   })
 
+  it('returns other instead of throwing on malformed input', () => {
+    expect(parsePrivate(1004, '<X_HEARTBEAT docver="1" />')).toEqual({ kind: 'other', cmd: 1004 })
+    expect(parsePrivate(1004, '<X_SEND_MSG docver="1"><MSG_ID>1</MSG_ID>')).toEqual({
+      kind: 'other',
+      cmd: 1004
+    })
+    expect(
+      parsePrivate(1006, '<X_SEND_RECEIPT docver="1"><MSG_ID>abc</MSG_ID></X_SEND_RECEIPT>')
+    ).toEqual({ kind: 'other', cmd: 1006 })
+    expect(parsePrivate(1008, 'plain text')).toEqual({ kind: 'other', cmd: 1008 })
+  })
+
   it('writes the captured self-closing heartbeat and quit', () => {
     expect(heartbeatXml()).toBe('<X_HEARTBEAT docver="1" />')
     expect(Buffer.byteLength(heartbeatXml(), 'utf8')).toBe(26)

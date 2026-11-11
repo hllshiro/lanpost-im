@@ -210,12 +210,16 @@ export function quitXml(): string {
   return '<X_QUIT docver="1" />'
 }
 
-function requireXml<K extends XmlTag>(tag: K, xml: string): XmlTypes[K] {
-  const value = decodeXml(xml, tag)
-  if (value === null) {
-    throw new Error(`私有消息根节点不是 ${tag}: ${xml}`)
+function decodePrivate<K extends XmlTag>(tag: K, xml: string): XmlTypes[K] | null {
+  try {
+    return decodeXml(xml, tag)
+  } catch {
+    return null
   }
-  return value
+}
+
+function unrecognized(cmd: number): IncomingPrivate {
+  return { kind: 'other', cmd }
 }
 
 function textFromJson(raw: string): string | null {
@@ -264,28 +268,39 @@ function remoteProfile(handshake: Handshake): RemoteProfile {
 
 export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
   switch (cmd) {
-    case CMD.HANDSHAKE:
-      return { kind: 'handshake', profile: remoteProfile(requireXml('X_HANDSHARK', xml)) }
+    case CMD.HANDSHAKE: {
+      const handshake = decodePrivate('X_HANDSHARK', xml)
+      return handshake === null
+        ? unrecognized(cmd)
+        : { kind: 'handshake', profile: remoteProfile(handshake) }
+    }
     case CMD.SEND_MSG: {
-      const msg = requireXml('X_SEND_MSG', xml)
+      const msg = decodePrivate('X_SEND_MSG', xml)
+      if (msg === null) {
+        return unrecognized(cmd)
+      }
       const text = textFromJson(msg.Msg)
       return text === null
         ? { kind: 'text-unsupported', msgId: msg.MsgID }
         : { kind: 'text', msgId: msg.MsgID, text }
     }
-    case CMD.SEND_MSG_ACK:
-      return { kind: 'ack', msgId: requireXml('X_SEND_MSG_ACK', xml).MsgID }
-    case CMD.SEND_RECEIPT:
-      return { kind: 'receipt', msgId: requireXml('X_SEND_RECEIPT', xml).MsgID }
+    case CMD.SEND_MSG_ACK: {
+      const ack = decodePrivate('X_SEND_MSG_ACK', xml)
+      return ack === null ? unrecognized(cmd) : { kind: 'ack', msgId: ack.MsgID }
+    }
+    case CMD.SEND_RECEIPT: {
+      const receipt = decodePrivate('X_SEND_RECEIPT', xml)
+      return receipt === null ? unrecognized(cmd) : { kind: 'receipt', msgId: receipt.MsgID }
+    }
     case CMD.HEARTBEAT:
-      requireXml('X_HEARTBEAT', xml)
-      return { kind: 'heartbeat' }
+      return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }
     case CMD.QUIT:
-      requireXml('X_QUIT', xml)
-      return { kind: 'quit' }
-    case CMD.READY:
-      return { kind: 'ready', userId: requireXml('X_READY', xml).UserID }
+      return decodePrivate('X_QUIT', xml) === null ? unrecognized(cmd) : { kind: 'quit' }
+    case CMD.READY: {
+      const ready = decodePrivate('X_READY', xml)
+      return ready === null ? unrecognized(cmd) : { kind: 'ready', userId: ready.UserID }
+    }
     default:
-      return { kind: 'other', cmd }
+      return unrecognized(cmd)
   }
 }
