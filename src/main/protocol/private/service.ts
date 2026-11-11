@@ -1,7 +1,7 @@
 import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
 import { decodeBeacon } from './beacon'
-import { ENET_CMD_CONNECT, decodeDatagram } from './enet'
+import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type { PrivateProfile, RemoteProfile } from './messages'
 import { PrivateSession, type SessionCallbacks, type SessionState } from './session'
 
@@ -23,6 +23,10 @@ export interface PrivateServiceOptions {
     onUnsupported(ip: string, msgId: number): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
+    // 对端的 X_HANDSHARK 解析出新资料时触发，与状态推进无关
+    onProfile(ip: string, profile: RemoteProfile): void
+    // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
+    onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
     // 收到属于某个会话的数据报时先触发，调用方用它刷新联系人活跃时间
     onActivity(ip: string): void
@@ -44,10 +48,14 @@ function detectLocalIp(): string {
   return '0.0.0.0'
 }
 
-function hasConnectCommand(data: Buffer): boolean {
-  return decodeDatagram(data).commands.some(
-    (command) => (command.command & COMMAND_MASK) === ENET_CMD_CONNECT
-  )
+// 返回 CONNECT 命令里的 connectID；数据报里没有 CONNECT 或无法解析时返回 null
+function connectIdOf(data: Buffer): number | null {
+  for (const command of decodeDatagram(data).commands) {
+    if ((command.command & COMMAND_MASK) === ENET_CMD_CONNECT) {
+      return parseConnectPayload(command.payload).connectId
+    }
+  }
+  return null
 }
 
 function isValidIpv4(ip: string): boolean {
@@ -176,9 +184,24 @@ export class PrivateService {
   }
 
   sendText(ip: string, msgId: number, text: string): boolean {
-    const session = this.sessions.get(ip)
-    if (session === undefined) return false
+    const session = this.ensureSession(ip)
+    if (session === null) return false
     return session.sendText(msgId, text)
+  }
+
+  // 会话缺失、已关闭或还没就绪时补一次客户端发起，避免对端重启后通道一直空着
+  ensureSession(ip: string): PrivateSession | null {
+    const existing = this.sessions.get(ip)
+    if (existing !== undefined && existing.state === 'closed') {
+      this.sessions.delete(ip)
+    } else if (existing !== undefined) {
+      return existing
+    }
+    const port = this.peerPorts.get(ip)
+    if (port === undefined) return null
+    const session = this.createSession('client', ip, port)
+    session?.start()
+    return session
   }
 
   sendReceipt(ip: string, msgId: number): void {
@@ -210,47 +233,64 @@ export class PrivateService {
       this.options.callbacks.onActivity(rinfo.address)
     }
     const existing = this.sessions.get(rinfo.address)
-    if (existing !== undefined && existing.state !== 'connecting') {
+    const connectId = this.readConnectId(data, rinfo)
+    if (existing !== undefined && connectId === null) {
       existing.receive(data)
       return
     }
-    if (!this.isConnectDatagram(data, rinfo)) {
-      if (existing !== undefined) {
-        existing.receive(data)
-      } else {
-        this.log(`忽略来自未知对端 ${rinfo.address}:${rinfo.port} 的数据报`)
+    if (existing !== undefined && existing.state === 'connecting') {
+      // 双方同时发起时按确定性规则只保留一个方向：本机地址更大的一方接管接收侧，
+      // 另一方忽略这条 CONNECT，继续等待对端应答自己的出站连接
+      if (!this.shouldTakeOver(rinfo.address, rinfo.port)) {
+        this.log(`与 ${rinfo.address} 同时发起连接，本端保留出站会话，忽略对方 CONNECT`)
+        return
       }
+      existing.close()
+      this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
       return
     }
-    // 双方同时发起时按确定性规则只保留一个方向：本机地址更大的一方接管接收侧，
-    // 另一方忽略这条 CONNECT，继续等待对端应答自己的出站连接
-    if (existing !== undefined && !this.shouldTakeOver(rinfo.address)) {
-      this.log(`与 ${rinfo.address} 同时发起连接，本端保留出站会话，忽略对方 CONNECT`)
+    if (existing !== undefined) {
+      // 对端重发同一条 CONNECT 不等于重连：会话已就绪时不再重建，避免打乱双方序号
+      if (existing.connectIdentifier === connectId) {
+        existing.receive(data)
+        return
+      }
+      if (!this.shouldTakeOver(rinfo.address, rinfo.port)) {
+        this.log(
+          `对端 ${rinfo.address} 用新的连接标识 ${connectId} 重新连接，本端按规则保留现有会话，忽略`
+        )
+        return
+      }
+      this.log(`对端 ${rinfo.address} 用新的连接标识 ${connectId} 重新连接，重建会话`)
+      existing.close()
+      this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
       return
     }
-    existing?.close()
+    if (connectId === null) {
+      this.log(`忽略来自未知对端 ${rinfo.address}:${rinfo.port} 的数据报`)
+      return
+    }
     this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
   }
 
-  private shouldTakeOver(remoteIp: string): boolean {
-    const local = ipToNumber(this.localIp)
-    const remote = ipToNumber(remoteIp)
-    if (local !== remote) return local > remote
-    const remotePort = this.peerPorts.get(remoteIp)
-    return remotePort === undefined || this.boundEnetPort > remotePort
-  }
-
-  private isConnectDatagram(data: Buffer, rinfo: RemoteInfo): boolean {
+  private readConnectId(data: Buffer, rinfo: RemoteInfo): number | null {
     try {
-      return hasConnectCommand(data)
+      return connectIdOf(data)
     } catch (error) {
       if (!this.sessions.has(rinfo.address)) {
         this.log(
           `忽略来自 ${rinfo.address}:${rinfo.port} 的无法解析数据报: ${describeError(error)}`
         )
       }
-      return false
+      return null
     }
+  }
+
+  private shouldTakeOver(remoteIp: string, remotePort: number): boolean {
+    const local = ipToNumber(this.localIp)
+    const remote = ipToNumber(remoteIp)
+    if (local !== remote) return local > remote
+    return this.boundEnetPort > remotePort
   }
 
   private handleBeaconMessage(data: Buffer, rinfo: RemoteInfo): void {
@@ -281,7 +321,11 @@ export class PrivateService {
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
       onAck: (msgId) => this.options.callbacks.onAck(ip, msgId),
       onReceipt: (msgId) => this.options.callbacks.onReceipt(ip, msgId),
-      onProfile: (profile) => this.peerProfiles.set(ip, profile),
+      onProfile: (profile) => {
+        this.peerProfiles.set(ip, profile)
+        this.options.callbacks.onProfile(ip, profile)
+      },
+      onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)
     }

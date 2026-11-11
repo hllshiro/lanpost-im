@@ -7,6 +7,7 @@ import {
   ENET_CMD_SEND_RELIABLE,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
+  buildReliablePayload,
   buildVerifyPayload,
   decodeDatagram,
   encodeDatagram,
@@ -14,7 +15,8 @@ import {
   parseReliablePayload
 } from './enet'
 import type { PrivateProfile } from './messages'
-import { decodeFrame } from './frame'
+import { handshakeXml, readyXml, sendMsgXml } from './messages'
+import { decodeFrame, encodeFrame } from './frame'
 import { PrivateSession } from './session'
 
 const profile: PrivateProfile = {
@@ -50,7 +52,8 @@ function makeSession(
       onUnsupported: (id) => events.push(`unsupported:${id}`),
       onAck: (id) => events.push(`ack:${id}`),
       onReceipt: (id) => events.push(`receipt:${id}`),
-      onProfile: () => events.push('profile'),
+      onProfile: (profile) => events.push(`profile:${profile.userId}`),
+      onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),
       onLog: () => {}
     }
@@ -386,5 +389,72 @@ describe('private session', () => {
     expect(pair.a.state).toBe('closed')
     expect(pair.a.sendText(2, 'hi')).toBe(false)
     expect(appFrames(pair.toB).map((frame) => frame.cmd)).toContain(1017)
+  })
+
+  it('fails an unacknowledged message and closes the session after the retries are spent', () => {
+    let clock = 0
+    const pair = connectPair(() => clock)
+    pair.a.start()
+    flushAll(pair)
+    expect(pair.a.state).toBe('ready')
+    expect(pair.a.sendText(4242, 'hi')).toBe(true)
+    // 对端一个数据报都不收：可靠命令重传耗尽后消息必须标记失败，会话关闭
+    pair.toB.splice(0)
+    for (let step = 0; step < 40 && pair.a.state !== 'closed'; step += 1) {
+      clock += 1000
+      pair.a.pump()
+    }
+    expect(pair.a.state).toBe('closed')
+    expect(pair.aEvents).toContain('send-failed:4242')
+    expect(pair.a.sendText(4243, 'again')).toBe(false)
+  })
+
+  it('accepts text from a peer that sends X_READY before X_HANDSHARK', () => {
+    const clock = 0
+    const sent: Buffer[] = []
+    const events: string[] = []
+    const session = makeSession(
+      'client',
+      (d) => sent.push(d),
+      events,
+      () => clock
+    )
+    session.start()
+    const connectId = parseConnectPayload(decodeDatagram(sent[0]!).commands[0]!.payload).connectId
+    session.receive(
+      encodeDatagram(
+        0,
+        0x1111,
+        [
+          {
+            command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+            channelId: 0xff,
+            reliableSeq: 1,
+            payload: buildVerifyPayload(0, connectId, 2)
+          }
+        ],
+        2
+      )
+    )
+    const reliable = (seq: number, cmd: number, xml: string): Buffer =>
+      encodeDatagram(
+        1,
+        seq,
+        [
+          {
+            command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
+            channelId: 0,
+            reliableSeq: seq,
+            payload: buildReliablePayload(encodeFrame(cmd, xml))
+          }
+        ],
+        2
+      )
+    session.receive(reliable(1, 1018, readyXml('peer')))
+    expect(session.state).toBe('ready')
+    session.receive(reliable(2, 1000, handshakeXml({ ...profile, name: '对端' }, 'peer-user')))
+    expect(events).toContain('profile:peer-user')
+    session.receive(reliable(3, 1004, sendMsgXml(77, '迟到的手势资料')))
+    expect(events).toContain('text:77:迟到的手势资料')
   })
 })

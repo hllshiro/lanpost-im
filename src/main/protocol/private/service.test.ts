@@ -2,16 +2,35 @@ import { createSocket, type Socket } from 'node:dgram'
 import { afterEach, describe, expect, it } from 'vitest'
 import { encodeBeacon } from './beacon'
 import {
+  ENET_CMD_ACK,
   ENET_CMD_CONNECT,
+  ENET_CMD_DISCONNECT,
+  ENET_CMD_SEND_RELIABLE,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
+  buildAckPayload,
   buildConnectPayload,
+  buildReliablePayload,
+  buildVerifyPayload,
   decodeDatagram,
-  encodeDatagram
+  encodeDatagram,
+  parseConnectPayload,
+  parseVerifyPayload
 } from './enet'
+import { handshakeXml, readyXml, sendMsgXml } from './messages'
+import { encodeFrame } from './frame'
 import { PrivateService, type PrivateServiceOptions } from './service'
 
 const cleanups: Array<() => void> = []
+
+const testProfile = {
+  name: '本机',
+  group: '',
+  corporation: '',
+  department: '',
+  sign: '',
+  status: 0
+}
 
 afterEach(() => {
   for (const fn of cleanups.splice(0)) fn()
@@ -54,7 +73,7 @@ function options(
 ): PrivateServiceOptions {
   return {
     identity: { userId: '0123456789abcdef0123456789abcdef', peerId: Buffer.alloc(16, 2) },
-    profile: { name: '本机', group: '', corporation: '', department: '', sign: '', status: 0 },
+    profile: testProfile,
     bindAddr: '127.0.0.1',
     beaconPort: 0,
     enetPort: 0,
@@ -65,6 +84,8 @@ function options(
       onUnsupported: () => {},
       onAck: () => {},
       onReceipt: () => {},
+      onProfile: () => {},
+      onSendFailed: () => {},
       onState: () => {},
       onActivity: () => {},
       onLog: () => {},
@@ -83,6 +104,73 @@ function connectDatagram(connectId: number): Buffer {
       payload: buildConnectPayload(connectId)
     }
   ])
+}
+
+function disconnectDatagram(): Buffer {
+  return encodeDatagram(1, 1, [
+    { command: ENET_CMD_DISCONNECT, channelId: 0xff, reliableSeq: 0, payload: Buffer.alloc(4) }
+  ])
+}
+
+// 模拟接收侧的 VERIFY_CONNECT：分配会话号并承载对端发来的 connectID
+function verifyDatagram(connectId: number, sessionId: number): Buffer {
+  return encodeDatagram(
+    0,
+    0x1111,
+    [
+      {
+        command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+        channelId: 0xff,
+        reliableSeq: 1,
+        payload: buildVerifyPayload(0, connectId, sessionId)
+      }
+    ],
+    sessionId
+  )
+}
+
+function reliableDatagram(seq: number, cmd: number, xml: string, sessionId: number): Buffer {
+  return encodeDatagram(
+    1,
+    seq,
+    [
+      {
+        command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: seq,
+        payload: buildReliablePayload(encodeFrame(cmd, xml))
+      }
+    ],
+    sessionId
+  )
+}
+
+// 把对端发来的可靠命令逐条 ACK，模拟一个正常的 ENet 接收侧
+function acknowledgePending(peer: FakePeer, port: number, sessionId: number): void {
+  while (peer.received.length > 0) {
+    const datagram = peer.received.shift()!
+    const decoded = decodeDatagram(datagram)
+    const command = decoded.commands[0]
+    if (command === undefined || (command.command & ENET_FLAG_ACK) === 0) continue
+    const sentTime = decoded.sentTime ?? 0
+    peer.socket.send(
+      encodeDatagram(
+        1,
+        sentTime,
+        [
+          {
+            command: ENET_CMD_ACK,
+            channelId: command.channelId,
+            reliableSeq: command.reliableSeq,
+            payload: buildAckPayload(command.reliableSeq, sentTime)
+          }
+        ],
+        sessionId
+      ),
+      port,
+      '127.0.0.1'
+    )
+  }
 }
 
 function isCommand(data: Buffer, command: number): boolean {
@@ -275,6 +363,132 @@ describe('private service', () => {
     peer.socket.send(connectDatagram(0x1234), service.localEnetPort, '127.0.0.1')
     await new Promise((resolve) => setTimeout(resolve, 300))
     expect(peer.received.some((d) => isCommand(d, ENET_CMD_VERIFY))).toBe(false)
+  })
+
+  it('dials again when a closed session must send text', async () => {
+    const peer = await fakePeer()
+    const states: string[] = []
+    const service = new PrivateService(
+      options(peer.port, { onState: (_ip, state) => states.push(state) })
+    )
+    await service.start()
+    cleanups.push(() => void service.stop())
+    await waitFor(() => (peer.received.length > 0 ? peer.received[0] : null))
+    peer.socket.send(disconnectDatagram(), service.localEnetPort, '127.0.0.1')
+    await waitFor(() => (states.includes('closed') ? true : null))
+    peer.received.length = 0
+    expect(service.sendText('127.0.0.1', 11, '重连后发送')).toBe(false)
+    const connect = await waitFor(
+      () => peer.received.find((d) => isCommand(d, ENET_CMD_CONNECT)) ?? null
+    )
+    expect(decodeDatagram(connect).commands[0].command).toBe(ENET_CMD_CONNECT | ENET_FLAG_ACK)
+  })
+
+  it('rebuilds a ready session when the peer redials with a new connect id', async () => {
+    const [portA, portB] = await twoFreePorts()
+    const states: string[] = []
+    const a = new PrivateService({
+      ...options(portB, { onState: (_ip, state) => states.push(state) }),
+      localIp: '127.0.0.2',
+      bindAddr: '127.0.0.2',
+      enetPort: portA,
+      seeds: [{ ip: '127.0.0.1', port: portB }]
+    })
+    const b = new PrivateService({
+      ...options(portA),
+      localIp: '127.0.0.1',
+      enetPort: portB,
+      seeds: []
+    })
+    cleanups.push(
+      () => void a.stop(),
+      () => void b.stop()
+    )
+    await Promise.all([a.start(), b.start()])
+    await waitFor(() => (a.isReady('127.0.0.1') ? true : null), 5000)
+    const restarted = await fakePeer()
+    restarted.socket.send(connectDatagram(0x9999), a.localEnetPort, '127.0.0.2')
+    const verify = await waitFor(
+      () => restarted.received.find((d) => isCommand(d, ENET_CMD_VERIFY)) ?? null
+    )
+    const decoded = decodeDatagram(verify)
+    expect(decoded.commands[0].command).toBe(ENET_CMD_VERIFY | ENET_FLAG_ACK)
+    expect(parseVerifyPayload(decoded.commands[0].payload).connectId).toBe(0x9999)
+    expect(states).toContain('closed')
+    expect(a.isReady('127.0.0.1')).toBe(false)
+  })
+
+  it('keeps a ready session when the same CONNECT is retransmitted', async () => {
+    const [portA, portB] = await twoFreePorts()
+    const restarted = await fakePeer(0, '127.0.0.2')
+    const a = new PrivateService({
+      ...options(portB),
+      localIp: '127.0.0.2',
+      bindAddr: '127.0.0.2',
+      enetPort: portA,
+      seeds: [{ ip: '127.0.0.1', port: portB }]
+    })
+    const b = new PrivateService({
+      ...options(portA),
+      localIp: '127.0.0.1',
+      enetPort: portB,
+      seeds: []
+    })
+    cleanups.push(
+      () => void a.stop(),
+      () => void b.stop()
+    )
+    await Promise.all([a.start(), b.start()])
+    await waitFor(() => (b.isReady('127.0.0.2') ? true : null), 5000)
+    const connectId = a.ensureSession('127.0.0.1')!.connectIdentifier
+    restarted.socket.send(connectDatagram(connectId), b.localEnetPort, '127.0.0.1')
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(restarted.received.some((d) => isCommand(d, ENET_CMD_VERIFY))).toBe(false)
+    expect(b.isReady('127.0.0.2')).toBe(true)
+  })
+
+  it('reports the profile even when X_READY arrives before X_HANDSHARK', async () => {
+    const peer = await fakePeer()
+    const profiles: Array<[string, string]> = []
+    const texts: Array<[string, number, string]> = []
+    const service = new PrivateService(
+      options(peer.port, {
+        onProfile: (ip, profile) => profiles.push([ip, profile.userId]),
+        onText: (ip, msgId, text) => texts.push([ip, msgId, text])
+      })
+    )
+    await service.start()
+    cleanups.push(() => void service.stop())
+    const sessionId = 2
+    const connect = await waitFor(
+      () => peer.received.find((d) => isCommand(d, ENET_CMD_CONNECT)) ?? null
+    )
+    const connectId = parseConnectPayload(decodeDatagram(connect).commands[0].payload).connectId
+    peer.received.length = 0
+    peer.socket.send(verifyDatagram(connectId, sessionId), service.localEnetPort, '127.0.0.1')
+    await waitFor(() => (peer.received.length >= 2 ? true : null))
+    acknowledgePending(peer, service.localEnetPort, sessionId)
+    peer.socket.send(
+      reliableDatagram(1, 1018, readyXml('peer'), sessionId),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    await waitFor(() => (service.isReady('127.0.0.1') ? true : null))
+    peer.socket.send(
+      reliableDatagram(2, 1000, handshakeXml(testProfile, 'peer-user'), sessionId),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    await waitFor(() => (profiles.length > 0 ? profiles : null))
+    peer.socket.send(
+      reliableDatagram(3, 1004, sendMsgXml(77, '先到的手势资料'), sessionId),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    await waitFor(() => (texts.length > 0 ? texts : null))
+    expect(profiles).toEqual([['127.0.0.1', 'peer-user']])
+    expect(texts).toEqual([['127.0.0.1', 77, '先到的手势资料']])
+    acknowledgePending(peer, service.localEnetPort, sessionId)
   })
 
   it('rejects an invalid local address before binding', async () => {

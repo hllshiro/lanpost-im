@@ -18,6 +18,12 @@ import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import type { PrivateProfile, RemoteProfile } from './protocol/private/messages'
+import {
+  nextPrivateSeq,
+  outstandingToFail,
+  receiptsToSend,
+  shouldUsePrivate
+} from './protocol/private/route'
 import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { FileManager } from './files/manager'
@@ -90,6 +96,17 @@ function privateSeeds(settings: Settings): Array<{ ip: string; port?: number }> 
   return seeds
 }
 
+// 交给私有通道后等 1005/1006 的期限；超时按发送失败处理，由用户重试
+const PRIVATE_SEND_TIMEOUT_MS = 30_000
+const PRIVATE_SEND_SWEEP_MS = 1000
+
+interface OutstandingPrivateSend {
+  ip: string
+  conversationId: string
+  msgId: number
+  sentAt: number
+}
+
 export class AppService {
   private readonly repos: Repositories
   private readonly engine: ProtocolEngine
@@ -102,6 +119,9 @@ export class AppService {
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
+  // 交给私有通道、还在等 1005/1006 的消息，键是私有消息号
+  private readonly privateOutstanding = new Map<number, OutstandingPrivateSend>()
+  private privateSweep: ReturnType<typeof setInterval> | null = null
   private fileSeq = 0
   private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
@@ -199,8 +219,16 @@ export class AppService {
         callbacks: {
           onText: (ip, msgId, text) => this.handlePrivateText(ip, msgId, text),
           onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
-          onAck: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'delivered'),
-          onReceipt: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'read'),
+          onAck: (ip, msgId) => {
+            this.privateOutstanding.delete(msgId)
+            this.handlePrivateStatus(ip, msgId, 'delivered')
+          },
+          onReceipt: (ip, msgId) => {
+            this.privateOutstanding.delete(msgId)
+            this.handlePrivateStatus(ip, msgId, 'read')
+          },
+          onProfile: (ip, profile) => this.upsertPrivatePeer(ip, profile),
+          onSendFailed: (ip, msgId) => this.handlePrivateSendFailed(ip, msgId),
           onState: (ip, state, profile) => this.handlePrivateState(ip, state, profile),
           onActivity: (ip) => this.engine.touchPrivatePeer(ip),
           onLog: (message) => logStartup('private: ' + message),
@@ -248,6 +276,8 @@ export class AppService {
     const privateService = this.privateService
     this.privateService = null
     this.privateReceipts.clear()
+    this.privateOutstanding.clear()
+    this.stopPrivateSweep()
     if (privateService !== null) {
       await privateService.stop()
     }
@@ -290,10 +320,18 @@ export class AppService {
       throw new Error('联系人不在线')
     }
     const privateService = this.privateService
-    if (privateService !== null && privateService.isReady(peer.ip)) {
-      const msgId = this.nextPrivateSeq()
-      if (privateService.sendText(peer.ip, msgId, request.text)) {
-        return { message: this.recordOutgoing(conversation.id, request.text, msgId) }
+    if (privateService !== null) {
+      const privateReady = privateService.isReady(peer.ip)
+      if (shouldUsePrivate(privateReady, peer.port)) {
+        const msgId = this.allocatePrivateSeq()
+        if (privateService.sendText(peer.ip, msgId, request.text)) {
+          const message = this.recordOutgoing(conversation.id, request.text, msgId)
+          this.trackPrivateSend(peer.ip, conversation.id, msgId)
+          return { message }
+        }
+      } else {
+        // 本条消息按 IPMSG 发送，同时让私有通道开始连接，后续消息才能走私有
+        privateService.ensureSession(peer.ip)
       }
     }
     // 只在私有通道出现过的联系人没有 IPMSG 端口，回落过去只会丢包却把消息标成已发送
@@ -325,9 +363,56 @@ export class AppService {
   }
 
   // 私有通道的消息号与文件号同一形式：秒级时间戳后接三位自增序号
-  private nextPrivateSeq(): number {
+  private allocatePrivateSeq(): number {
     this.privateSeq = (this.privateSeq + 1) % 1000
-    return Date.now() * 1000 + this.privateSeq
+    return nextPrivateSeq(Date.now(), this.privateSeq)
+  }
+
+  private trackPrivateSend(ip: string, conversationId: string, msgId: number): void {
+    this.privateOutstanding.set(msgId, { ip, conversationId, msgId, sentAt: Date.now() })
+    if (this.privateSweep === null) {
+      this.privateSweep = setInterval(() => this.expirePrivateSends(), PRIVATE_SEND_SWEEP_MS)
+    }
+  }
+
+  private expirePrivateSends(): void {
+    for (const entry of outstandingToFail(
+      this.privateOutstanding.values(),
+      Date.now(),
+      PRIVATE_SEND_TIMEOUT_MS
+    )) {
+      this.failPrivateSend(entry)
+    }
+    if (this.privateOutstanding.size === 0) {
+      this.stopPrivateSweep()
+    }
+  }
+
+  private stopPrivateSweep(): void {
+    if (this.privateSweep !== null) {
+      clearInterval(this.privateSweep)
+      this.privateSweep = null
+    }
+  }
+
+  // 交给 ENet 之后不再回落 IPMSG：消息已经是“发不出去”的状态，交给用户决定是否重试
+  private failPrivateSend(entry: OutstandingPrivateSend): void {
+    this.privateOutstanding.delete(entry.msgId)
+    this.updatePrivateMessageStatus(entry.conversationId, entry.msgId, 'failed')
+  }
+
+  private handlePrivateSendFailed(ip: string, msgId: number): void {
+    const entry = this.privateOutstanding.get(msgId)
+    if (entry !== undefined) {
+      this.failPrivateSend(entry)
+      return
+    }
+    const peerKey = this.engine.peerKeyForIp(ip)
+    if (peerKey === null) {
+      logStartup(`私有消息 ${msgId} 发送失败：没有对应的联系人（${ip}）`)
+      return
+    }
+    this.updatePrivateMessageStatus(directConversationId(peerKey), msgId, 'failed')
   }
 
   markRead(conversationId: string, messageId: number): void {
@@ -351,10 +436,11 @@ export class AppService {
     if (peer === undefined || !privateService.isReady(peer.ip)) {
       return
     }
-    for (const row of this.repos.messages.listPrivateIncoming(conversationId)) {
-      if (row.id > messageId || this.privateReceipts.has(row.id)) {
-        continue
-      }
+    for (const row of receiptsToSend(
+      this.repos.messages.listPrivateIncoming(conversationId),
+      messageId,
+      this.privateReceipts
+    )) {
       privateService.sendReceipt(peer.ip, row.remoteSeq)
       this.privateReceipts.add(row.id)
     }
@@ -672,13 +758,21 @@ export class AppService {
   }
 
   private handleStatus(peerKey: string, seq: number, status: 'delivered' | 'read'): void {
-    const conversationId = directConversationId(peerKey)
+    this.updatePrivateMessageStatus(directConversationId(peerKey), seq, status)
+  }
+
+  // 传输层状态只前进不后退：迟到的 1005 不能把已经置为 read 的消息降回 delivered
+  private updatePrivateMessageStatus(
+    conversationId: string,
+    seq: number,
+    status: 'delivered' | 'read' | 'failed'
+  ): void {
     const row = this.db
       .prepare(
-        "SELECT id FROM messages WHERE conversation_id = ? AND direction = 'out' AND remote_seq = ? ORDER BY id DESC LIMIT 1"
+        "SELECT id, status FROM messages WHERE conversation_id = ? AND direction = 'out' AND remote_seq = ? ORDER BY id DESC LIMIT 1"
       )
-      .get(conversationId, seq) as { id: number } | undefined
-    if (row === undefined) {
+      .get(conversationId, seq) as { id: number; status: string } | undefined
+    if (row === undefined || row.status === status || row.status === 'read') {
       return
     }
     this.repos.messages.setStatus(row.id, status)
@@ -710,22 +804,33 @@ export class AppService {
 
   private handlePrivateState(ip: string, state: SessionState, profile: RemoteProfile | null): void {
     if (state === 'ready' && profile !== null) {
-      this.engine.upsertPrivatePeer({
-        ip,
-        userId: profile.userId,
-        name: profile.name,
-        group: profile.group,
-        corporation: profile.corporation,
-        department: profile.department,
-        sign: profile.sign,
-        status: profile.status,
-        online: true
-      })
+      this.upsertPrivatePeer(ip, profile)
       return
     }
     if (state === 'closed') {
       this.engine.markPrivatePeerOffline(ip)
+      for (const entry of Array.from(this.privateOutstanding.values())) {
+        if (entry.ip === ip) {
+          this.failPrivateSend(entry)
+        }
+      }
     }
+  }
+
+  // 对端可能先发 X_READY 再发 X_HANDSHARK：资料一到就写进联系人表，
+  // 否则入站文字会因为没有对应联系人的 IP 映射而被丢弃
+  private upsertPrivatePeer(ip: string, profile: RemoteProfile): void {
+    this.engine.upsertPrivatePeer({
+      ip,
+      userId: profile.userId,
+      name: profile.name,
+      group: profile.group,
+      corporation: profile.corporation,
+      department: profile.department,
+      sign: profile.sign,
+      status: profile.status,
+      online: true
+    })
   }
 
   private emitConversation(id: string): void {

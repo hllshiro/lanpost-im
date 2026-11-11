@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest'
 import {
   ENET_CMD_ACK,
   ENET_CMD_SEND_FRAGMENT,
+  ENET_CMD_SEND_RELIABLE,
   ENET_FLAG_ACK,
   ENET_MTU,
   EnetError,
   ReliableEnd,
   buildAckPayload,
   buildFragmentPayload,
+  buildReliablePayload,
   decodeDatagram,
   encodeDatagram,
   parseAckPayload
@@ -170,16 +172,26 @@ describe('reliable end', () => {
     expect(a.pendingCount).toBe(0)
   })
 
-  it('rejects a fragment over the inbound message limit', () => {
-    const receiver = new ReliableEnd({ peerId: 2, send: () => {}, now: () => 0 })
-    const fragmentDatagram = (input: { fragmentCount: number; totalLength: number }): Buffer =>
+  it('rejects a fragment over the inbound message limit without stalling the window', () => {
+    const rejected: string[] = []
+    const receiver = new ReliableEnd({
+      peerId: 2,
+      send: () => {},
+      now: () => 0,
+      onReject: (seq, error) => rejected.push(`${seq}:${error.message}`)
+    })
+    const fragmentDatagram = (input: {
+      seq: number
+      fragmentCount: number
+      totalLength: number
+    }): Buffer =>
       encodeDatagram(1, 0, [
         {
           command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
           channelId: 0,
-          reliableSeq: 1,
+          reliableSeq: input.seq,
           payload: buildFragmentPayload({
-            startSeq: 1,
+            startSeq: input.seq,
             fragmentCount: input.fragmentCount,
             fragmentNumber: 0,
             totalLength: input.totalLength,
@@ -188,15 +200,21 @@ describe('reliable end', () => {
           })
         }
       ])
-    const hugeTotalLength = fragmentDatagram({ fragmentCount: 1_000_000, totalLength: 0xffffffff })
-    expect(() => receiver.receive(hugeTotalLength)).toThrow(EnetError)
+    const hugeTotalLength = fragmentDatagram({
+      seq: 1,
+      fragmentCount: 1_000_000,
+      totalLength: 0xffffffff
+    })
+    expect(receiver.receive(hugeTotalLength)).toEqual([])
     const justOverOneMiB = fragmentDatagram({
+      seq: 2,
       fragmentCount: 750,
       totalLength: 1024 * 1024 + 1
     })
-    expect(() => receiver.receive(justOverOneMiB)).toThrow(EnetError)
-    const tooManyFragments = fragmentDatagram({ fragmentCount: 1000, totalLength: 1000 })
-    expect(() => receiver.receive(tooManyFragments)).toThrow(EnetError)
+    expect(receiver.receive(justOverOneMiB)).toEqual([])
+    const tooManyFragments = fragmentDatagram({ seq: 3, fragmentCount: 1000, totalLength: 1000 })
+    expect(receiver.receive(tooManyFragments)).toEqual([])
+    expect(rejected.map((entry) => entry.split(':')[0])).toEqual(['1', '2', '3'])
     expect(() => receiver.send(Buffer.alloc(1024 * 1024 + 1))).toThrow(EnetError)
   })
 
@@ -213,7 +231,96 @@ describe('reliable end', () => {
     const datagram = encodeDatagram(1, 0, [
       { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 1, payload }
     ])
-    expect(() => receiver.receive(datagram)).toThrow(EnetError)
+    expect(() => receiver.receive(datagram)).not.toThrow()
+    expect(receiver.pendingCount).toBe(0)
+  })
+
+  it('acks only after the command is accepted', () => {
+    const clock = 1000
+    const toPeer: Buffer[] = []
+    const receiver = new ReliableEnd({
+      peerId: 2,
+      send: (d) => toPeer.push(d),
+      now: () => clock
+    })
+    const badFragment = encodeDatagram(1, clock & 0xffff, [
+      {
+        command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: 1,
+        payload: buildFragmentPayload({
+          startSeq: 1,
+          fragmentCount: 2,
+          fragmentNumber: 9,
+          totalLength: 2000,
+          offset: 0,
+          data: Buffer.alloc(100)
+        })
+      }
+    ])
+    expect(receiver.receive(badFragment)).toEqual([])
+    expect(toPeer).toEqual([])
+    const valid = encodeDatagram(1, clock & 0xffff, [
+      {
+        command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: 2,
+        payload: buildReliablePayload(Buffer.from('after-bad'))
+      }
+    ])
+    expect(receiver.receive(valid).map((d) => d.toString())).toEqual(['after-bad'])
+    expect(decodeDatagram(toPeer[0]).commands[0].payload.readUInt16BE(0)).toBe(2)
+  })
+
+  it('delivers a valid message after a fragment with mismatched metadata', () => {
+    const clock = 1000
+    const toPeer: Buffer[] = []
+    const receiver = new ReliableEnd({
+      peerId: 2,
+      send: (d) => toPeer.push(d),
+      now: () => clock
+    })
+    const first = encodeDatagram(1, clock & 0xffff, [
+      {
+        command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: 1,
+        payload: buildFragmentPayload({
+          startSeq: 1,
+          fragmentCount: 2,
+          fragmentNumber: 0,
+          totalLength: 2500,
+          offset: 0,
+          data: Buffer.alloc(1000, 1)
+        })
+      }
+    ])
+    const mismatch = encodeDatagram(1, clock & 0xffff, [
+      {
+        command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: 2,
+        payload: buildFragmentPayload({
+          startSeq: 1,
+          fragmentCount: 2,
+          fragmentNumber: 1,
+          totalLength: 2600,
+          offset: 1000,
+          data: Buffer.alloc(1000, 2)
+        })
+      }
+    ])
+    const text = encodeDatagram(1, clock & 0xffff, [
+      {
+        command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
+        channelId: 0,
+        reliableSeq: 3,
+        payload: buildReliablePayload(Buffer.from('still-alive'))
+      }
+    ])
+    expect(receiver.receive(first)).toEqual([])
+    expect(receiver.receive(mismatch)).toEqual([])
+    expect(receiver.receive(text).map((d) => d.toString())).toEqual(['still-alive'])
   })
 
   it('evicts an incomplete fragment group after 30 seconds', () => {
@@ -276,5 +383,52 @@ describe('reliable end', () => {
     a.pump()
     expect(sent).toHaveLength(3)
     expect(a.pendingCount).toBe(0)
+  })
+
+  it('reports the dropped and acknowledged sequence numbers', () => {
+    const sent: Buffer[] = []
+    const dropped: number[] = []
+    const acked: number[] = []
+    let clock = 0
+    const a = new ReliableEnd({
+      peerId: 1,
+      send: (d) => sent.push(d),
+      now: () => clock,
+      retransmitMs: 100,
+      maxRetries: 1,
+      onAck: (seq) => acked.push(seq),
+      onDrop: (seq) => dropped.push(seq)
+    })
+    const seqs = a.send(Buffer.from('x'))
+    expect(seqs).toHaveLength(1)
+    clock = 100
+    a.pump()
+    clock = 300
+    a.pump()
+    expect(dropped).toEqual([seqs[0]])
+    expect(a.pendingCount).toBe(0)
+
+    const acknowledged = a.send(Buffer.from('y'))
+    const inbound = decodeDatagram(sent[sent.length - 1]!)
+    const ack = encodeDatagram(2, clock & 0xffff, [
+      {
+        command: ENET_CMD_ACK,
+        channelId: 0,
+        reliableSeq: inbound.commands[0]!.reliableSeq,
+        payload: buildAckPayload(inbound.commands[0]!.reliableSeq, inbound.sentTime!)
+      }
+    ])
+    a.receive(ack)
+    expect(acked).toEqual(acknowledged)
+    expect(a.pendingCount).toBe(0)
+  })
+
+  it('reports every fragment sequence of a fragmented send', () => {
+    const sent: Buffer[] = []
+    const a = new ReliableEnd({ peerId: 1, send: (d) => sent.push(d), now: () => 0 })
+    const seqs = a.send(Buffer.alloc(3000, 5))
+    expect(seqs).toEqual([1, 2, 3])
+    expect(a.pendingCount).toBe(3)
+    expect(sent).toHaveLength(3)
   })
 })

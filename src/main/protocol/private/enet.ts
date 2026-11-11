@@ -325,6 +325,12 @@ export interface ReliableOptions {
   initialSeq?: number
   // 接收侧期望的第一个可靠序号，取对端发送侧的起始序号
   initialPeerSeq?: number
+  // 通道 0 的命令被对端确认时回调
+  onAck?: (reliableSeq: number) => void
+  // 重传次数耗尽、命令被丢弃时回调
+  onDrop?: (reliableSeq: number) => void
+  // 入站命令内容非法、被跳过时回调
+  onReject?: (reliableSeq: number, error: Error) => void
 }
 
 interface OutboundCommand {
@@ -357,6 +363,9 @@ export class ReliableEnd {
   private readonly now: () => number
   private readonly retransmitMs: number
   private readonly maxRetries: number
+  private readonly onAck: ((reliableSeq: number) => void) | null
+  private readonly onDrop: ((reliableSeq: number) => void) | null
+  private readonly onReject: ((reliableSeq: number, error: Error) => void) | null
   private nextSeq: number
   private readonly pending = new Map<number, OutboundCommand>()
   private expectedSeq: number
@@ -370,6 +379,9 @@ export class ReliableEnd {
     this.now = options.now ?? Date.now
     this.retransmitMs = options.retransmitMs ?? DEFAULT_RETRANSMIT_MS
     this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
+    this.onAck = options.onAck ?? null
+    this.onDrop = options.onDrop ?? null
+    this.onReject = options.onReject ?? null
     this.nextSeq = options.initialSeq ?? FIRST_RELIABLE_SEQ
     this.expectedSeq = options.initialPeerSeq ?? FIRST_RELIABLE_SEQ
   }
@@ -378,29 +390,33 @@ export class ReliableEnd {
     return this.pending.size
   }
 
-  send(data: Buffer): void {
+  // 返回本次发送占用的全部可靠序号：分片消息按分片逐条占用，调用方据此跟踪确认与丢弃
+  send(data: Buffer): number[] {
     if (data.length > MAX_MESSAGE_BYTES) {
       throw new EnetError(`消息长度 ${data.length} 超出单条消息上限 ${MAX_MESSAGE_BYTES}`)
     }
     if (data.length <= ENET_MAX_PAYLOAD) {
+      const seq = this.allocateSequence()
       this.transmit({
         command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
         channelId: APPLICATION_CHANNEL_ID,
-        reliableSeq: this.allocateSequence(),
+        reliableSeq: seq,
         payload: buildReliablePayload(data)
       })
-      return
+      return [seq]
     }
     const fragmentCount = Math.ceil(data.length / ENET_MAX_PAYLOAD)
     const startSeq = this.allocateSequence()
     this.nextSeq = (startSeq + fragmentCount) & 0xffff
+    const seqs: number[] = []
     for (let index = 0; index < fragmentCount; index += 1) {
       const offset = index * ENET_MAX_PAYLOAD
+      const seq = (startSeq + index) & 0xffff
       const chunk = data.subarray(offset, Math.min(offset + ENET_MAX_PAYLOAD, data.length))
       this.transmit({
         command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
         channelId: APPLICATION_CHANNEL_ID,
-        reliableSeq: (startSeq + index) & 0xffff,
+        reliableSeq: seq,
         payload: buildFragmentPayload({
           startSeq,
           fragmentCount,
@@ -410,9 +426,13 @@ export class ReliableEnd {
           data: chunk
         })
       })
+      seqs.push(seq)
     }
+    return seqs
   }
 
+  // 先校验并接纳可靠命令，再回 ACK：被拒绝的命令不能回 ACK，否则对端不再重传，
+  // 本端期望序号又停在原地，后续所有命令都会堵在缓存里。
   receive(datagram: Buffer): Buffer[] {
     const { sentTime, commands } = decodeDatagram(datagram)
     const delivered: Buffer[] = []
@@ -422,11 +442,14 @@ export class ReliableEnd {
         this.acknowledge(command.payload)
         continue
       }
+      if (base === ENET_CMD_SEND_RELIABLE || base === ENET_CMD_SEND_FRAGMENT) {
+        if (this.accept(command, delivered) && (command.command & ENET_FLAG_ACK) !== 0) {
+          this.sendAck(command.channelId, command.reliableSeq, sentTime ?? 0)
+        }
+        continue
+      }
       if ((command.command & ENET_FLAG_ACK) !== 0) {
         this.sendAck(command.channelId, command.reliableSeq, sentTime ?? 0)
-      }
-      if (base === ENET_CMD_SEND_RELIABLE || base === ENET_CMD_SEND_FRAGMENT) {
-        this.accept(command, delivered)
       }
     }
     return delivered
@@ -440,6 +463,7 @@ export class ReliableEnd {
       if (now - entry.sentAt < interval) continue
       if (entry.retries >= this.maxRetries) {
         this.pending.delete(entry.seq)
+        this.onDrop?.(entry.seq)
         continue
       }
       entry.retries += 1
@@ -490,32 +514,48 @@ export class ReliableEnd {
   private acknowledge(payload: Buffer): void {
     const { receivedSeq, sentTime } = parseAckPayload(payload)
     const entry = this.pending.get(receivedSeq)
-    if (entry !== undefined && entry.sentTime === sentTime) {
-      this.pending.delete(receivedSeq)
-    }
+    if (entry === undefined || entry.sentTime !== sentTime) return
+    this.pending.delete(receivedSeq)
+    this.onAck?.(receivedSeq)
   }
 
-  // 按 16 位序号顺序交付；乱序命令缓存到缺口补齐
-  private accept(command: EnetCommand, delivered: Buffer[]): void {
+  // 按 16 位序号顺序交付；乱序命令缓存到缺口补齐。
+  // 返回该命令是否已纳入接收窗口（可以回 ACK）；已经交付过的重复命令也回 ACK。
+  private accept(command: EnetCommand, delivered: Buffer[]): boolean {
     const seq = command.reliableSeq
-    if (seq === this.expectedSeq) {
-      this.dispatch(command, delivered)
-      this.expectedSeq = (seq + 1) & 0xffff
-      this.drain(delivered)
-      return
+    if (seq !== this.expectedSeq) {
+      if (isNewerSequence(seq, this.expectedSeq)) {
+        this.received.set(seq, command)
+      }
+      return true
     }
-    if (isNewerSequence(seq, this.expectedSeq)) {
-      this.received.set(seq, command)
-    }
+    const accepted = this.deliver(command, delivered)
+    this.drain(delivered)
+    // 校验失败的命令不 ACK，让对端重传；重传回来时已在窗口之外，只会得到 ACK 然后被丢弃
+    return accepted
   }
 
   private drain(delivered: Buffer[]): void {
     let command = this.received.get(this.expectedSeq)
     while (command !== undefined) {
       this.received.delete(this.expectedSeq)
-      this.dispatch(command, delivered)
-      this.expectedSeq = (this.expectedSeq + 1) & 0xffff
+      this.deliver(command, delivered)
       command = this.received.get(this.expectedSeq)
+    }
+  }
+
+  // 交付单条命令并推进期望序号；内容非法时记录并跳过，避免一条坏命令永久卡住窗口
+  private deliver(command: EnetCommand, delivered: Buffer[]): boolean {
+    this.expectedSeq = (command.reliableSeq + 1) & 0xffff
+    try {
+      this.dispatch(command, delivered)
+      return true
+    } catch (error) {
+      this.onReject?.(
+        command.reliableSeq,
+        error instanceof Error ? error : new Error(String(error))
+      )
+      return false
     }
   }
 

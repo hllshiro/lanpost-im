@@ -64,6 +64,8 @@ export interface SessionCallbacks {
   onAck(msgId: number): void
   onReceipt(msgId: number): void
   onProfile(profile: RemoteProfile): void
+  // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
+  onSendFailed(msgId: number): void
   onState(state: SessionState): void
   onLog(message: string): void
 }
@@ -127,6 +129,8 @@ export class PrivateSession {
   private lastInboundAt = 0
   private lastHeartbeatAt = 0
   private readySent = false
+  // 通道 0 的可靠序号到消息号的映射：确认或丢弃时清理，丢弃时上报发送失败
+  private readonly messageSeqs = new Map<number, number>()
 
   constructor(options: PrivateSessionOptions) {
     this.role = options.role
@@ -148,6 +152,12 @@ export class PrivateSession {
 
   get state(): SessionState {
     return this.currentState
+  }
+
+  // 本次连接使用的 connectID：接收侧取自对端 CONNECT，发送侧取自本端随机值。
+  // 服务端用它区分对端重连（新标识）与重复 CONNECT（同标识）。
+  get connectIdentifier(): number {
+    return this.connectId
   }
 
   start(): void {
@@ -194,7 +204,10 @@ export class PrivateSession {
 
   sendText(msgId: number, text: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_SEND_MSG, sendMsgXml(msgId, text)))
+    const seqs = this.reliable.send(encodeFrame(CMD_SEND_MSG, sendMsgXml(msgId, text)))
+    for (const seq of seqs) {
+      this.messageSeqs.set(seq, msgId)
+    }
     return true
   }
 
@@ -287,12 +300,7 @@ export class PrivateSession {
     this.setState('verifying')
     this.awaitingVerifyAck = true
     this.sendVerify()
-    this.reliable = new ReliableEnd({
-      peerId: outgoingPeerId,
-      sessionId: this.sessionId,
-      send: this.sendRaw,
-      now: this.now
-    })
+    this.reliable = this.createReliable(outgoingPeerId, this.sessionId)
   }
 
   // 对端的 ACK 或任意可靠负载都能证明它收到了 VERIFY_CONNECT；
@@ -316,12 +324,7 @@ export class PrivateSession {
     this.setState('verifying')
     this.peerId = peerId
     this.sessionId = outgoingSessionId
-    this.reliable = new ReliableEnd({
-      peerId,
-      sessionId: outgoingSessionId,
-      send: this.sendRaw,
-      now: this.now
-    })
+    this.reliable = this.createReliable(peerId, outgoingSessionId)
     const delivered = this.reliable.receive(data)
     this.sendPing()
     this.setState('handshaking')
@@ -330,6 +333,38 @@ export class PrivateSession {
     for (const item of delivered) {
       this.acceptPayload(item)
     }
+  }
+
+  private createReliable(peerId: number, sessionId: number): ReliableEnd {
+    return new ReliableEnd({
+      peerId,
+      sessionId,
+      send: this.sendRaw,
+      now: this.now,
+      onAck: (seq) => this.messageSeqs.delete(seq),
+      onDrop: (seq) => this.handleDrop(seq),
+      onReject: (seq, error) =>
+        this.callbacks.onLog(
+          `私有会话 ${this.remoteLabel} 丢弃无法解析的可靠命令 ${seq}: ${describeError(error)}`
+        )
+    })
+  }
+
+  // 重传耗尽说明这条链路已经不可用：把对应消息标记失败，再关闭会话交给上层重连。
+  // 已经交给 ENet 的消息不再回落 IPMSG，避免对端界面出现两条内容相同的消息。
+  private handleDrop(seq: number): void {
+    if (this.currentState === 'closed') return
+    const msgId = this.messageSeqs.get(seq)
+    this.messageSeqs.delete(seq)
+    this.callbacks.onLog(
+      msgId === undefined
+        ? `私有会话 ${this.remoteLabel} 可靠序号 ${seq} 重传耗尽，关闭会话`
+        : `私有会话 ${this.remoteLabel} 消息 ${msgId} 重传耗尽，标记发送失败并关闭会话`
+    )
+    if (msgId !== undefined) {
+      this.callbacks.onSendFailed(msgId)
+    }
+    this.shutdown(false)
   }
 
   private sendConnect(): void {
