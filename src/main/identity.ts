@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto'
 import { hostname } from 'node:os'
+import type { Settings } from '../shared/settings'
 
 const SAFE_NAME = /[^a-zA-Z0-9._-]+/g
 const EDGE_DASHES = /^[-._]+|[-._]+$/g
@@ -8,6 +10,8 @@ const FALLBACK_RANGE = 10000
 const DISPLAY_MAX = 32
 const ACCOUNT_MAX = 32
 const HOST_MAX = 64
+const PRIVATE_ID_BYTES = 16
+const PRIVATE_ID_HEX = 32
 
 export interface IdentityDefaults {
   displayName: string
@@ -50,4 +54,26 @@ export function currentIdentityDefaults(random: () => number = Math.random): Ide
   } catch {
     return identityFromComputerName('', random)
   }
+}
+
+// 私有通道的用户标识是 32 位十六进制，首次启动生成后写进设置固定下来。
+export function createPrivateId(random: () => number = Math.random): string {
+  let id = ''
+  for (let index = 0; index < PRIVATE_ID_BYTES; index += 1) {
+    id += Math.floor(random() * 256)
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return id
+}
+
+export function privateUserId(settings: Settings): string {
+  const stored = settings.identity.privateId
+  if (stored !== '') {
+    return stored
+  }
+  return createHash('sha256')
+    .update(`${settings.identity.account}@${settings.identity.hostName}`)
+    .digest('hex')
+    .slice(0, PRIVATE_ID_HEX)
 }

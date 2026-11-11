@@ -10,7 +10,8 @@ const identitySchema = z.object({
   corporation: z.string().default(''),
   department: z.string().default(''),
   sign: z.string().default(''),
-  status: z.number().int().min(0).max(2).default(0)
+  status: z.number().int().min(0).max(2).default(0),
+  privateId: z.string().default('')
 })
 
 const networkSchema = z.object({
@@ -18,7 +19,9 @@ const networkSchema = z.object({
   bindAddr: z.string().default('0.0.0.0'),
   subnets: z.array(z.string()).default([]),
   seeds: z.array(z.string()).default([]),
-  broadcastInterval: z.number().int().min(5).max(3600).default(30)
+  broadcastInterval: z.number().int().min(5).max(3600).default(30),
+  privatePort: z.number().int().min(1).max(65535).default(9011),
+  privateSeeds: z.array(z.string()).default([])
 })
 
 const notifySchema = z.object({
