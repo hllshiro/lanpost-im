@@ -602,7 +602,7 @@ Expected: FAIL，提示找不到模块 `./messages`
 
 - [ ] **Step 3: Implement `messages.ts`**
 
-`messageTextJson` 生成与抓包同形的 JSON：`app`、`dt[0].txt.t/v`、`ft`（`微软雅黑`、字号 9、其余 `0`）、`id`（32 位十六进制随机）、`type="0"`、`ver="6.0"`，缩进与空格写成 `&nbsp;`、引号写成 `&quot;`；`sendMsgXml` 用 `encodeChatMsg`，`Msg` 为上述 JSON，`Receipt=0`、`MsgTime=0`、`Offline=0`、`HideRecord=0`。`handshakeXml` 用现有 `encodeHandshake`，FEATURE 只有 `MSG: "2:1"` 与 `HideRecord: "1"`，其余能力位与 NET 端口为 0，`CORP_ID` 用传入的 userId。接收侧用 `decodeXml`，`MSG` 先反转义 `&nbsp;` 为空格、`&quot;` 为引号，再 `JSON.parse`，拼接所有 `dt[].txt.v`；解析失败或无文字时返回 `text-unsupported`。
+`messageTextJson` 生成与抓包同形的 JSON：`app`、`dt[0].txt.t/v`、`ft`（`微软雅黑`、字号 9、其余 `0`）、`id`（32 位十六进制随机）、`type="0"`、`ver="6.0"`，缩进与空格写成 `&nbsp;`、引号写成 `&quot;`；`sendMsgXml` 用 `encodeChatMsg`，`Msg` 为上述 JSON，`Receipt=0`、`MsgTime=0`、`Offline=0`、`HideRecord=0`。`handshakeXml` 用现有 `encodeHandshake`，FEATURE 只有 `MSG: "2:1"` 与 `HideRecord: "1"`，其余能力位与 NET 端口为 0，`CORP_ID` 用传入的 userId。接收侧用 `decodeXml`，`MSG` 先反转义 `&nbsp;` 为空格、`&quot;` 为引号，再 `JSON.parse`，拼接所有 `dt[].txt.v`；解析失败或无文字时返回 `text-unsupported`。`parsePrivate` 对任何输入都不抛异常：根标签不符、XML 不合法、数字字段非法等一律返回 `{ kind: 'other', cmd }`，把丢弃与日志留给会话层。
 
 - [ ] **Step 4: Run test to verify it passes**
 
