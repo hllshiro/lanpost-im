@@ -224,6 +224,36 @@ function unrecognized(cmd: number): IncomingPrivate {
   return { kind: 'other', cmd }
 }
 
+// 内网通的富文本按 dt 数组下发，文字、链接、图片、文件各有一种节点；
+// 这里把能直接读的节点转成文字，不能读的给出占位，避免整条消息被当成空消息丢掉
+function nodeText(item: unknown): string {
+  if (typeof item !== 'object' || item === null) {
+    return ''
+  }
+  const record = item as Record<string, unknown>
+  const text = record['txt']
+  if (typeof text === 'object' && text !== null) {
+    const value = (text as { v?: unknown }).v
+    if (typeof value === 'string') {
+      return value
+    }
+  }
+  const link = record['lnk']
+  if (typeof link === 'object' && link !== null) {
+    const value = (link as { v?: unknown }).v
+    if (typeof value === 'string') {
+      return value
+    }
+  }
+  if (record['img'] !== undefined) {
+    return '[图片]'
+  }
+  if (record['file'] !== undefined) {
+    return '[文件]'
+  }
+  return ''
+}
+
 function textFromJson(raw: string): string | null {
   const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
   let parsed: unknown
@@ -241,17 +271,7 @@ function textFromJson(raw: string): string | null {
   }
   let text = ''
   for (const item of dt) {
-    if (typeof item !== 'object' || item === null) {
-      continue
-    }
-    const txt = (item as { txt?: unknown }).txt
-    if (typeof txt !== 'object' || txt === null) {
-      continue
-    }
-    const value = (txt as { v?: unknown }).v
-    if (typeof value === 'string') {
-      text += value
-    }
+    text += nodeText(item)
   }
   return text === '' ? null : text
 }

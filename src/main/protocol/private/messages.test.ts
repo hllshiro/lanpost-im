@@ -48,10 +48,23 @@ describe('private messages', () => {
     expect(decodeBeacon(raw)).toMatchObject({ type: 4, ip: '192.168.1.20', enetPort: 54321 })
   })
 
-  it('ignores messages without text content', () => {
+  it('turns a link card into its url', () => {
     const xml =
+      '<X_SEND_MSG docver="1"><MSG_ID>6</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;lnk&quot;:{&quot;v&quot;:&quot;https://example.com/a&quot;}}]}</MSG></X_SEND_MSG>'
+    expect(parsePrivate(1004, xml)).toEqual({
+      kind: 'text',
+      msgId: 6,
+      text: 'https://example.com/a'
+    })
+  })
+
+  it('shows a placeholder for an image and ignores unknown nodes', () => {
+    const image =
       '<X_SEND_MSG docver="1"><MSG_ID>3</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;img&quot;:{&quot;v&quot;:&quot;x&quot;}}]}</MSG></X_SEND_MSG>'
-    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text-unsupported', msgId: 3 })
+    expect(parsePrivate(1004, image)).toEqual({ kind: 'text', msgId: 3, text: '[图片]' })
+    const unknown =
+      '<X_SEND_MSG docver="1"><MSG_ID>4</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;voip&quot;:{}}]}</MSG></X_SEND_MSG>'
+    expect(parsePrivate(1004, unknown)).toEqual({ kind: 'text-unsupported', msgId: 4 })
   })
 })
 
@@ -110,7 +123,7 @@ describe('private messages round-trip', () => {
   it('concatenates every text segment', () => {
     const xml =
       '<X_SEND_MSG docver="1"><MSG_ID>4</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;txt&quot;:{&quot;t&quot;:&quot;normal&quot;,&quot;v&quot;:&quot;a&quot;}},{&quot;img&quot;:{&quot;v&quot;:&quot;x&quot;}},{&quot;txt&quot;:{&quot;t&quot;:&quot;normal&quot;,&quot;v&quot;:&quot;b&quot;}}]}</MSG></X_SEND_MSG>'
-    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 4, text: 'ab' })
+    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 4, text: 'a[图片]b' })
   })
 
   it('returns other instead of throwing on malformed input', () => {
