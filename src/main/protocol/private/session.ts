@@ -47,6 +47,9 @@ const ASSIGNED_PEER_ID = 1
 
 const CONNECT_RETRY_MS = 5000
 const CONNECT_MAX_RETRIES = 3
+const VERIFY_RETRANSMIT_MS = 500
+const VERIFY_MAX_RETRIES = 6
+const RETRANSMIT_BACKOFF = 1.5
 const HEARTBEAT_INTERVAL_MS = 30_000
 const SESSION_TIMEOUT_MS = 120_000
 
@@ -112,6 +115,8 @@ export class PrivateSession {
   private connectId = 0
   private verifyDatagram: Buffer | null = null
   private verifySentTime = 0
+  private verifySentAt = 0
+  private verifyRetries = 0
   private awaitingVerifyAck = false
   private connectSentAt = 0
   private connectRetries = 0
@@ -170,6 +175,9 @@ export class PrivateSession {
       return
     }
     this.reliable?.pump()
+    if (this.awaitingVerifyAck) {
+      this.pumpVerify(now)
+    }
     if (this.currentState === 'connecting') {
       this.pumpConnect(now)
       return
@@ -210,11 +218,8 @@ export class PrivateSession {
       return
     }
     const delivered = this.reliable.receive(data)
-    if (this.awaitingVerifyAck && this.hasVerifyAck(data)) {
-      this.awaitingVerifyAck = false
-      this.setState('handshaking')
-      this.sendHello()
-      this.sendHandshake()
+    if (this.awaitingVerifyAck && (delivered.length > 0 || this.hasVerifyAck(data))) {
+      this.openHandshake()
     }
     for (const payload of delivered) {
       this.acceptPayload(payload)
@@ -265,13 +270,23 @@ export class PrivateSession {
     this.connectId = connectId
     this.peerId = outgoingPeerId
     this.setState('verifying')
+    this.awaitingVerifyAck = true
     this.sendVerify()
     this.reliable = new ReliableEnd({
       peerId: outgoingPeerId,
       send: this.sendRaw,
       now: this.now
     })
-    this.awaitingVerifyAck = true
+  }
+
+  // 对端的 ACK 或任意可靠负载都能证明它收到了 VERIFY_CONNECT；
+  // 先发出自己的 hello 与 X_HANDSHARK，再处理触发本次放行的负载
+  private openHandshake(): void {
+    if (!this.awaitingVerifyAck) return
+    this.awaitingVerifyAck = false
+    this.setState('handshaking')
+    this.sendHello()
+    this.sendHandshake()
   }
 
   private acceptVerify(data: Buffer, payload: Buffer): void {
@@ -309,20 +324,19 @@ export class PrivateSession {
   }
 
   private sendVerify(): void {
-    if (this.verifyDatagram !== null) {
-      this.sendRaw(this.verifyDatagram)
-      return
+    if (this.verifyDatagram === null) {
+      const now = this.now()
+      this.verifySentTime = now & 0xffff
+      this.verifyDatagram = encodeDatagram(this.peerId, this.verifySentTime, [
+        {
+          command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
+          channelId: HANDSHAKE_CHANNEL,
+          reliableSeq: HANDSHAKE_SEQ,
+          payload: buildVerifyPayload(ASSIGNED_PEER_ID, this.connectId)
+        }
+      ])
     }
-    const sentTime = this.now() & 0xffff
-    this.verifySentTime = sentTime
-    this.verifyDatagram = encodeDatagram(this.peerId, sentTime, [
-      {
-        command: ENET_CMD_VERIFY | ENET_FLAG_ACK,
-        channelId: HANDSHAKE_CHANNEL,
-        reliableSeq: HANDSHAKE_SEQ,
-        payload: buildVerifyPayload(ASSIGNED_PEER_ID, this.connectId)
-      }
-    ])
+    this.verifySentAt = this.now()
     this.sendRaw(this.verifyDatagram)
   }
 
@@ -417,6 +431,15 @@ export class PrivateSession {
     this.connectRetries += 1
     this.connectSentAt = now
     this.sendConnect()
+  }
+
+  // ACK 丢失时按 500ms 起步、1.5 倍退避重发同一条 VERIFY_CONNECT
+  private pumpVerify(now: number): void {
+    const interval = VERIFY_RETRANSMIT_MS * RETRANSMIT_BACKOFF ** this.verifyRetries
+    if (now - this.verifySentAt < interval) return
+    if (this.verifyRetries >= VERIFY_MAX_RETRIES) return
+    this.verifyRetries += 1
+    this.sendVerify()
   }
 
   // 关闭时放弃重传队列；对端已被判定超时的情况下只改状态，不再发 X_QUIT

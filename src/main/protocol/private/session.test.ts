@@ -257,6 +257,34 @@ describe('private session', () => {
     expect(decodeBeacon(payload)).toMatchObject({ type: 4, enetPort: 19012 })
   })
 
+  it('retransmits the VERIFY_CONNECT when its ack is lost', () => {
+    let clock = 0
+    const pair = connectPair(() => clock)
+    pair.a.start()
+    pair.b.receive(pair.toB[0]!)
+    expect(pair.toA.length).toBe(1)
+    clock += 500
+    pair.b.pump()
+    expect(pair.toA.length).toBe(2)
+    expect(pair.toA[1]!.equals(pair.toA[0]!)).toBe(true)
+  })
+
+  it('opens the handshake from the peer hello when the ack is lost', () => {
+    const clock = 0
+    const pair = connectPair(() => clock)
+    pair.a.start()
+    pair.b.receive(pair.toB.shift()!)
+    pair.a.receive(pair.toA.shift()!)
+    const clientHello = pair.toB[2]!
+    pair.b.receive(clientHello)
+    expect(pair.b.state).toBe('handshaking')
+    const serverHello = pair.toA
+      .map((datagram) => decodeDatagram(datagram).commands[0]!)
+      .find((command) => (command.command & 0x7f) === ENET_CMD_SEND_RELIABLE)!
+    expect(serverHello.reliableSeq).toBe(1)
+    expect(parseReliablePayload(serverHello.payload).length).toBe(304)
+  })
+
   it('ignores VERIFY_CONNECT with a different connect id', () => {
     const clock = 0
     const pair = connectPair(() => clock)
