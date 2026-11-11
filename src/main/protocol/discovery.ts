@@ -353,7 +353,7 @@ export class ProtocolEngine {
 
   // 私有通道握手完成后写入联系人；返回引擎内的实时对象，调用方需要副本时自行 clone。
   upsertPrivatePeer(snapshot: PrivatePeerSnapshot): ProtocolPeer {
-    const key = this.ipIndex.get(snapshot.ip) ?? `${snapshot.ip}|${snapshot.userId}`
+    const key = this.privatePeerKey(snapshot)
     const now = Date.now()
     let peer = this.peers.get(key)
     if (peer === undefined) {
@@ -378,8 +378,8 @@ export class ProtocolEngine {
         lastSeen: now
       }
       this.peers.set(key, peer)
-      this.ipIndex.set(snapshot.ip, key)
     }
+    this.ipIndex.set(snapshot.ip, key)
     peer.user = snapshot.userId
     peer.name = snapshot.name
     peer.group = snapshot.group
@@ -391,6 +391,26 @@ export class ProtocolEngine {
     peer.lastSeen = now
     this.emitPeers()
     return peer
+  }
+
+  // 私有通道只上报 IP，没有 IPMSG 的账号名。IPMSG 先到时联系人 key 是 `${ip}|${account}`，
+  // 这里按地址找回那条记录，避免同一台机器出现两条联系人。
+  private privatePeerKey(snapshot: PrivatePeerSnapshot): string {
+    const indexed = this.ipIndex.get(snapshot.ip)
+    if (indexed !== undefined) {
+      return indexed
+    }
+    let fallback: ProtocolPeer | undefined
+    for (const peer of this.peers.values()) {
+      if (peer.ip !== snapshot.ip) {
+        continue
+      }
+      if (peer.user === snapshot.userId) {
+        return peer.key
+      }
+      fallback ??= peer
+    }
+    return fallback?.key ?? `${snapshot.ip}|${snapshot.userId}`
   }
 
   markPrivatePeerOffline(ip: string): void {

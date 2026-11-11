@@ -693,4 +693,54 @@ describe('protocol engine over real UDP', () => {
       await engine.stop()
     }
   }, 20000)
+
+  it('reuses the IPMSG peer when the private session arrives later', async () => {
+    const port = await freeUdpPort()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(makeConfig({ port }), recorder.callbacks)
+    const raw = await openRawSocket()
+    const key = '127.0.0.1|account-b'
+    try {
+      await engine.start()
+      // 常态：引擎先启动并广播，IPMSG 的上线报文先到，联系人 key 带账号名
+      raw.socket.send(
+        Encode({
+          seq: 1,
+          user: 'account-b',
+          host: 'host-b',
+          cmd: CMD_ENTRY,
+          payload: entryPayload('乙', '分组乙', ''),
+          legacy: true
+        }),
+        port,
+        '127.0.0.1'
+      )
+      const ipmsgPeer = await waitFor(() => {
+        const current = recorder.peers.get(key)
+        return current !== undefined && current.name === '乙' ? current : null
+      })
+      expect(ipmsgPeer.key).toBe(key)
+
+      const peer = engine.upsertPrivatePeer({
+        ip: '127.0.0.1',
+        userId: '0123456789abcdef0123456789abcdef',
+        name: '乙',
+        group: '分组乙',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        online: true
+      })
+      expect(peer.key).toBe(key)
+      expect(engine.peerKeyForIp('127.0.0.1')).toBe(key)
+      expect(recorder.peers.size).toBe(1)
+      expect([...recorder.peers.keys()]).toEqual([key])
+      expect(recorder.peers.get(key)?.user).toBe('0123456789abcdef0123456789abcdef')
+      expect(recorder.errors).toEqual([])
+    } finally {
+      raw.socket.close()
+      await engine.stop()
+    }
+  }, 20000)
 })
