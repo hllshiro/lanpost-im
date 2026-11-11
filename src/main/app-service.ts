@@ -442,6 +442,10 @@ export class AppService {
     if (peer === undefined || !peer.online) {
       throw new Error('联系人不在线')
     }
+    // 只在私有通道出现过的联系人没有 IPMSG 端口，文件邀请发不出去
+    if (peer.port <= 0) {
+      throw new Error('联系人不在线')
+    }
     for (const path of paths) {
       const stats = statSync(path)
       if (!stats.isFile()) {
