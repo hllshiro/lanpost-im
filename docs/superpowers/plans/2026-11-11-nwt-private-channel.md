@@ -963,6 +963,7 @@ git commit -m "feat: add private channel settings and identity"
 - Produces:
   - `export interface PrivatePeerSnapshot { ip: string; userId: string; name: string; group: string; corporation: string; department: string; sign: string; status: number; online: boolean }`
   - `ProtocolEngine.upsertPrivatePeer(snapshot: PrivatePeerSnapshot): ProtocolPeer`
+  - `ProtocolEngine.touchPrivatePeer(ip: string): void`
   - `ProtocolEngine.markPrivatePeerOffline(ip: string): void`
   - `ProtocolEngine.peerKeyForIp(ip: string): string | null`
 
@@ -1019,7 +1020,7 @@ Expected: FAIL，提示 `upsertPrivatePeer` 不存在
 
 - [ ] **Step 3: Implement**
 
-在 `ProtocolEngine` 增加 `ipIndex: Map<string, string>`；`handle()` 创建联系人前先查 `ipIndex`，命中则复用已有 key；`upsertPrivatePeer` 新建时 key 为 `${ip}|${userId}` 并写入 `ipIndex`，更新资料、`online`、`lastSeen` 后调用 `emitPeers()`；`markPrivatePeerOffline` 把 `online` 置 false；`peerKeyForIp` 返回索引。`sendText`/`sendFiles` 的在线校验不改。
+在 `ProtocolEngine` 增加 `ipIndex: Map<string, string>`；`handle()` 创建联系人前先查 `ipIndex`，命中则复用已有 key；`upsertPrivatePeer` 新建时 key 为 `${ip}|${userId}` 并写入 `ipIndex`，更新资料、`online`、`lastSeen` 后调用 `emitPeers()`；`touchPrivatePeer` 按 `ipIndex` 找到联系人，更新 `lastSeen` 与 `online`（状态变化时才 `emitPeers()`）；`markPrivatePeerOffline` 把 `online` 置 false；`peerKeyForIp` 返回索引。`sendText`/`sendFiles` 的在线校验不改。补一条用例：`touchPrivatePeer` 把超过 120 秒未更新的私有联系人恢复为在线并刷新 `lastSeen`。
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -1040,12 +1041,15 @@ git commit -m "feat: add private peer upsert to protocol engine"
 **Files:**
 - Modify: `src/main/store/repositories.ts`
 - Modify: `src/main/store/repositories.test.ts`
+- Modify: `src/main/protocol/private/service.ts`
+- Modify: `src/main/protocol/private/service.test.ts`
 - Modify: `src/main/app-service.ts`
 
 **Interfaces:**
 - Consumes: Task 8 的 `PrivateService`，Task 9 的 `createPrivateId`/`privateUserId`，Task 10 的引擎入口
 - Produces:
   - `Repositories['messages'].listPrivateIncoming(conversationId: string): MessageInfo[]`
+  - `PrivateServiceOptions.callbacks.onActivity(ip: string): void`（每次收到该会话的数据报时触发）
   - `AppService` 私有通道接线（无新导出）
 
 - [ ] **Step 1: Write the failing test**
@@ -1078,7 +1082,7 @@ Expected: FAIL，提示 `listPrivateIncoming` 不存在
 
 - [ ] **Step 3: Implement**
 
-`repositories.ts` 增加查询：`direction='in' AND meta LIKE '%"source":"private"%' ORDER BY id`。`app-service.ts` 启动时若 `settings.identity.privateId` 为空，用 `createPrivateId()` 生成并通过 `settings.update({ identity: { privateId } })` 持久化；构造 `PrivateService`（身份、资料、`network.privatePort`、`privateSeeds`、引擎资料），`start()` 在引擎之后启动、`stop()` 在引擎之前关闭；`sendText` 先取到联系人的 IP，`privateService.isReady(ip)` 为真时生成私有消息号（`Date.now() * 1000 + 自增序号 % 1000`，与 `nextFileId` 同一方式），调用 `privateService.sendText(ip, msgId, text)` 并把 `msgId` 作为 `remote_seq` 写库、状态置 `sending`，否则保持现有 `engine.sendText`；`handleIncoming` 增加可选 `meta` 参数并透传给 `insertIncoming`；`onText` 调 `handleIncoming(peerKey, name, text, msgId, '{"source":"private","msgId":"..."}')`；`onAck`/`onReceipt` 调 `handleStatus`（回调里的 IP 先用 `engine.peerKeyForIp(ip)` 换成联系人 key）；`onState` 调 `upsertPrivatePeer` / `markPrivatePeerOffline`；`applySettings` 里把新的资料同步给 `privateService.updateProfile`；`markRead` 在更新数据库前，对 `listPrivateIncoming` 里每条尚未发过回执的消息调用 `privateService.sendReceipt`（已发过的记在实例内 `Set<number>`，只对 `isReady` 为真的会话发）。
+`repositories.ts` 增加查询：`direction='in' AND meta LIKE '%"source":"private"%' ORDER BY id`。`service.ts` 增加 `callbacks.onActivity(ip)`：每次处理某个会话的数据报前调用，测试里断言收到数据报时触发。`app-service.ts` 启动时若 `settings.identity.privateId` 为空，用 `createPrivateId()` 生成并通过 `settings.update({ identity: { privateId } })` 持久化；构造 `PrivateService`（身份、资料、`network.privatePort`、`privateSeeds`、引擎资料），`start()` 在引擎之后启动、`stop()` 在引擎之前关闭；`sendText` 先取到联系人的 IP，`privateService.isReady(ip)` 为真时生成私有消息号（`Date.now() * 1000 + 自增序号 % 1000`，与 `nextFileId` 同一方式），调用 `privateService.sendText(ip, msgId, text)` 并把 `msgId` 作为 `remote_seq` 写库、状态置 `sending`，否则保持现有 `engine.sendText`；`handleIncoming` 增加可选 `meta` 参数并透传给 `insertIncoming`；`onText` 调 `handleIncoming(peerKey, name, text, msgId, '{"source":"private","msgId":"..."}')`；`onAck`/`onReceipt` 调 `handleStatus`（回调里的 IP 先用 `engine.peerKeyForIp(ip)` 换成联系人 key）；`onActivity` 调 `engine.touchPrivatePeer(ip)`，避免只有心跳的会话被 120 秒判定离线；`onState` 调 `upsertPrivatePeer` / `markPrivatePeerOffline`；`applySettings` 里把新的资料同步给 `privateService.updateProfile`；`markRead` 在更新数据库前，对 `listPrivateIncoming` 里每条尚未发过回执的消息调用 `privateService.sendReceipt`（已发过的记在实例内 `Set<number>`，只对 `isReady` 为真的会话发）。
 
 - [ ] **Step 4: Run test to verify it passes**
 
