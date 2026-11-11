@@ -267,6 +267,18 @@ export class MessageRepository {
     this.db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, id)
   }
 
+  // 已读回执只发给私有通道收到的消息；meta 里的来源标记在写入时固定，IPMSG 的消息没有它。
+  listPrivateIncoming(conversationId: string): MessageInfo[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages
+         WHERE conversation_id = ? AND direction = 'in' AND meta LIKE '%"source":"private"%'
+         ORDER BY id`
+      )
+      .all(conversationId) as unknown as MessageRow[]
+    return rows.map(mapMessage)
+  }
+
   setRemoteSeq(id: number, seq: number): void {
     this.db.prepare('UPDATE messages SET remote_seq = ? WHERE id = ?').run(seq, id)
   }

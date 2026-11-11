@@ -66,6 +66,7 @@ function options(
       onAck: () => {},
       onReceipt: () => {},
       onState: () => {},
+      onActivity: () => {},
       onLog: () => {},
       onError: () => {},
       ...callbacks
@@ -123,6 +124,23 @@ describe('private service', () => {
     })
     const d = decodeDatagram(verify)
     expect(d.commands[0].command).toBe(ENET_CMD_VERIFY | ENET_FLAG_ACK)
+  })
+
+  it('reports activity for datagrams belonging to a session', async () => {
+    const peer = await fakePeer()
+    const activity: string[] = []
+    const service = new PrivateService({
+      ...options(peer.port, { onActivity: (ip) => activity.push(ip) }),
+      seeds: []
+    })
+    await service.start()
+    cleanups.push(() => void service.stop())
+    peer.socket.send(connectDatagram(0x1234), service.localEnetPort, '127.0.0.1')
+    await waitFor(() => peer.received.find((d) => isCommand(d, ENET_CMD_VERIFY)) ?? null)
+    expect(activity).toEqual([])
+    peer.socket.send(connectDatagram(0x1234), service.localEnetPort, '127.0.0.1')
+    await waitFor(() => (activity.length > 0 ? activity : null))
+    expect(activity).toEqual(['127.0.0.1'])
   })
 
   it('dials a peer announced by a discovery beacon', async () => {

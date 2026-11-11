@@ -23,7 +23,9 @@ export interface PrivateServiceOptions {
     onUnsupported(ip: string, msgId: number): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
-    onState(ip: string, state: SessionState, profile: PrivateProfile | null): void
+    onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
+    // 收到属于某个会话的数据报时先触发，调用方用它刷新联系人活跃时间
+    onActivity(ip: string): void
     onLog(message: string): void
     onError(error: Error): void
   }
@@ -203,6 +205,10 @@ export class PrivateService {
   }
 
   private handleEnetMessage(data: Buffer, rinfo: RemoteInfo): void {
+    // 会话存在时每个入站数据报都算活跃，心跳和重传都包括在内
+    if (this.sessions.has(rinfo.address)) {
+      this.options.callbacks.onActivity(rinfo.address)
+    }
     const existing = this.sessions.get(rinfo.address)
     if (existing !== undefined && existing.state !== 'connecting') {
       existing.receive(data)

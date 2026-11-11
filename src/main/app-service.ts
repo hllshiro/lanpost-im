@@ -1,11 +1,14 @@
+import { randomBytes } from 'node:crypto'
 import { basename, join } from 'node:path'
 import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { isIPv4 } from 'node:net'
 import { app, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AppEvent,
   AppSnapshot,
   FileTaskInfo,
+  MessageInfo,
   MessagesPage,
   SendTextResult
 } from '../shared/domain'
@@ -14,11 +17,15 @@ import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
+import type { PrivateProfile, RemoteProfile } from './protocol/private/messages'
+import { PrivateService } from './protocol/private/service'
+import type { SessionState } from './protocol/private/session'
 import { FileManager } from './files/manager'
 import { NotificationManager } from './notify/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
+import { createPrivateId, privateUserId } from './identity'
 import { logStartup } from './startup-log'
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
@@ -39,6 +46,50 @@ function engineConfig(settings: Settings): ConstructorParameters<typeof Protocol
   }
 }
 
+function privateProfile(settings: Settings): PrivateProfile {
+  return {
+    name: settings.identity.displayName,
+    group: settings.identity.group,
+    corporation: settings.identity.corporation,
+    department: settings.identity.department,
+    sign: settings.identity.sign,
+    status: settings.identity.status
+  }
+}
+
+// 私有通道种子地址写成 IP 或 IP:端口，端口留空时由服务用默认 ENet 端口
+function parsePrivateSeed(value: string): { ip: string; port?: number } | null {
+  const trimmed = value.trim()
+  if (trimmed === '') {
+    return null
+  }
+  const colon = trimmed.lastIndexOf(':')
+  const ip = colon >= 0 ? trimmed.slice(0, colon) : trimmed
+  if (!isIPv4(ip)) {
+    return null
+  }
+  if (colon < 0) {
+    return { ip }
+  }
+  const port = Number(trimmed.slice(colon + 1))
+  return Number.isInteger(port) && port >= 1 && port <= 65535 ? { ip, port } : null
+}
+
+function privateSeeds(settings: Settings): Array<{ ip: string; port?: number }> {
+  const seeds: Array<{ ip: string; port?: number }> = []
+  for (const value of settings.network.privateSeeds) {
+    const seed = parsePrivateSeed(value)
+    if (seed === null) {
+      if (value.trim() !== '') {
+        logStartup(`忽略无法解析的私有通道种子地址: ${value}`)
+      }
+      continue
+    }
+    seeds.push(seed)
+  }
+  return seeds
+}
+
 export class AppService {
   private readonly repos: Repositories
   private readonly engine: ProtocolEngine
@@ -47,6 +98,10 @@ export class AppService {
   private window: BrowserWindow | null = null
   private started = false
   private filesStarted = false
+  private privateService: PrivateService | null = null
+  private privateSeq = 0
+  // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
+  private readonly privateReceipts = new Set<number>()
   private fileSeq = 0
   private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
@@ -103,6 +158,7 @@ export class AppService {
 
   async start(): Promise<void> {
     this.importLegacyHistory()
+    this.ensurePrivateId()
     try {
       await this.fileManager.start()
       this.filesStarted = true
@@ -111,8 +167,47 @@ export class AppService {
     }
     await this.engine.start()
     this.started = true
+    await this.startPrivateService()
     this.handlePeers(this.engine.getPeers())
     this.notifications.setUnread(this.unreadTotal())
+  }
+
+  // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用
+  private ensurePrivateId(): void {
+    if (this.settings.get().identity.privateId !== '') {
+      return
+    }
+    this.settings.update({ identity: { privateId: createPrivateId() } })
+  }
+
+  // 私有通道失败只影响私有收发，IPMSG 依旧按原路径工作
+  private async startPrivateService(): Promise<void> {
+    const settings = this.settings.get()
+    const service = new PrivateService({
+      identity: { userId: privateUserId(settings), peerId: randomBytes(16) },
+      profile: privateProfile(settings),
+      bindAddr: settings.network.bindAddr,
+      beaconPort: settings.network.privatePort,
+      enetPort: 0,
+      seeds: privateSeeds(settings),
+      callbacks: {
+        onText: (ip, msgId, text) => this.handlePrivateText(ip, msgId, text),
+        onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
+        onAck: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'delivered'),
+        onReceipt: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'read'),
+        onState: (ip, state, profile) => this.handlePrivateState(ip, state, profile),
+        onActivity: (ip) => this.engine.touchPrivatePeer(ip),
+        onLog: (message) => logStartup('private: ' + message),
+        onError: (error) => logStartup('private error: ' + error.message)
+      }
+    })
+    try {
+      await service.start()
+    } catch (error) {
+      logStartup('private service start failed: ' + (error as Error).message)
+      return
+    }
+    this.privateService = service
   }
 
   private importLegacyHistory(): void {
@@ -145,6 +240,12 @@ export class AppService {
     if (this.filesStarted) {
       await this.fileManager.stop()
       this.filesStarted = false
+    }
+    const privateService = this.privateService
+    this.privateService = null
+    this.privateReceipts.clear()
+    if (privateService !== null) {
+      await privateService.stop()
     }
     if (this.started) {
       await this.engine.stop()
@@ -184,23 +285,71 @@ export class AppService {
     if (peer === undefined || !peer.online) {
       throw new Error('联系人不在线')
     }
+    const privateService = this.privateService
+    if (privateService !== null && privateService.isReady(peer.ip)) {
+      const msgId = this.nextPrivateSeq()
+      if (privateService.sendText(peer.ip, msgId, request.text)) {
+        return { message: this.recordOutgoing(conversation.id, request.text, msgId) }
+      }
+    }
     const seq = this.engine.sendText(peer.key, request.text)
-    const message = this.repos.messages.insertOutgoing(conversation.id, request.text, seq)
-    this.repos.messages.setStatus(message.id, 'sent')
+    return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
+  }
+
+  private recordOutgoing(
+    conversationId: string,
+    text: string,
+    remoteSeq: number,
+    status?: string
+  ): MessageInfo {
+    const message = this.repos.messages.insertOutgoing(conversationId, text, remoteSeq)
+    if (status !== undefined) {
+      this.repos.messages.setStatus(message.id, status)
+    }
     const updated = this.repos.messages.getMessage(message.id)
     if (updated === null) {
       throw new Error('消息写入后无法读取')
     }
-    this.repos.conversations.touch(conversation.id, updated.createdAt, 0)
+    this.repos.conversations.touch(conversationId, updated.createdAt, 0)
     this.emit({ type: 'message', message: updated })
-    this.emitConversation(conversation.id)
-    return { message: updated }
+    this.emitConversation(conversationId)
+    return updated
+  }
+
+  // 私有通道的消息号与文件号同一形式：秒级时间戳后接三位自增序号
+  private nextPrivateSeq(): number {
+    this.privateSeq = (this.privateSeq + 1) % 1000
+    return Date.now() * 1000 + this.privateSeq
   }
 
   markRead(conversationId: string, messageId: number): void {
+    this.sendPrivateReceipts(conversationId, messageId)
     this.repos.conversations.markRead(conversationId, messageId)
     this.emitConversation(conversationId)
     this.notifications.setUnread(this.unreadTotal())
+  }
+
+  // 已读回执只对私有会话发送，且每条消息只发一次
+  private sendPrivateReceipts(conversationId: string, messageId: number): void {
+    const privateService = this.privateService
+    if (privateService === null) {
+      return
+    }
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      return
+    }
+    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (peer === undefined || !privateService.isReady(peer.ip)) {
+      return
+    }
+    for (const row of this.repos.messages.listPrivateIncoming(conversationId)) {
+      if (row.id > messageId || this.privateReceipts.has(row.id)) {
+        continue
+      }
+      privateService.sendReceipt(peer.ip, row.remoteSeq)
+      this.privateReceipts.add(row.id)
+    }
   }
 
   setActiveConversation(conversationId: string | null): void {
@@ -371,6 +520,7 @@ export class AppService {
       broadcastInterval: settings.network.broadcastInterval
     })
     this.engine.updateStatus(settings.identity.status)
+    this.privateService?.updateProfile(privateProfile(settings))
   }
 
   private handleFileOffer(
@@ -478,9 +628,21 @@ export class AppService {
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
   }
 
-  private handleIncoming(peerKey: string, peerName: string, text: string, remoteSeq: number): void {
+  private handleIncoming(
+    peerKey: string,
+    peerName: string,
+    text: string,
+    remoteSeq: number,
+    meta = '{}'
+  ): void {
     const conversation = this.repos.conversations.ensureDirect(peerKey, peerName || peerKey)
-    const message = this.repos.messages.insertIncoming(conversation.id, text, remoteSeq)
+    const message = this.repos.messages.insertIncoming(
+      conversation.id,
+      text,
+      remoteSeq,
+      'text',
+      meta
+    )
     this.repos.conversations.touch(conversation.id, message.createdAt, 1)
     this.emit({ type: 'message', message })
     this.emitConversation(conversation.id)
@@ -511,6 +673,46 @@ export class AppService {
     const message = this.repos.messages.getMessage(row.id)
     if (message !== null) {
       this.emit({ type: 'message', message })
+    }
+  }
+
+  private handlePrivateText(ip: string, msgId: number, text: string): void {
+    const peerKey = this.engine.peerKeyForIp(ip)
+    if (peerKey === null) {
+      logStartup(`忽略来自 ${ip} 的私有消息：没有对应的联系人`)
+      return
+    }
+    const peer = this.repos.peers.get(peerKey)
+    const meta = JSON.stringify({ source: 'private', msgId: String(msgId) })
+    this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, text, msgId, meta)
+  }
+
+  private handlePrivateStatus(ip: string, msgId: number, status: 'delivered' | 'read'): void {
+    const peerKey = this.engine.peerKeyForIp(ip)
+    if (peerKey === null) {
+      logStartup(`忽略来自 ${ip} 的私有状态：没有对应的联系人`)
+      return
+    }
+    this.handleStatus(peerKey, msgId, status)
+  }
+
+  private handlePrivateState(ip: string, state: SessionState, profile: RemoteProfile | null): void {
+    if (state === 'ready' && profile !== null) {
+      this.engine.upsertPrivatePeer({
+        ip,
+        userId: profile.userId,
+        name: profile.name,
+        group: profile.group,
+        corporation: profile.corporation,
+        department: profile.department,
+        sign: profile.sign,
+        status: profile.status,
+        online: true
+      })
+      return
+    }
+    if (state === 'closed') {
+      this.engine.markPrivatePeerOffline(ip)
     }
   }
 

@@ -173,6 +173,25 @@ describe('MessageRepository', () => {
     db.close()
   })
 
+  it('lists only private incoming messages of a conversation', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const messages = new MessageRepository(db)
+    const conversation = conversations.ensureDirect('127.0.0.1|abc', 'p')
+    messages.insertIncoming(conversation.id, 'ipmsg', 1)
+    messages.insertIncoming(
+      conversation.id,
+      'private',
+      2,
+      'text',
+      '{"source":"private","msgId":"2"}'
+    )
+    const rows = messages.listPrivateIncoming(conversation.id)
+    expect(rows.map((row) => row.text)).toEqual(['private'])
+    expect(rows[0].remoteSeq).toBe(2)
+    db.close()
+  })
+
   it('maps directions, statuses and metadata', () => {
     const db = openMemory()
     const conversations = new ConversationRepository(db)
