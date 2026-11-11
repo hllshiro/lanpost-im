@@ -434,7 +434,7 @@ git commit -m "feat: add enet reliable channel and fragment reassembly"
 - Produces:
   - `export interface DiscoveryBeacon { type: number; ip: string; ports: { beacon: number; tcp: number; enet: number }; userId: string; peerId: Buffer; enetPort: number }`
   - `export function decodeBeacon(data: Buffer): DiscoveryBeacon | null`
-  - `export function encodeBeacon(input: { type: number; ip: string; broadcast: string; userId: string; peerId: Buffer; enetPort: number; beaconPort?: number }): Buffer`
+  - `export function encodeBeacon(input: { type: number; ip: string; broadcast: string; userId: string; peerId: Buffer; enetPort: number; beaconPort?: number; timestamp?: number }): Buffer`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -466,9 +466,14 @@ describe('beacon', () => {
       broadcast: '192.168.1.255',
       userId: '0123456789abcdef0123456789abcdef',
       peerId,
-      enetPort: 54321
+      enetPort: 54321,
+      timestamp: 1792726793
     })
     expect(raw.length).toBe(304)
+    expect(raw.readUInt32BE(0x04)).toBe(4)
+    expect(raw.readUInt32BE(0x08)).toBe(1)
+    expect(raw.readUInt32BE(0x0c)).toBe(1792726793)
+    expect(raw.readUInt32BE(0xa0)).toBe(500)
     expect(decodeBeacon(raw)).toMatchObject({
       type: 4,
       ip: '192.168.1.20',
@@ -495,7 +500,7 @@ Expected: FAIL，提示找不到模块 `./beacon`
 
 - [ ] **Step 3: Implement `beacon.ts`**
 
-按设计文档第 5 节的偏移读写：0x04 类型、0x10 IP、0x18/0x1a/0x1c 三个大端 u16、0x1e 32 字节用户标识、0x5f 16 字节标识、0xa5 大端 u16 ENet 端口；编码时清零其余字节，`beaconPort` 默认 9011。
+按设计文档第 5 节的偏移读写：0x04 类型、0x08 版本固定写 1、0x0c 大端 Unix 秒（`timestamp` 未传时取当前时间）、0x10 IP、0x14 广播地址、0x18/0x1a/0x1c 三个大端 u16、0x1e 32 字节用户标识、0x5f 16 字节标识、0xa0 固定写 500、0xa5 大端 u16 ENet 端口；其余字节清零，`beaconPort` 默认 9011。
 
 - [ ] **Step 4: Run test to verify it passes**
 
