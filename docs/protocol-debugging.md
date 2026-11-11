@@ -149,7 +149,7 @@ Wireshark 显示过滤器用 `udp.port == 2425 || tcp.port == 2425`，需要只�
 - 部分内网通版本会在第一个字段回传自己的任务标识，包编号和文件 ID 都对不上。发送端需要按对端 IP 取最新的 `offered`/`transferring` 任务兜底；Go 版本已经这样做，Electron 版本也补上了这一层。
 - 接收文件必须保存 TCP 响应里的原始字节，不能把 UDP 邀请里的文本当成文件内容。
 
-## 私有通道（客户端已接入，联调未通过）
+## 私有通道（客户端已接入，文字联调已通过）
 
 协议结构、样例报文、会话时序和复现脚本见 `../../nwt-re/docs/private-protocol.md`。接入侧要注意这些事实：
 
@@ -160,10 +160,14 @@ Wireshark 显示过滤器用 `udp.port == 2425 || tcp.port == 2425`，需要只�
 
 2026-11-11 用 `PrivateService` 直接连运行中的样本 `127.0.0.1:9012`（样本工作目录 `D:/wlr/ai/nwt-re/extracted`，占用 UDP 9011/9012）：
 
-- CONNECT 能收到 VERIFY_CONNECT。样本把分配的会话号放在载荷第 2、3 字节（观测到 0–3），之后要求数据报头部带上这两个 bit。`PrivateSession` 只用载荷第 0 字节的对端编号，出站头部固定写 0；会话号非 0 时样本丢弃我们的 ACK、PING 和 hello，按 500ms 起步重传 VERIFY 共 5 次，随后发 DISCONNECT（0x04，载荷 4 字节）。会话停在 `handshaking`，日志是“无法确定命令 0x4 的载荷长度”。
-- 把会话号补进头部后，样本立即发自己的 `X_HANDSHARK`（0x88 分片）、BANDWIDTH_LIMIT 和心跳，说明 ENet 握手、可靠序号与分片都对得上，剩下的问题在 hello 内容。
-- hello 的 0x0c 字段在本机样本里是固定值 `0x5FC1D8EC`，不是当前时间：抓包里的 hello 和样本自己的 304 字节报文都带这个值，二进制文件偏移 0x256d64 处写入它，0x1fe670 处是 `cmp eax, 0x5FC1D8EC`。把 hello 的 0x0c 改成当前时间、0、1 或一年前都会被回 DISCONNECT，改回 `0x5FC1D8EC` 立即被接受；0x10 起的 IP、0x14 广播、0x1a/0x1c 端口、0x1e 用户标识、0x5f 对端标识单独改动都不影响。
-- 下一步要改三处：`parseVerifyPayload` 取回会话号并让 `ReliableEnd` 把它写进出站头部；hello 的 0x0c 写 `0x5FC1D8EC`；`commandPayloadSize` 认识 DISCONNECT 0x04，收到后按对端关闭处理。
+- 状态走到 `ready`；`sendText(424242)` 发出的 `X_SEND_MSG(1004)` 收到 1005 回执。状态序列 `connecting → verifying → handshaking → ready`。
+- ENet 头部第 12–13 位是对端分配的会话号（0–3），VERIFY_CONNECT 载荷第 2、3 字节给出。回 ACK、PING、hello 与之后所有数据报都要带上；写 0 时样本丢弃并重传 VERIFY，随后 DISCONNECT。客户端采用 VERIFY 的 `outgoingSessionId`，接收侧固定用 1。
+- ACK 的通道号用被确认命令所在的通道：握手命令在 0xff，hello 与业务命令在 0；固定写 0xff 时样本收不到确认，每 2.5 秒重传自己的 `X_HANDSHARK` 分片。
+- hello 的 0x0c 是固定值 `0x5FC1D8EC`（二进制偏移 0x256d64 写入，0x1fe670 处 `cmp eax, 0x5FC1D8EC`）。抓包里的 hello 和样本自己的 304 字节报文都带这个值；改成当前时间、0、1 或一年前都会被回 DISCONNECT。
+- `X_HANDSHARK` 的 `<GROUP>` 必须是非空白字符串；空串或单个空格会被回 DISCONNECT，空分组时发 `Default`。其余字段（FEATURE 版本位、能力位、CORP_ID、CORP_TIME、STATUS、NET 端口）独立改动不影响接受。
+- DISCONNECT 是 `0x84`（命令 0x04 加 ACK 标志），载荷 4 字节；收到后按对端关闭处理。
+
+0x10 起的 IP、0x14 广播、0x1a/0x1c 端口、0x1e 用户标识、0x5f 对端标识单独改动都不影响 hello 被接受。
 
 本客户端两个实例之间互通正常：双方进入 ready，文字送达并收到 1005。
 
