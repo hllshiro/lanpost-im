@@ -406,6 +406,24 @@ export class ProtocolEngine {
     this.emitPeers()
   }
 
+  // 私有通道心跳：私有对端收不到 IPMSG 心跳，靠这里刷新在线时间，避免 120 秒超时误判离线。
+  touchPrivatePeer(ip: string): void {
+    const key = this.ipIndex.get(ip)
+    if (key === undefined) {
+      return
+    }
+    const peer = this.peers.get(key)
+    if (peer === undefined) {
+      return
+    }
+    peer.lastSeen = Date.now()
+    if (peer.online) {
+      return
+    }
+    peer.online = true
+    this.emitPeers()
+  }
+
   peerKeyForIp(ip: string): string | null {
     return this.ipIndex.get(ip) ?? null
   }
@@ -699,6 +717,13 @@ export class ProtocolEngine {
   private sendRaw(ip: string, port: number, data: Buffer, quiet = false): void {
     const socket = this.socket
     if (socket === null) {
+      return
+    }
+    // 只在私有通道出现过的联系人还没有 IPMSG 端口，没有可发送的 UDP 目标。
+    if (port <= 0) {
+      if (!quiet) {
+        this.log(`联系人 ${ip} 还没有 IPMSG 端口，丢弃 ${data.length} 字节报文`)
+      }
       return
     }
     const pending = new Promise<void>((resolve) => {

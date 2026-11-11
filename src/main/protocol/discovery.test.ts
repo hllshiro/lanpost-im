@@ -652,4 +652,45 @@ describe('protocol engine over real UDP', () => {
       await engine.stop()
     }
   }, 20000)
+
+  it('revives an idle private peer on a private heartbeat', async () => {
+    const port = await freeUdpPort()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(makeConfig({ port }), recorder.callbacks)
+    try {
+      await engine.start()
+      const peer = engine.upsertPrivatePeer({
+        ip: '127.0.0.1',
+        userId: '00112233445566778899aabbccddeeff',
+        name: '空闲联系人',
+        group: '',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        online: true
+      })
+      // 模拟超过 120 秒没有任何 IPMSG 报文的会话
+      peer.lastSeen = Date.now() - 130_000
+      peer.online = false
+      const touchedAt = Date.now()
+      engine.touchPrivatePeer('127.0.0.1')
+
+      const revived = recorder.peers.get(peer.key)
+      expect(revived?.online).toBe(true)
+      expect(revived?.lastSeen).toBeGreaterThanOrEqual(touchedAt)
+
+      // 已经在线时不再重复推送联系人表
+      recorder.peers.delete(peer.key)
+      engine.touchPrivatePeer('127.0.0.1')
+      expect(recorder.peers.size).toBe(0)
+
+      // 未知地址不产生联系人
+      engine.touchPrivatePeer('127.0.0.2')
+      expect(engine.peerKeyForIp('127.0.0.2')).toBeNull()
+      expect(recorder.errors).toEqual([])
+    } finally {
+      await engine.stop()
+    }
+  }, 20000)
 })
