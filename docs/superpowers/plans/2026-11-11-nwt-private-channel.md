@@ -333,7 +333,7 @@ git commit -m "feat: add enet packet codec"
 **Interfaces:**
 - Consumes: Task 3 的编解码函数与常量
 - Produces:
-  - `export interface ReliableOptions { peerId: number; send: (data: Buffer) => void; now?: () => number; retransmitMs?: number; maxRetries?: number; initialSeq?: number }`
+  - `export interface ReliableOptions { peerId: number; send: (data: Buffer) => void; now?: () => number; retransmitMs?: number; maxRetries?: number; initialSeq?: number; initialPeerSeq?: number }`
   - `export class ReliableEnd { constructor(options: ReliableOptions); send(data: Buffer): void; receive(datagram: Buffer): Buffer[]; pump(): void; get pendingCount(): number }`
 
 - [ ] **Step 1: Write the failing test**
@@ -342,12 +342,17 @@ git commit -m "feat: add enet packet codec"
 import { describe, expect, it } from 'vitest'
 import { ReliableEnd } from './enet'
 
-function makePair(initialSeq?: number) {
+function makePair(initialSeq?: number, initialPeerSeq?: number) {
   let clock = 1000
   const aOut: Buffer[] = []
   const bOut: Buffer[] = []
   const a = new ReliableEnd({ peerId: 1, send: (d) => aOut.push(d), now: () => clock, initialSeq })
-  const b = new ReliableEnd({ peerId: 2, send: (d) => bOut.push(d), now: () => clock })
+  const b = new ReliableEnd({
+    peerId: 2,
+    send: (d) => bOut.push(d),
+    now: () => clock,
+    initialPeerSeq
+  })
   const flush = (): Buffer[] => {
     const delivered: Buffer[] = []
     while (aOut.length > 0) delivered.push(...b.receive(aOut.shift()!))
@@ -386,7 +391,7 @@ describe('reliable end', () => {
   })
 
   it('survives 16-bit sequence wrap', () => {
-    const { a, flush } = makePair(65534)
+    const { a, flush } = makePair(65534, 65534)
     a.send(Buffer.from('x'))
     a.send(Buffer.from('y'))
     a.send(Buffer.from('z'))
@@ -402,7 +407,7 @@ Expected: FAIL，提示 `ReliableEnd` 未导出
 
 - [ ] **Step 3: Implement `ReliableEnd`**
 
-在同一文件里补充：通道 0 的自增序号；未确认队列（发出时间、重试次数），`pump()` 在超过 `retransmitMs`（默认 500）后重发，1.5 倍退避，`maxRetries`（默认 6）后丢弃；`receive` 对要求 ACK 的命令回 ACK（命令头 channelId `0xff`、reliableSeq 用被确认的序号，载荷用 `buildAckPayload(被确认序号, 对端 sentTime)`），按 16 位序号比较规则按序交付，超过 `ENET_MAX_PAYLOAD` 的消息用 SEND_FRAGMENT 拆分，按 `startSeq + offset` 重组。
+在同一文件里补充：通道 0 的自增序号（首值由 `initialSeq` 决定，默认 1）；接收端期望序号由 `initialPeerSeq` 决定（默认 1），乱序到达时缓存、按序交付；未确认队列（发出时间、重试次数、数据报 sentTime），`pump()` 在超过 `retransmitMs`（默认 500）后重发，1.5 倍退避，`maxRetries`（默认 6）后丢弃；`receive` 对要求 ACK 的命令回 ACK（命令头 channelId `0xff`、reliableSeq 用被确认的序号，载荷用 `buildAckPayload(被确认序号, 对端 sentTime)`），ACK 按 `(reliableSeq, sentTime)` 两个字段匹配未确认项，避免确认到同序号的另一条命令；按 16 位序号比较规则按序交付；超过 `ENET_MAX_PAYLOAD` 的消息用 SEND_FRAGMENT 拆分，按 `startSeq + offset` 重组；入站消息总长上限 1 MiB，分片组 30 秒未收齐即丢弃、最多同时缓存 8 组，超限或元数据不一致时抛 `EnetError`。
 
 - [ ] **Step 4: Run test to verify it passes**
 
