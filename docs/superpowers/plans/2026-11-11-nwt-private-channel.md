@@ -186,6 +186,8 @@ git commit -m "feat: add private channel frame codec"
   - `export function parseVerifyPayload(payload: Buffer): { peerId: number; connectId: number }`
   - `export function buildReliablePayload(data: Buffer): Buffer`
   - `export function parseReliablePayload(payload: Buffer): Buffer`
+  - `export function buildAckPayload(receivedSeq: number, sentTime: number): Buffer`
+  - `export function parseAckPayload(payload: Buffer): { receivedSeq: number; sentTime: number }`
   - `export function buildFragmentPayload(input: { startSeq: number; fragmentCount: number; fragmentNumber: number; totalLength: number; offset: number; data: Buffer }): Buffer`
   - `export function parseFragmentPayload(payload: Buffer): { startSeq: number; fragmentCount: number; fragmentNumber: number; totalLength: number; offset: number; data: Buffer }`
 
@@ -198,10 +200,12 @@ import {
   ENET_CMD_SEND_FRAGMENT,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
+  buildAckPayload,
   buildFragmentPayload,
   buildVerifyPayload,
   decodeDatagram,
   encodeDatagram,
+  parseAckPayload,
   parseFragmentPayload,
   parseVerifyPayload
 } from './enet'
@@ -235,18 +239,18 @@ describe('enet codec', () => {
     expect(buildVerifyPayload(1, 0xe417824b).equals(d.commands[0].payload)).toBe(true)
   })
 
-  it('parses a captured fragment header', () => {
-    const hex = '80006a0f880000010001055c00000002000000000000061e00000000'
-    const d = decodeDatagram(Buffer.from(hex, 'hex'))
-    const frag = parseFragmentPayload(d.commands[0].payload)
-    expect(d.commands[0].command).toBe(ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK)
-    expect(frag).toMatchObject({
-      startSeq: 1,
-      fragmentCount: 2,
-      fragmentNumber: 0,
-      totalLength: 0x61e,
-      offset: 0
-    })
+  it('decodes the captured ACK + PING datagram', () => {
+    const d = decodeDatagram(Buffer.from('8001d09501ff00010001ca1b85ff0002', 'hex'))
+    expect(d.peerId).toBe(1)
+    expect(d.sentTime).toBe(0xd095)
+    expect(d.commands).toHaveLength(2)
+    expect(d.commands[0].command).toBe(0x01)
+    expect(d.commands[0].channelId).toBe(0xff)
+    expect(d.commands[0].reliableSeq).toBe(1)
+    expect(parseAckPayload(d.commands[0].payload)).toEqual({ receivedSeq: 1, sentTime: 0xca1b })
+    expect(d.commands[1].command).toBe(ENET_CMD_PING | ENET_FLAG_ACK)
+    expect(d.commands[1].payload.length).toBe(0)
+    expect(buildAckPayload(1, 0xca1b).equals(d.commands[0].payload)).toBe(true)
   })
 
   it('round-trips a constructed fragment', () => {
@@ -267,6 +271,25 @@ describe('enet codec', () => {
       offset: 44
     })
     expect(parsed.data.toString()).toBe('tail')
+    const datagram = encodeDatagram(1, 7, [
+      { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 5, payload }
+    ])
+    expect(decodeDatagram(datagram).commands[0].payload.equals(payload)).toBe(true)
+  })
+
+  it('rejects a datagram whose declared length exceeds the data', () => {
+    const payload = buildFragmentPayload({
+      startSeq: 5,
+      fragmentCount: 2,
+      fragmentNumber: 1,
+      totalLength: 100,
+      offset: 44,
+      data: Buffer.from('tail')
+    })
+    const datagram = encodeDatagram(1, 7, [
+      { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 5, payload }
+    ])
+    expect(() => decodeDatagram(datagram.subarray(0, datagram.length - 2))).toThrow()
   })
 
   it('builds a ping command with the ack flag', () => {
@@ -379,7 +402,7 @@ Expected: FAIL，提示 `ReliableEnd` 未导出
 
 - [ ] **Step 3: Implement `ReliableEnd`**
 
-在同一文件里补充：通道 0 的自增序号；未确认队列（发出时间、重试次数），`pump()` 在超过 `retransmitMs`（默认 500）后重发，1.5 倍退避，`maxRetries`（默认 6）后丢弃；`receive` 对要求 ACK 的命令回 ACK，按 16 位序号比较规则按序交付，超过 `ENET_MAX_PAYLOAD` 的消息用 SEND_FRAGMENT 拆分，按 `startSeq + offset` 重组；增加 `drain(): Buffer[]` 返回并清空已交付消息。
+在同一文件里补充：通道 0 的自增序号；未确认队列（发出时间、重试次数），`pump()` 在超过 `retransmitMs`（默认 500）后重发，1.5 倍退避，`maxRetries`（默认 6）后丢弃；`receive` 对要求 ACK 的命令回 ACK（命令头 channelId `0xff`、reliableSeq 用被确认的序号，载荷用 `buildAckPayload(被确认序号, 对端 sentTime)`），按 16 位序号比较规则按序交付，超过 `ENET_MAX_PAYLOAD` 的消息用 SEND_FRAGMENT 拆分，按 `startSeq + offset` 重组。
 
 - [ ] **Step 4: Run test to verify it passes**
 
