@@ -172,42 +172,46 @@ export class AppService {
     this.notifications.setUnread(this.unreadTotal())
   }
 
-  // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用
+  // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用；
+  // 数据目录只读时写不进去不影响本次运行，privateUserId 会按账号与主机名派生
   private ensurePrivateId(): void {
     if (this.settings.get().identity.privateId !== '') {
       return
     }
-    this.settings.update({ identity: { privateId: createPrivateId() } })
+    try {
+      this.settings.update({ identity: { privateId: createPrivateId() } })
+    } catch (error) {
+      logStartup('private id save failed: ' + (error as Error).message)
+    }
   }
 
   // 私有通道失败只影响私有收发，IPMSG 依旧按原路径工作
   private async startPrivateService(): Promise<void> {
-    const settings = this.settings.get()
-    const service = new PrivateService({
-      identity: { userId: privateUserId(settings), peerId: randomBytes(16) },
-      profile: privateProfile(settings),
-      bindAddr: settings.network.bindAddr,
-      beaconPort: settings.network.privatePort,
-      enetPort: 0,
-      seeds: privateSeeds(settings),
-      callbacks: {
-        onText: (ip, msgId, text) => this.handlePrivateText(ip, msgId, text),
-        onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
-        onAck: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'delivered'),
-        onReceipt: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'read'),
-        onState: (ip, state, profile) => this.handlePrivateState(ip, state, profile),
-        onActivity: (ip) => this.engine.touchPrivatePeer(ip),
-        onLog: (message) => logStartup('private: ' + message),
-        onError: (error) => logStartup('private error: ' + error.message)
-      }
-    })
     try {
+      const settings = this.settings.get()
+      const service = new PrivateService({
+        identity: { userId: privateUserId(settings), peerId: randomBytes(16) },
+        profile: privateProfile(settings),
+        bindAddr: settings.network.bindAddr,
+        beaconPort: settings.network.privatePort,
+        enetPort: 0,
+        seeds: privateSeeds(settings),
+        callbacks: {
+          onText: (ip, msgId, text) => this.handlePrivateText(ip, msgId, text),
+          onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
+          onAck: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'delivered'),
+          onReceipt: (ip, msgId) => this.handlePrivateStatus(ip, msgId, 'read'),
+          onState: (ip, state, profile) => this.handlePrivateState(ip, state, profile),
+          onActivity: (ip) => this.engine.touchPrivatePeer(ip),
+          onLog: (message) => logStartup('private: ' + message),
+          onError: (error) => logStartup('private error: ' + error.message)
+        }
+      })
       await service.start()
+      this.privateService = service
     } catch (error) {
       logStartup('private service start failed: ' + (error as Error).message)
-      return
     }
-    this.privateService = service
   }
 
   private importLegacyHistory(): void {
@@ -291,6 +295,10 @@ export class AppService {
       if (privateService.sendText(peer.ip, msgId, request.text)) {
         return { message: this.recordOutgoing(conversation.id, request.text, msgId) }
       }
+    }
+    // 只在私有通道出现过的联系人没有 IPMSG 端口，回落过去只会丢包却把消息标成已发送
+    if (peer.port <= 0) {
+      throw new Error('联系人不在线')
     }
     const seq = this.engine.sendText(peer.key, request.text)
     return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
