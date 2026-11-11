@@ -105,6 +105,19 @@ export interface ProtocolPeer {
   lastSeen: number
 }
 
+// 私有通道握手得到的对端资料。私有通道不经过 IPMSG，联系人表需要单独入口写入。
+export interface PrivatePeerSnapshot {
+  ip: string
+  userId: string
+  name: string
+  group: string
+  corporation: string
+  department: string
+  sign: string
+  status: number
+  online: boolean
+}
+
 export type MessageStatus = 'delivered' | 'read'
 
 export interface ProtocolCallbacks {
@@ -241,6 +254,8 @@ export class ProtocolEngine {
   private config: ProtocolConfig
   private readonly callbacks: ProtocolCallbacks
   private readonly peers = new Map<string, ProtocolPeer>()
+  // IP → 联系人 key。私有通道先到时，后续 IPMSG 报文按地址复用同一个联系人。
+  private readonly ipIndex = new Map<string, string>()
   private readonly handshakeAt = new Map<string, number>()
   private readonly handshakeTries = new Map<string, number>()
   private readonly ansEntryAt = new Map<string, number>()
@@ -334,6 +349,65 @@ export class ProtocolEngine {
 
   getPeers(): ProtocolPeer[] {
     return [...this.peers.values()].map(clonePeer).sort(comparePeers)
+  }
+
+  // 私有通道握手完成后写入联系人；返回引擎内的实时对象，调用方需要副本时自行 clone。
+  upsertPrivatePeer(snapshot: PrivatePeerSnapshot): ProtocolPeer {
+    const key = this.ipIndex.get(snapshot.ip) ?? `${snapshot.ip}|${snapshot.userId}`
+    const now = Date.now()
+    let peer = this.peers.get(key)
+    if (peer === undefined) {
+      peer = {
+        key,
+        ip: snapshot.ip,
+        port: 0,
+        user: snapshot.userId,
+        host: '',
+        name: '',
+        group: '',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        corpId: '',
+        ports: emptyPorts(),
+        online: snapshot.online,
+        ready: false,
+        legacy: false,
+        firstSeen: now,
+        lastSeen: now
+      }
+      this.peers.set(key, peer)
+      this.ipIndex.set(snapshot.ip, key)
+    }
+    peer.user = snapshot.userId
+    peer.name = snapshot.name
+    peer.group = snapshot.group
+    peer.corporation = snapshot.corporation
+    peer.department = snapshot.department
+    peer.sign = snapshot.sign
+    peer.status = snapshot.status
+    peer.online = snapshot.online
+    peer.lastSeen = now
+    this.emitPeers()
+    return peer
+  }
+
+  markPrivatePeerOffline(ip: string): void {
+    const key = this.ipIndex.get(ip)
+    if (key === undefined) {
+      return
+    }
+    const peer = this.peers.get(key)
+    if (peer === undefined) {
+      return
+    }
+    peer.online = false
+    this.emitPeers()
+  }
+
+  peerKeyForIp(ip: string): string | null {
+    return this.ipIndex.get(ip) ?? null
   }
 
   sendText(peerKey: string, text: string): number {
@@ -650,7 +724,7 @@ export class ProtocolEngine {
     if (header.user === this.config.account && header.host === this.config.host) {
       return
     }
-    const key = `${rinfo.address}|${header.user}`
+    const key = this.ipIndex.get(rinfo.address) ?? `${rinfo.address}|${header.user}`
     const now = Date.now()
     let peer = this.peers.get(key)
     if (peer === undefined) {

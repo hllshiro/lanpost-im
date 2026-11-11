@@ -570,4 +570,86 @@ describe('protocol engine over real UDP', () => {
       })
     }
   }, 20000)
+
+  it('keeps one peer when the private session arrives before IPMSG', async () => {
+    const port = await freeUdpPort()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(makeConfig({ port }), recorder.callbacks)
+    const raw = await openRawSocket()
+    try {
+      await engine.start()
+      const peer = engine.upsertPrivatePeer({
+        ip: '127.0.0.1',
+        userId: '0123456789abcdef0123456789abcdef',
+        name: '上网机 3',
+        group: '',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        online: true
+      })
+      expect(peer.key).toBe('127.0.0.1|0123456789abcdef0123456789abcdef')
+      expect(engine.peerKeyForIp('127.0.0.1')).toBe(peer.key)
+
+      raw.socket.send(
+        Encode({
+          seq: 1,
+          user: 'account-b',
+          host: 'host-b',
+          cmd: CMD_ENTRY,
+          payload: entryPayload('乙', '', ''),
+          legacy: true
+        }),
+        port,
+        '127.0.0.1'
+      )
+      await waitFor(() => {
+        const current = recorder.peers.get(peer.key)
+        return current !== undefined && current.name === '乙' ? current : null
+      })
+      expect([...recorder.peers.keys()]).toEqual([peer.key])
+      expect(recorder.peers.get(peer.key)?.name).toBe('乙')
+      expect(recorder.peers.get(peer.key)?.online).toBe(true)
+    } finally {
+      raw.socket.close()
+      await engine.stop()
+    }
+  }, 20000)
+
+  it('marks a private peer offline by its address', async () => {
+    const port = await freeUdpPort()
+    const recorder = createRecorder()
+    const engine = new ProtocolEngine(makeConfig({ port }), recorder.callbacks)
+    try {
+      await engine.start()
+      const peer = engine.upsertPrivatePeer({
+        ip: '127.0.0.1',
+        userId: 'fedcba9876543210fedcba9876543210',
+        name: '私有联系人',
+        group: '',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        online: true
+      })
+      expect(engine.peerKeyForIp('127.0.0.1')).toBe(peer.key)
+
+      engine.markPrivatePeerOffline('127.0.0.1')
+      const offline = await waitFor(() => {
+        const current = recorder.peers.get(peer.key)
+        return current !== undefined && !current.online ? current : null
+      })
+      expect(offline.key).toBe(peer.key)
+
+      // 未知地址不产生任何联系人，也不抛错
+      engine.markPrivatePeerOffline('127.0.0.2')
+      expect(engine.peerKeyForIp('127.0.0.2')).toBeNull()
+      expect([...recorder.peers.keys()]).toEqual([peer.key])
+      expect(recorder.errors).toEqual([])
+    } finally {
+      await engine.stop()
+    }
+  }, 20000)
 })
