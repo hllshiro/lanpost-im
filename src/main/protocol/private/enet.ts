@@ -30,6 +30,14 @@ const PACKET_THROTTLE_INTERVAL = 5000
 const PACKET_THROTTLE_ACCELERATION = 2
 const PACKET_THROTTLE_DECELERATION = 2
 
+const APPLICATION_CHANNEL_ID = 0
+const ACK_CHANNEL_ID = 0xff
+const SEQUENCE_HALF = 0x8000
+const FIRST_RELIABLE_SEQ = 1
+const DEFAULT_RETRANSMIT_MS = 500
+const DEFAULT_MAX_RETRIES = 6
+const RETRANSMIT_BACKOFF = 1.5
+
 const CONNECT_MTU_OFFSET = 4
 const CONNECT_THROTTLE_OFFSET = 24
 const CONNECT_ID_OFFSET = 36
@@ -269,5 +277,241 @@ export function parseFragmentPayload(payload: Buffer): {
     totalLength: payload.readUInt32BE(12),
     offset: payload.readUInt32BE(16),
     data: Buffer.from(payload.subarray(FRAGMENT_HEADER_SIZE))
+  }
+}
+
+export interface ReliableOptions {
+  // 本端在对端侧的编号，写入每个数据报头部；VERIFY_CONNECT 握手时确定
+  peerId: number
+  send: (data: Buffer) => void
+  now?: () => number
+  retransmitMs?: number
+  maxRetries?: number
+  // 通道 0 的第一个可靠序号；ENet 从 1 开始
+  initialSeq?: number
+}
+
+interface OutboundCommand {
+  seq: number
+  command: EnetCommand
+  sentAt: number
+  retries: number
+}
+
+interface FragmentGroup {
+  fragmentCount: number
+  totalLength: number
+  data: Buffer
+  numbers: Set<number>
+}
+
+// 16 位序号比较：候选是否比参照更晚（含回绕）
+function isNewerSequence(candidate: number, reference: number): boolean {
+  const delta = (candidate - reference) & 0xffff
+  return delta !== 0 && delta < SEQUENCE_HALF
+}
+
+// 单通道（通道 0）可靠传输：自增序号、重传、ACK、分片拆分与重组、按序交付
+export class ReliableEnd {
+  private readonly peerId: number
+  private readonly sendRaw: (data: Buffer) => void
+  private readonly now: () => number
+  private readonly retransmitMs: number
+  private readonly maxRetries: number
+  private nextSeq: number
+  private readonly pending = new Map<number, OutboundCommand>()
+  // 对端第一个可靠命令的序号作为交付起点：本层看不到握手过程，无法预先得知对端起始序号
+  private expectedSeq: number | null = null
+  private readonly received = new Map<number, EnetCommand>()
+  private readonly fragments = new Map<number, FragmentGroup>()
+
+  constructor(options: ReliableOptions) {
+    this.peerId = options.peerId
+    this.sendRaw = options.send
+    this.now = options.now ?? Date.now
+    this.retransmitMs = options.retransmitMs ?? DEFAULT_RETRANSMIT_MS
+    this.maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES
+    this.nextSeq = options.initialSeq ?? FIRST_RELIABLE_SEQ
+  }
+
+  get pendingCount(): number {
+    return this.pending.size
+  }
+
+  send(data: Buffer): void {
+    if (data.length <= ENET_MAX_PAYLOAD) {
+      this.transmit({
+        command: ENET_CMD_SEND_RELIABLE | ENET_FLAG_ACK,
+        channelId: APPLICATION_CHANNEL_ID,
+        reliableSeq: this.allocateSequence(),
+        payload: buildReliablePayload(data)
+      })
+      return
+    }
+    const fragmentCount = Math.ceil(data.length / ENET_MAX_PAYLOAD)
+    const startSeq = this.allocateSequence()
+    this.nextSeq = (startSeq + fragmentCount) & 0xffff
+    for (let index = 0; index < fragmentCount; index += 1) {
+      const offset = index * ENET_MAX_PAYLOAD
+      const chunk = data.subarray(offset, Math.min(offset + ENET_MAX_PAYLOAD, data.length))
+      this.transmit({
+        command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK,
+        channelId: APPLICATION_CHANNEL_ID,
+        reliableSeq: (startSeq + index) & 0xffff,
+        payload: buildFragmentPayload({
+          startSeq,
+          fragmentCount,
+          fragmentNumber: index,
+          totalLength: data.length,
+          offset,
+          data: chunk
+        })
+      })
+    }
+  }
+
+  receive(datagram: Buffer): Buffer[] {
+    const { sentTime, commands } = decodeDatagram(datagram)
+    const delivered: Buffer[] = []
+    for (const command of commands) {
+      const base = command.command & COMMAND_MASK
+      if (base === ENET_CMD_ACK) {
+        this.acknowledge(command.payload)
+        continue
+      }
+      if ((command.command & ENET_FLAG_ACK) !== 0) {
+        this.sendAck(command.reliableSeq, sentTime ?? 0)
+      }
+      if (base === ENET_CMD_SEND_RELIABLE || base === ENET_CMD_SEND_FRAGMENT) {
+        this.accept(command, delivered)
+      }
+    }
+    return delivered
+  }
+
+  pump(): void {
+    const now = this.now()
+    for (const entry of this.pending.values()) {
+      const interval = this.retransmitMs * RETRANSMIT_BACKOFF ** entry.retries
+      if (now - entry.sentAt < interval) continue
+      if (entry.retries >= this.maxRetries) {
+        this.pending.delete(entry.seq)
+        continue
+      }
+      entry.retries += 1
+      entry.sentAt = now
+      this.sendDatagram(entry.command)
+    }
+  }
+
+  private allocateSequence(): number {
+    const seq = this.nextSeq
+    this.nextSeq = (this.nextSeq + 1) & 0xffff
+    return seq
+  }
+
+  private transmit(command: EnetCommand): void {
+    this.pending.set(command.reliableSeq, {
+      seq: command.reliableSeq,
+      command,
+      sentAt: this.now(),
+      retries: 0
+    })
+    this.sendDatagram(command)
+  }
+
+  private sendDatagram(command: EnetCommand): void {
+    this.sendRaw(encodeDatagram(this.peerId, this.now() & 0xffff, [command]))
+  }
+
+  private sendAck(seq: number, peerSentTime: number): void {
+    this.sendRaw(
+      encodeDatagram(this.peerId, this.now() & 0xffff, [
+        {
+          command: ENET_CMD_ACK,
+          channelId: ACK_CHANNEL_ID,
+          reliableSeq: seq,
+          payload: buildAckPayload(seq, peerSentTime)
+        }
+      ])
+    )
+  }
+
+  private acknowledge(payload: Buffer): void {
+    const { receivedSeq } = parseAckPayload(payload)
+    this.pending.delete(receivedSeq)
+  }
+
+  // 按 16 位序号顺序交付；乱序命令缓存到缺口补齐
+  private accept(command: EnetCommand, delivered: Buffer[]): void {
+    const seq = command.reliableSeq
+    let expected = this.expectedSeq
+    if (expected === null) expected = seq
+    if (seq === expected) {
+      this.dispatch(command, delivered)
+      this.expectedSeq = (seq + 1) & 0xffff
+      this.drain(delivered)
+      return
+    }
+    if (isNewerSequence(seq, expected)) {
+      this.received.set(seq, command)
+    }
+  }
+
+  private drain(delivered: Buffer[]): void {
+    let expected = this.expectedSeq
+    while (expected !== null) {
+      const command = this.received.get(expected)
+      if (command === undefined) break
+      this.received.delete(expected)
+      this.dispatch(command, delivered)
+      expected = (expected + 1) & 0xffff
+    }
+    this.expectedSeq = expected
+  }
+
+  private dispatch(command: EnetCommand, delivered: Buffer[]): void {
+    const base = command.command & COMMAND_MASK
+    if (base === ENET_CMD_SEND_RELIABLE) {
+      delivered.push(parseReliablePayload(command.payload))
+      return
+    }
+    const fragment = parseFragmentPayload(command.payload)
+    if (fragment.fragmentCount === 0 || fragment.fragmentNumber >= fragment.fragmentCount) {
+      throw new EnetError(
+        `分片编号 ${fragment.fragmentNumber} 超出分片总数 ${fragment.fragmentCount}`
+      )
+    }
+    if (fragment.totalLength > fragment.fragmentCount * ENET_MTU) {
+      throw new EnetError(
+        `分片总长 ${fragment.totalLength} 超出 ${fragment.fragmentCount} 片按 MTU ${ENET_MTU} 计算的上限`
+      )
+    }
+    if (fragment.offset + fragment.data.length > fragment.totalLength) {
+      throw new EnetError(
+        `分片偏移 ${fragment.offset} 加数据长度 ${fragment.data.length} 超出总长 ${fragment.totalLength}`
+      )
+    }
+    let group = this.fragments.get(fragment.startSeq)
+    if (group === undefined) {
+      group = {
+        fragmentCount: fragment.fragmentCount,
+        totalLength: fragment.totalLength,
+        data: Buffer.alloc(fragment.totalLength),
+        numbers: new Set<number>()
+      }
+      this.fragments.set(fragment.startSeq, group)
+    } else if (
+      group.fragmentCount !== fragment.fragmentCount ||
+      group.totalLength !== fragment.totalLength
+    ) {
+      throw new EnetError(`分片组 ${fragment.startSeq} 的元数据前后不一致`)
+    }
+    fragment.data.copy(group.data, fragment.offset)
+    group.numbers.add(fragment.fragmentNumber)
+    if (group.numbers.size === group.fragmentCount) {
+      this.fragments.delete(fragment.startSeq)
+      delivered.push(group.data)
+    }
   }
 }
