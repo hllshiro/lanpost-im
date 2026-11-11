@@ -19,6 +19,7 @@ const CONNECT_PAYLOAD_SIZE = 44
 const VERIFY_PAYLOAD_SIZE = 40
 const RELIABLE_HEADER_SIZE = 2
 const FRAGMENT_HEADER_SIZE = 20
+const ACK_PAYLOAD_SIZE = 4
 const BANDWIDTH_PAYLOAD_SIZE = 8
 
 const CONNECT_OUTGOING_PEER_ID = 0
@@ -51,6 +52,7 @@ export interface EnetCommand {
 function commandPayloadSize(base: number, data: Buffer, payloadOffset: number): number {
   switch (base) {
     case ENET_CMD_ACK:
+      return ACK_PAYLOAD_SIZE
     case ENET_CMD_PING:
       return 0
     case ENET_CMD_BANDWIDTH:
@@ -122,11 +124,7 @@ export function decodeDatagram(data: Buffer): {
     const reliableSeq = data.readUInt16BE(offset + 2)
     const payloadOffset = offset + COMMAND_HEADER_SIZE
     const base = command & COMMAND_MASK
-    // 抓包里的分片数据报可能被截断，分片载荷按实际剩余字节裁剪。
-    const payloadSize =
-      base === ENET_CMD_SEND_FRAGMENT
-        ? Math.min(commandPayloadSize(base, data, payloadOffset), data.length - payloadOffset)
-        : commandPayloadSize(base, data, payloadOffset)
+    const payloadSize = commandPayloadSize(base, data, payloadOffset)
     if (payloadOffset + payloadSize > data.length) {
       throw new EnetError(
         `命令 0x${command.toString(16)} 载荷 ${payloadSize} 字节超出数据报剩余长度`
@@ -141,6 +139,23 @@ export function decodeDatagram(data: Buffer): {
     offset = payloadOffset + payloadSize
   }
   return { peerId, sentTime, commands }
+}
+
+export function buildAckPayload(receivedSeq: number, sentTime: number): Buffer {
+  const payload = Buffer.alloc(ACK_PAYLOAD_SIZE)
+  payload.writeUInt16BE(receivedSeq & 0xffff, 0)
+  payload.writeUInt16BE(sentTime & 0xffff, 2)
+  return payload
+}
+
+export function parseAckPayload(payload: Buffer): { receivedSeq: number; sentTime: number } {
+  if (payload.length < ACK_PAYLOAD_SIZE) {
+    throw new EnetError(`ACK 载荷长度 ${payload.length} 小于 ${ACK_PAYLOAD_SIZE}`)
+  }
+  return {
+    receivedSeq: payload.readUInt16BE(0),
+    sentTime: payload.readUInt16BE(2)
+  }
 }
 
 export function buildConnectPayload(connectId: number): Buffer {

@@ -4,10 +4,12 @@ import {
   ENET_CMD_SEND_FRAGMENT,
   ENET_CMD_VERIFY,
   ENET_FLAG_ACK,
+  buildAckPayload,
   buildFragmentPayload,
   buildVerifyPayload,
   decodeDatagram,
   encodeDatagram,
+  parseAckPayload,
   parseFragmentPayload,
   parseVerifyPayload
 } from './enet'
@@ -41,18 +43,18 @@ describe('enet codec', () => {
     expect(buildVerifyPayload(1, 0xe417824b).equals(d.commands[0].payload)).toBe(true)
   })
 
-  it('parses a captured fragment header', () => {
-    const hex = '80006a0f880000010001055c00000002000000000000061e00000000'
-    const d = decodeDatagram(Buffer.from(hex, 'hex'))
-    const frag = parseFragmentPayload(d.commands[0].payload)
-    expect(d.commands[0].command).toBe(ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK)
-    expect(frag).toMatchObject({
-      startSeq: 1,
-      fragmentCount: 2,
-      fragmentNumber: 0,
-      totalLength: 0x61e,
-      offset: 0
-    })
+  it('decodes the captured ACK + PING datagram', () => {
+    const d = decodeDatagram(Buffer.from('8001d09501ff00010001ca1b85ff0002', 'hex'))
+    expect(d.peerId).toBe(1)
+    expect(d.sentTime).toBe(0xd095)
+    expect(d.commands).toHaveLength(2)
+    expect(d.commands[0].command).toBe(0x01)
+    expect(d.commands[0].channelId).toBe(0xff)
+    expect(d.commands[0].reliableSeq).toBe(1)
+    expect(parseAckPayload(d.commands[0].payload)).toEqual({ receivedSeq: 1, sentTime: 0xca1b })
+    expect(d.commands[1].command).toBe(ENET_CMD_PING | ENET_FLAG_ACK)
+    expect(d.commands[1].payload.length).toBe(0)
+    expect(buildAckPayload(1, 0xca1b).equals(d.commands[0].payload)).toBe(true)
   })
 
   it('round-trips a constructed fragment', () => {
@@ -73,6 +75,25 @@ describe('enet codec', () => {
       offset: 44
     })
     expect(parsed.data.toString()).toBe('tail')
+    const datagram = encodeDatagram(1, 7, [
+      { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 5, payload }
+    ])
+    expect(decodeDatagram(datagram).commands[0].payload.equals(payload)).toBe(true)
+  })
+
+  it('rejects a datagram whose declared length exceeds the data', () => {
+    const payload = buildFragmentPayload({
+      startSeq: 5,
+      fragmentCount: 2,
+      fragmentNumber: 1,
+      totalLength: 100,
+      offset: 44,
+      data: Buffer.from('tail')
+    })
+    const datagram = encodeDatagram(1, 7, [
+      { command: ENET_CMD_SEND_FRAGMENT | ENET_FLAG_ACK, channelId: 0, reliableSeq: 5, payload }
+    ])
+    expect(() => decodeDatagram(datagram.subarray(0, datagram.length - 2))).toThrow()
   })
 
   it('builds a ping command with the ack flag', () => {
