@@ -6,8 +6,6 @@ import {
   encodeChatMsgAck,
   encodeChatReceipt,
   encodeHandshake,
-  encodeHeartbeat,
-  encodeQuit,
   encodeReady
 } from '../xml'
 import type { Feature, Handshake, NetPorts, UserInfo, XmlTag, XmlTypes } from '../xml'
@@ -205,11 +203,11 @@ export function sendReceiptXml(msgId: number): string {
 }
 
 export function heartbeatXml(): string {
-  return encodeHeartbeat({ Docver: DOCVER })
+  return '<X_HEARTBEAT docver="1" />'
 }
 
 export function quitXml(): string {
-  return encodeQuit({ Docver: DOCVER })
+  return '<X_QUIT docver="1" />'
 }
 
 function requireXml<K extends XmlTag>(tag: K, xml: string): XmlTypes[K] {

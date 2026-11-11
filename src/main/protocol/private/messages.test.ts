@@ -101,6 +101,12 @@ describe('private messages round-trip', () => {
     expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 4, text: 'ab' })
   })
 
+  it('writes the captured self-closing heartbeat and quit', () => {
+    expect(heartbeatXml()).toBe('<X_HEARTBEAT docver="1" />')
+    expect(Buffer.byteLength(heartbeatXml(), 'utf8')).toBe(26)
+    expect(quitXml()).toBe('<X_QUIT docver="1" />')
+  })
+
   it('writes the json body with escaped spaces and quotes', () => {
     const json = messageTextJson('你好')
     expect(json).toContain('&quot;app&quot;&nbsp;:&nbsp;&quot;shiyeline&quot;')
