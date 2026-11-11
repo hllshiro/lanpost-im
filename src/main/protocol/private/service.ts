@@ -48,6 +48,16 @@ function hasConnectCommand(data: Buffer): boolean {
   )
 }
 
+function isValidIpv4(ip: string): boolean {
+  const parts = ip.split('.')
+  return parts.length === 4 && parts.every((part) => /^\d{1,3}$/.test(part) && Number(part) <= 255)
+}
+
+// 四段点分十进制按数值比较，避免 "10.0.0.10" 与 "10.0.0.9" 之类的字符串误判
+function ipToNumber(ip: string): number {
+  return ip.split('.').reduce((value, part) => value * 256 + Number(part), 0)
+}
+
 function bindSocket(socket: Socket, port: number, address: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error): void => {
@@ -77,7 +87,7 @@ export class PrivateService {
   private pumpTimer: ReturnType<typeof setInterval> | null = null
   private boundEnetPort = 0
   private running = false
-  // 键是远端 IP；同一 IP 只保留一个会话，对端 ENet 端口记录在 peerPorts 里供建立会话时取用
+  // 键是远端 IP；同一 IP 只保留一个会话，对端 ENet 端口记录在 peerPorts 里供建立会话与同时发起比较使用
   private readonly sessions = new Map<string, PrivateSession>()
   private readonly peerPorts = new Map<string, number>()
   private readonly peerProfiles = new Map<string, RemoteProfile>()
@@ -96,6 +106,9 @@ export class PrivateService {
       throw new Error('私有通道服务已经启动')
     }
     this.localIp = this.options.localIp ?? detectLocalIp()
+    if (!isValidIpv4(this.localIp)) {
+      throw new Error(`本机地址格式错误: ${this.localIp}`)
+    }
 
     const enet = createSocket('udp4')
     try {
@@ -132,8 +145,7 @@ export class PrivateService {
     for (const seed of this.options.seeds) {
       if (this.sessions.has(seed.ip)) continue
       const port = seed.port ?? DEFAULT_ENET_PORT
-      this.peerPorts.set(seed.ip, port)
-      this.createSession('client', seed.ip, port).start()
+      this.createSession('client', seed.ip, port)?.start()
     }
 
     this.pumpTimer = setInterval(() => this.pump(), PUMP_INTERVAL_MS)
@@ -204,10 +216,22 @@ export class PrivateService {
       }
       return
     }
-    // 双方同时发起时由接收侧接管：关闭仍在连接中的出站会话，改用服务端角色应答
+    // 双方同时发起时按确定性规则只保留一个方向：本机地址更大的一方接管接收侧，
+    // 另一方忽略这条 CONNECT，继续等待对端应答自己的出站连接
+    if (existing !== undefined && !this.shouldTakeOver(rinfo.address)) {
+      this.log(`与 ${rinfo.address} 同时发起连接，本端保留出站会话，忽略对方 CONNECT`)
+      return
+    }
     existing?.close()
-    this.peerPorts.set(rinfo.address, rinfo.port)
-    this.createSession('server', rinfo.address, rinfo.port).receive(data)
+    this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
+  }
+
+  private shouldTakeOver(remoteIp: string): boolean {
+    const local = ipToNumber(this.localIp)
+    const remote = ipToNumber(remoteIp)
+    if (local !== remote) return local > remote
+    const remotePort = this.peerPorts.get(remoteIp)
+    return remotePort === undefined || this.boundEnetPort > remotePort
   }
 
   private isConnectDatagram(data: Buffer, rinfo: RemoteInfo): boolean {
@@ -231,16 +255,21 @@ export class PrivateService {
     }
     if (!DISCOVERY_BEACON_TYPES.includes(beacon.type) || beacon.enetPort <= 0) return
     const ip = rinfo.address
-    this.peerPorts.set(ip, beacon.enetPort)
     if (this.sessions.has(ip)) return
-    this.createSession('client', ip).start()
+    this.createSession('client', ip, beacon.enetPort)?.start()
   }
 
-  private createSession(role: 'client' | 'server', ip: string, port?: number): PrivateSession {
+  private createSession(
+    role: 'client' | 'server',
+    ip: string,
+    port?: number
+  ): PrivateSession | null {
     const remotePort = port ?? this.peerPorts.get(ip)
     if (remotePort === undefined) {
-      throw new Error(`缺少对端 ${ip} 的 ENet 端口`)
+      this.reportError(new Error(`缺少对端 ${ip} 的 ENet 端口`))
+      return null
     }
+    let session: PrivateSession
     const callbacks: SessionCallbacks = {
       onText: (msgId, text) => this.options.callbacks.onText(ip, msgId, text),
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
@@ -250,23 +279,29 @@ export class PrivateService {
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)
     }
-    const session = new PrivateSession({
-      role,
-      remoteIp: ip,
-      remotePort,
-      localIp: this.localIp,
-      localPort: this.boundEnetPort,
-      identity: this.options.identity,
-      profile: this.profile,
-      send: (data) => this.sendRaw(ip, remotePort, data),
-      callbacks
-    })
+    try {
+      session = new PrivateSession({
+        role,
+        remoteIp: ip,
+        remotePort,
+        localIp: this.localIp,
+        localPort: this.boundEnetPort,
+        identity: this.options.identity,
+        profile: this.profile,
+        send: (data) => this.sendRaw(ip, remotePort, data),
+        callbacks
+      })
+    } catch (error) {
+      this.reportError(error instanceof Error ? error : new Error(String(error)))
+      return null
+    }
     this.sessions.set(ip, session)
+    this.peerPorts.set(ip, remotePort)
     return session
   }
 
-  private handleState(ip: string, state: SessionState, session: PrivateSession): void {
-    if (state === 'closed' && this.sessions.get(ip) === session) {
+  private handleState(ip: string, state: SessionState, session: PrivateSession | null): void {
+    if (state === 'closed' && session !== null && this.sessions.get(ip) === session) {
       this.sessions.delete(ip)
     }
     this.options.callbacks.onState(ip, state, this.peerProfiles.get(ip) ?? null)
