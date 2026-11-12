@@ -18,7 +18,6 @@ function peer(overrides: Partial<PeerInfo> = {}): PeerInfo {
     corpId: '',
     online: true,
     ready: true,
-    legacy: false,
     lastSeen: 0,
     unread: 0,
     alias: '',

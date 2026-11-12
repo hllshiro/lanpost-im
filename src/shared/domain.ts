@@ -15,7 +15,6 @@ export interface PeerInfo {
   corpId: string
   online: boolean
   ready: boolean
-  legacy: boolean
   lastSeen: number
   unread: number
   alias: string

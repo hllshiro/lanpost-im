@@ -32,7 +32,6 @@ function emptyPeer(key: string, ip: string, userId: string): PeerInfo {
     corpId: '',
     online: false,
     ready: false,
-    legacy: false,
     lastSeen: 0,
     unread: 0,
     alias: ''
@@ -65,7 +64,7 @@ export class PeerRegistry {
     }
     for (const peer of seed) {
       if (peer.ip === '' || peer.key === '') continue
-      this.peers.set(peer.key, { ...peer, online: false, ready: false, legacy: false, port: 0 })
+      this.peers.set(peer.key, { ...peer, online: false, ready: false, port: 0 })
     }
     for (const [ip, entry] of latest) {
       this.ipIndex.set(ip, entry.key)
@@ -100,7 +99,6 @@ export class PeerRegistry {
     peer.status = input.status
     peer.online = input.online
     peer.ready = input.online
-    peer.legacy = false
     peer.lastSeen = now
     this.ipIndex.set(input.ip, key)
     this.emit()

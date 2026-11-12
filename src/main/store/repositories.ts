@@ -48,7 +48,6 @@ interface PeerRow {
   corp_id: string
   online: number
   ready: number
-  legacy: number
   alias: string
   last_seen: number
   conversation_unread: number | null
@@ -127,7 +126,6 @@ function mapPeer(row: PeerRow): PeerInfo {
     corpId: row.corp_id,
     online: toBoolean(row.online),
     ready: toBoolean(row.ready),
-    legacy: toBoolean(row.legacy),
     lastSeen: row.last_seen,
     unread: row.conversation_unread ?? 0,
     alias: row.alias,
@@ -480,8 +478,8 @@ export class PeerRepository {
   upsert(peer: PeerInfo): void {
     this.db
       .prepare(
-        `INSERT INTO peers (key, ip, port, user, host, name, group_name, corporation, department, sign, status, corp_id, online, ready, legacy, alias, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO peers (key, ip, port, user, host, name, group_name, corporation, department, sign, status, corp_id, online, ready, alias, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
            ip = excluded.ip,
            port = excluded.port,
@@ -496,7 +494,6 @@ export class PeerRepository {
            corp_id = excluded.corp_id,
            online = excluded.online,
            ready = excluded.ready,
-           legacy = excluded.legacy,
            last_seen = excluded.last_seen`
       )
       .run(
@@ -514,7 +511,6 @@ export class PeerRepository {
         peer.corpId,
         toInteger(peer.online),
         toInteger(peer.ready),
-        toInteger(peer.legacy),
         peer.alias,
         peer.lastSeen
       )

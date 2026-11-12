@@ -30,7 +30,6 @@ function makePeer(key: string, overrides: Partial<PeerInfo> = {}): PeerInfo {
     corpId: '',
     online: false,
     ready: false,
-    legacy: false,
     lastSeen: 0,
     unread: 0,
     alias: '',
@@ -255,7 +254,6 @@ describe('PeerRepository', () => {
         group: '测试部',
         online: true,
         ready: true,
-        legacy: true,
         lastSeen: 50,
         alias: '对方覆盖别名'
       })
@@ -269,7 +267,6 @@ describe('PeerRepository', () => {
       group: '测试部',
       online: true,
       ready: true,
-      legacy: true,
       lastSeen: 50,
       unread: 3,
       alias: '老爱'
