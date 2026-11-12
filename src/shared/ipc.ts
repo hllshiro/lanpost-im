@@ -33,6 +33,8 @@ export const IPC = {
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
   filePaste: 'files:paste',
+  fileStagePaths: 'files:stage-paths',
+  fileStageBytes: 'files:stage-bytes',
   fileStagedRemove: 'files:staged-remove',
   fileStagedSend: 'files:staged-send'
 } as const
@@ -60,6 +62,12 @@ export interface MessagesListRequest {
 export interface MessagesSendRequest {
   conversationId: string
   text: string
+}
+
+// 拖进窗口的文件里，能直接引用的按路径放行，文件夹等无法当文件处理的名字放在 skipped
+export interface StagePathsResult {
+  attachments: StagedAttachment[]
+  skipped: string[]
 }
 
 export type Api = {
@@ -103,6 +111,11 @@ export type Api = {
     // 选中与粘贴都只进待发区，返回当前会话最新的待发列表
     pick(conversationId: string): Promise<StagedAttachment[]>
     paste(conversationId: string): Promise<StagedAttachment[]>
+    // 拖进窗口的文件：有磁盘路径的直接引用，没有路径的按字节落盘
+    stagePaths(conversationId: string, paths: string[]): Promise<StagePathsResult>
+    stageBytes(conversationId: string, name: string, data: ArrayBuffer): Promise<StagedAttachment[]>
+    // 拖进来的 File 对象要经它换成磁盘路径
+    pathFor(file: File): string
     removeStaged(conversationId: string, id: string): Promise<void>
     sendStaged(conversationId: string): Promise<void>
   }

@@ -5,6 +5,7 @@ import type { Settings } from '../../shared/settings'
 import type { NotifyPayload } from '../../shared/ipc'
 import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
+import { errorMessage } from './utils/errors'
 import ChatPane from './components/ChatPane.vue'
 import ContactsPage from './components/ContactsPage.vue'
 import ConversationList from './components/ConversationList.vue'
@@ -17,6 +18,8 @@ const store = useAppStore()
 const settingsOpen = ref(false)
 const view = ref<'chat' | 'contacts' | 'files'>('chat')
 const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standard' })
+const dragActive = ref(false)
+let dragDepth = 0
 
 const shellStyle = computed<Record<string, string>>(() => ({
   '--chat-font-size': `${appearance.value.fontSize}px`,
@@ -73,6 +76,64 @@ function handleSend(text: string): void {
 function handleRemoveStaged(id: string): void {
   const conversationId = store.currentConversationId
   if (conversationId) void store.removeStaged(conversationId, id)
+}
+
+function hasDroppedFiles(event: DragEvent): boolean {
+  return event.dataTransfer?.types.includes('Files') ?? false
+}
+
+function canDropFiles(): boolean {
+  return view.value === 'chat' && !settingsOpen.value && store.currentConversationId !== null
+}
+
+function handleDragEnter(event: DragEvent): void {
+  if (!hasDroppedFiles(event) || !canDropFiles()) return
+  dragDepth += 1
+  dragActive.value = true
+}
+
+function handleDragOver(event: DragEvent): void {
+  if (!hasDroppedFiles(event)) return
+  event.preventDefault()
+  if (event.dataTransfer !== null) event.dataTransfer.dropEffect = 'copy'
+}
+
+function handleDragLeave(event: DragEvent): void {
+  if (!hasDroppedFiles(event)) return
+  dragDepth = Math.max(0, dragDepth - 1)
+  if (dragDepth === 0) dragActive.value = false
+}
+
+// 有磁盘路径的直接引原文件；浏览器里拖出来的图片拿不到路径，按字节落盘
+async function handleDrop(event: DragEvent): Promise<void> {
+  if (!hasDroppedFiles(event)) return
+  event.preventDefault()
+  dragDepth = 0
+  dragActive.value = false
+  const conversationId = store.currentConversationId
+  const files = Array.from(event.dataTransfer?.files ?? [])
+  if (conversationId === null || files.length === 0) return
+  const paths: string[] = []
+  const detached: File[] = []
+  for (const file of files) {
+    const path = window.api.files.pathFor(file)
+    if (path === '') detached.push(file)
+    else paths.push(path)
+  }
+  try {
+    if (paths.length > 0) {
+      const result = await window.api.files.stagePaths(conversationId, paths)
+      if (result.skipped.length > 0) {
+        store.reportError(`暂不支持文件夹：${result.skipped.join('、')}`)
+      }
+    }
+    for (const file of detached) {
+      const data = await file.arrayBuffer()
+      await window.api.files.stageBytes(conversationId, file.name, data)
+    }
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
 }
 
 function handleRead(): void {
@@ -158,7 +219,13 @@ onBeforeUnmount(() => {
       @select="handleViewSelect"
     />
 
-    <div class="workspace">
+    <div
+      class="workspace"
+      @dragenter="handleDragEnter"
+      @dragover="handleDragOver"
+      @dragleave="handleDragLeave"
+      @drop="handleDrop"
+    >
       <template v-if="!settingsOpen">
         <template v-if="view === 'chat'">
           <ConversationList
@@ -198,6 +265,10 @@ onBeforeUnmount(() => {
       </template>
 
       <SettingsOverlay v-else @close="settingsOpen = false" @saved="handleSettingsSaved" />
+
+      <div v-if="dragActive" class="drop-zone">
+        <span>松开添加到待发区</span>
+      </div>
     </div>
 
     <div v-if="store.error" class="error-toast" role="status">
@@ -232,6 +303,27 @@ onBeforeUnmount(() => {
   height: 100%;
   display: flex;
   overflow: hidden;
+}
+
+/* 拖文件进来时盖在内容上，只做提示，不挡放下的操作 */
+.drop-zone {
+  position: absolute;
+  inset: 10px;
+  z-index: 45;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 10px;
+  background: rgba(7, 193, 96, 0.07);
+  pointer-events: none;
+}
+
+.drop-zone span {
+  padding: 8px 16px;
+  border-radius: 16px;
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 13px;
 }
 
 .error-toast {

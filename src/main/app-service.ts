@@ -30,7 +30,12 @@ import type {
   SendTextResult,
   StagedAttachment
 } from '../shared/domain'
-import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
+import type {
+  AppInfo,
+  MessagesListRequest,
+  MessagesSendRequest,
+  StagePathsResult
+} from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
@@ -754,7 +759,10 @@ export class AppService {
     if (result.canceled || result.filePaths.length === 0) {
       return this.staged.list(conversationId)
     }
-    return this.addStaged(conversationId, result.filePaths, false)
+    return this.addStaged(
+      conversationId,
+      result.filePaths.map((path) => this.stagedSource(path, false))
+    )
   }
 
   // 剪贴板里的图片先落盘进待发区，按原图格式发送
@@ -779,7 +787,50 @@ export class AppService {
     if (paths.length === 0) {
       throw new Error('剪贴板里没有图片')
     }
-    return this.addStaged(conversationId, paths, true)
+    return this.addStaged(
+      conversationId,
+      paths.map((path) => this.stagedSource(path, true))
+    )
+  }
+
+  // 拖进窗口的文件：有磁盘路径的直接引用原文件，拖进来的文件夹在这里拦下
+  stagePaths(conversationId: string, paths: string[]): StagePathsResult {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const sources: StagedSource[] = []
+    const skipped: string[] = []
+    for (const path of paths) {
+      if (!existsSync(path) || !statSync(path).isFile()) {
+        skipped.push(basename(path))
+        continue
+      }
+      sources.push(this.stagedSource(path, false))
+    }
+    return { attachments: this.addStaged(conversationId, sources), skipped }
+  }
+
+  // 拖进来但拿不到磁盘路径的内容（网页里直接拖出的图）先落盘再进待发区
+  stageBytes(conversationId: string, name: string, data: ArrayBuffer): StagedAttachment[] {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const dir = join(app.getPath('userData'), 'clipboard')
+    mkdirSync(dir, { recursive: true })
+    const label = sanitizeFileName(name) || '拖入的文件'
+    const path = join(dir, `drop-${randomBytes(3).toString('hex')}-${label}`)
+    writeFileSync(path, Buffer.from(data))
+    return this.addStaged(conversationId, [
+      {
+        path,
+        name: label,
+        size: data.byteLength,
+        kind: isImagePath(label) ? 'image' : 'file',
+        temporary: true
+      }
+    ])
   }
 
   removeStaged(conversationId: string, id: string): void {
@@ -818,26 +869,21 @@ export class AppService {
     return file.path
   }
 
-  private addStaged(
-    conversationId: string,
-    paths: string[],
-    temporary: boolean
-  ): StagedAttachment[] {
-    const sources: StagedSource[] = []
-    for (const path of paths) {
-      const stats = statSync(path)
-      if (!stats.isFile()) continue
-      sources.push({
-        path,
-        size: stats.size,
-        kind: isImagePath(path) ? 'image' : 'file',
-        temporary
-      })
-    }
+  private addStaged(conversationId: string, sources: StagedSource[]): StagedAttachment[] {
     const attachments = this.staged.add(conversationId, sources)
     logStartup(`待发区加入 ${sources.length} 个附件，当前 ${attachments.length} 个`)
     this.emitStaged(conversationId)
     return attachments
+  }
+
+  private stagedSource(path: string, temporary: boolean): StagedSource {
+    const stats = statSync(path)
+    return {
+      path,
+      size: stats.size,
+      kind: isImagePath(path) ? 'image' : 'file',
+      temporary
+    }
   }
 
   private emitStaged(conversationId: string): void {

@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { IPC, type Api, type NotifyPayload } from '../shared/ipc'
 import type { AppEvent } from '../shared/domain'
 
@@ -57,6 +57,11 @@ const api: Api = {
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pick: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
     paste: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
+    stagePaths: (conversationId, paths) =>
+      ipcRenderer.invoke(IPC.fileStagePaths, conversationId, paths),
+    stageBytes: (conversationId, name, data) =>
+      ipcRenderer.invoke(IPC.fileStageBytes, conversationId, name, data),
+    pathFor: (file) => webUtils.getPathForFile(file),
     removeStaged: (conversationId, id) =>
       ipcRenderer.invoke(IPC.fileStagedRemove, conversationId, id),
     sendStaged: (conversationId) => ipcRenderer.invoke(IPC.fileStagedSend, conversationId)

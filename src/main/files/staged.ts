@@ -6,6 +6,8 @@ export interface StagedSource {
   size: number
   kind: StagedAttachment['kind']
   temporary: boolean
+  // 落盘时改过名的内容保留原来的显示名
+  name?: string
 }
 
 export interface StagedFile {
@@ -26,7 +28,7 @@ export class StagedStore {
       list.push({
         id,
         conversationId,
-        name: basename(source.path),
+        name: source.name ?? basename(source.path),
         size: source.size,
         kind: source.kind,
         createdAt: Date.now()

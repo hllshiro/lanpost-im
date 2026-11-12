@@ -511,6 +511,9 @@ export class PrivateSession {
       return
     }
     const { cmd, xml } = decodeFrame(payload)
+    if (cmd === CMD_SEND_FILE) {
+      this.callbacks.onLog(`私有文件邀请原文 ${xml}`)
+    }
     const incoming = parsePrivate(cmd, xml)
     switch (incoming.kind) {
       case 'text':
@@ -562,7 +565,9 @@ export class PrivateSession {
         this.shutdown(false)
         return
       default:
-        this.callbacks.onLog(`私有会话 ${this.remoteLabel} 忽略命令 ${incoming.cmd}`)
+        this.callbacks.onLog(
+          `私有会话 ${this.remoteLabel} 忽略命令 ${incoming.cmd}：${xml.slice(0, 400)}`
+        )
     }
   }
 
