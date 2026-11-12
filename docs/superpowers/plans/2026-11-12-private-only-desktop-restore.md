@@ -1,5 +1,7 @@
 # 私有协议唯一化 + v0.1.1 桌面能力恢复 Implementation Plan
 
+> 状态：2026-11-12 已完成。回归结果见 `docs/private-mode-gaps.md`；未实现项与原因见同一文档。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 移除 IPMSG 兼容层，只保留内网通 NWT 私有协议；恢复 v0.1.1 除“拨号模式”外的桌面/系统集成能力；在私有协议支持范围内补齐消息与文件功能，不支持的写入文档。
