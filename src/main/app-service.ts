@@ -77,6 +77,7 @@ import { scanFolder } from './files/folder-info'
 import { PrivateFileTransfer } from './files/private-transfer'
 import { StagedStore, type StagedSource } from './files/staged'
 import { sanitizeFileName, uniqueName } from './files/names'
+import { receiveFolder } from './files/layout'
 import { NotificationManager } from './notify/manager'
 import {
   createRepositories,
@@ -625,9 +626,8 @@ export class AppService {
     if (service === null || transfer === null) return
     const peerKey = this.engine.peerKeyForIp(ip)
     const peer = peerKey === null ? null : this.repos.peers.get(peerKey)
-    const peerDir = sanitizeFileName(peer?.name ?? '') || ip
     const name = sanitizeFileName(basename(offer.name)) || '收到的文件夹'
-    const saveDir = join(this.receiveDir, peerDir, name)
+    const saveDir = join(this.receiveDirFor(peerKey ?? ip, peer?.name ?? ip), name)
     mkdirSync(saveDir, { recursive: true })
     transfer.registerIncoming({
       taskId: offer.taskId,
@@ -935,9 +935,8 @@ export class AppService {
     const transfer = this.privateFolders
     if (service === null || transfer === null) return
     const peer = this.peerForIp(ip)
-    const peerDir = sanitizeFileName(peer.name) || '内网通'
     const name = sanitizeFileName(file.name) || '收到的文件夹'
-    const saveDir = join(this.receiveDir, peerDir, name)
+    const saveDir = join(this.receiveDirFor(peer.key, peer.name), name)
     mkdirSync(saveDir, { recursive: true })
     const channelId = randomBytes(16).toString('hex')
     const meta = JSON.stringify({
@@ -1002,7 +1001,7 @@ export class AppService {
     const service = this.privateService
     if (service === null) return
     const peer = this.peerForIp(ip)
-    const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
+    const saveDir = this.receiveDirFor(peer.key, peer.name)
     mkdirSync(saveDir, { recursive: true })
     const savePath = join(saveDir, sanitizeFileName(file.name) || '收到的文件')
     const fileTaskId = `gf${file.shareId.slice(0, 12)}`
@@ -2271,7 +2270,8 @@ export class AppService {
     }
     const options: OpenDialogOptions = {
       title: '添加文件',
-      properties: ['openFile', 'multiSelections']
+      properties: ['openFile', 'multiSelections'],
+      defaultPath: this.lastDialogDir()
     }
     const result =
       this.window === null
@@ -2280,6 +2280,7 @@ export class AppService {
     if (result.canceled || result.filePaths.length === 0) {
       return this.staged.list(conversationId)
     }
+    this.rememberDialogDir(dirname(result.filePaths[0] ?? ''))
     return this.addStaged(
       conversationId,
       result.filePaths.map((path) => this.stagedSource(path, false))
@@ -3024,8 +3025,9 @@ export class AppService {
     if (task === null || task.state !== 'done' || task.path === '') {
       throw new Error('文件尚未接收完成')
     }
+    const last = this.lastDialogDir()
     const options: SaveDialogOptions = {
-      defaultPath: basename(task.path),
+      defaultPath: last === undefined ? basename(task.path) : join(last, basename(task.path)),
       title: '另存为'
     }
     const result =
@@ -3035,6 +3037,7 @@ export class AppService {
     if (result.canceled || result.filePath === undefined) {
       return
     }
+    this.rememberDialogDir(dirname(result.filePath))
     copyFileSync(task.path, result.filePath)
   }
 
@@ -3160,13 +3163,19 @@ export class AppService {
     const options: OpenDialogOptions = {
       title,
       properties: ['openFile'],
+      defaultPath: this.lastDialogDir(),
       filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
     }
     const run =
       this.window === null
         ? dialog.showOpenDialog(options)
         : dialog.showOpenDialog(this.window, options)
-    return run.then((result) => (result.canceled ? null : (result.filePaths[0] ?? null)))
+    return run.then((result) => {
+      if (result.canceled) return null
+      const path = result.filePaths[0] ?? null
+      if (path !== null) this.rememberDialogDir(dirname(path))
+      return path
+    })
   }
 
   // 居中裁成正方形再缩到 96×96，个人头像和群头像一致
@@ -3593,7 +3602,7 @@ export class AppService {
     const fileTaskId = `pf${ref.id}`
     if (this.privateIncomingFiles.has(fileTaskId)) return
     const peer = this.peerForIp(ip)
-    const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
+    const saveDir = this.receiveDirFor(peer.key, peer.name)
     mkdirSync(saveDir, { recursive: true })
     const savePath = join(saveDir, `image-${ref.id}.png`)
     const conversation =
@@ -3717,6 +3726,26 @@ export class AppService {
     return { key, name: peer?.alias || peer?.name || ip }
   }
 
+  private receiveDirFor(peerKey: string, peerName: string): string {
+    return receiveFolder(
+      this.receiveDir,
+      this.settings.get().files.receiveLayout,
+      peerKey,
+      peerName
+    )
+  }
+
+  private lastDialogDir(): string | undefined {
+    const dir = this.settings.get().files.lastDialogDir
+    return dir.trim() !== '' && existsSync(dir) ? dir : undefined
+  }
+
+  private rememberDialogDir(dir: string): void {
+    if (dir === '' || !existsSync(dir)) return
+    if (this.settings.get().files.lastDialogDir === dir) return
+    this.settings.update({ files: { lastDialogDir: dir } })
+  }
+
   // 对端发来 X_SEND_FILE：登记一条待接收任务，按自动接收设置决定是否立即连过去
   private handlePrivateFileOffer(ip: string, offer: PrivateFileOffer): void {
     const name = sanitizeFileName(offer.name)
@@ -3737,7 +3766,7 @@ export class AppService {
       return
     }
     const peer = this.peerForIp(ip)
-    const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
+    const saveDir = this.receiveDirFor(peer.key, peer.name)
     mkdirSync(saveDir, { recursive: true })
     const reserved = new Set(
       Array.from(this.privateIncomingFiles.values()).map((item) => basename(item.savePath))

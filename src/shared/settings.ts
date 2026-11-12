@@ -48,6 +48,8 @@ const notifySchema = z.object({
 
 const filesSchema = z.object({
   receiveDir: z.string().default(''),
+  receiveLayout: z.enum(['flat', 'nickname']).default('flat'),
+  lastDialogDir: z.string().default(''),
   autoAccept: z.boolean().default(false),
   autoAcceptMaxMB: z.number().int().min(0).default(512),
   notifyOnComplete: z.boolean().default(true),
