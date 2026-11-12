@@ -45,16 +45,6 @@ function openToast(): void {
   }
 }
 
-const currentHasMore = computed(() => {
-  const id = store.currentConversationId
-  return id ? (store.hasMore[id] ?? false) : false
-})
-
-const currentHasNewer = computed(() => {
-  const id = store.currentConversationId
-  return id ? (store.hasNewer[id] ?? false) : false
-})
-
 const currentLoadingMessages = computed(() => {
   const id = store.currentConversationId
   return id ? (store.loadingMessages[id] ?? false) : false
@@ -143,16 +133,6 @@ async function handleDrop(event: DragEvent): Promise<void> {
 
 function handleRead(): void {
   void store.markReadCurrent()
-}
-
-function handleLoadMore(beforeId: number): void {
-  const id = store.currentConversationId
-  if (id) void store.loadMessages(id, beforeId)
-}
-
-function handleLoadNewer(): void {
-  const id = store.currentConversationId
-  if (id) void store.loadNewer(id)
 }
 
 function handleViewSelect(next: 'chat' | 'contacts' | 'files'): void {
@@ -258,16 +238,12 @@ onBeforeUnmount(() => {
             :staged="store.currentStaged"
             :local="store.local"
             :loading-messages="currentLoadingMessages"
-            :has-more="currentHasMore"
-            :has-newer="currentHasNewer"
             :sending="store.sending"
             :unread-after-id="currentUnreadAfterId"
             @send="handleSend"
             @draft="handleDraft"
             @remove-staged="handleRemoveStaged"
             @read="handleRead"
-            @load-more="handleLoadMore"
-            @load-newer="handleLoadNewer"
           />
         </template>
 

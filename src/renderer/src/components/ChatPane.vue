@@ -23,8 +23,6 @@ const props = defineProps<{
   staged: StagedAttachment[]
   local: LocalInfo | null
   loadingMessages: boolean
-  hasMore: boolean
-  hasNewer: boolean
   sending: boolean
   unreadAfterId: number
 }>()
@@ -34,8 +32,6 @@ const emit = defineEmits<{
   draft: [value: string]
   'remove-staged': [id: string]
   read: []
-  loadMore: [beforeId: number]
-  loadNewer: []
 }>()
 
 const search = ref('')
@@ -92,10 +88,6 @@ watch(
     copyError.value = ''
   }
 )
-
-function handleLoadMore(beforeId: number): void {
-  emit('loadMore', beforeId)
-}
 
 function handleDraft(value: string): void {
   emit('draft', value)
@@ -233,13 +225,8 @@ onBeforeUnmount(() => {
           :own-initial="ownInitial"
           :other-initial="otherInitial"
           :unread-after-id="keyword.length > 0 ? 0 : unreadAfterId"
-          :has-more="hasMore"
-          :has-newer="hasNewer"
-          :loading-more="loadingMessages"
-          :searching="keyword.length > 0"
           :loading="loadingMessages"
-          @load-more="handleLoadMore"
-          @load-newer="emit('loadNewer')"
+          :searching="keyword.length > 0"
           @read="emit('read')"
         />
       </div>

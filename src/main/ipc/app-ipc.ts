@@ -5,7 +5,9 @@ import type { AppService } from '../app-service'
 export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
   ipcMain.handle(IPC.messagesList, (_event, request) => service.listMessages(request))
-  ipcMain.handle(IPC.messagesNewer, (_event, request) => service.listNewerMessages(request))
+  ipcMain.handle(IPC.messagesAll, (_event, conversationId: string) =>
+    service.listAllMessages(conversationId)
+  )
   ipcMain.handle(IPC.messageSend, (_event, request) => service.sendText(request))
   ipcMain.handle(IPC.conversationRead, (_event, conversationId: string, messageId: number) =>
     service.markRead(conversationId, messageId)

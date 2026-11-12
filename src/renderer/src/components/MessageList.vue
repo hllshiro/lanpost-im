@@ -14,16 +14,11 @@ const props = defineProps<{
   ownInitial: string
   otherInitial: string
   unreadAfterId: number
-  hasMore: boolean
-  hasNewer: boolean
-  loadingMore: boolean
   searching: boolean
   loading: boolean
 }>()
 
 const emit = defineEmits<{
-  loadMore: [beforeId: number]
-  loadNewer: []
   read: []
 }>()
 
@@ -115,7 +110,6 @@ function isNearBottom(element: HTMLElement): boolean {
 function scrollToBottom(): void {
   const element = scroller.value
   if (!element) return
-  ignoreScroll = true
   element.scrollTop = element.scrollHeight
   atBottom.value = true
   newBelow.value = 0
@@ -128,84 +122,12 @@ function onScroll(): void {
   if (bottom && !atBottom.value) emit('read')
   atBottom.value = bottom
   if (bottom) newBelow.value = 0
-  // 刚由代码调整过滚动位置，这次事件不触发补页，避免一补页就来回弹
-  if (ignoreScroll) {
-    ignoreScroll = false
-    return
-  }
-  // 翻到顶部附近就动态向前补一页，旧消息不会一次性全读出来
-  if (element.scrollTop < 120 && props.hasMore && !props.loadingMore && props.messages.length > 0) {
-    requestOlder()
-  }
-  // 往回翻到底部附近时，把之前为控内存裁掉的新消息补回来
-  if (props.hasNewer && !props.loadingMore && bottom && props.messages.length > 0) {
-    requestNewer()
-  }
 }
 
 function jumpToBottom(): void {
   scrollToBottom()
   emit('read')
 }
-
-const requestedOlder = ref(false)
-const requestedNewer = ref(false)
-let anchorElement: HTMLElement | null = null
-let anchorTop = 0
-let anchorDirection: 'older' | 'newer' = 'older'
-let ignoreScroll = false
-
-// 补页前后以某个消息为锚点，保证眼下的内容不会跳
-function setAnchor(element: Element | null, direction: 'older' | 'newer'): void {
-  anchorElement = element instanceof HTMLElement ? element : null
-  anchorTop = anchorElement?.offsetTop ?? 0
-  anchorDirection = direction
-}
-
-function restoreAnchor(): void {
-  const scrollerElement = scroller.value
-  if (scrollerElement === null || anchorElement === null) return
-  ignoreScroll = true
-  // 窗口只有一页时锚点可能正好被裁掉，这时把刚补上的一页滚进视野
-  if (!scrollerElement.contains(anchorElement)) {
-    scrollerElement.scrollTop = anchorDirection === 'older' ? scrollerElement.scrollHeight : 0
-    anchorElement = null
-    return
-  }
-  const delta = anchorElement.offsetTop - anchorTop
-  if (delta !== 0) scrollerElement.scrollTop += delta
-  anchorElement = null
-}
-
-function requestOlder(): void {
-  const element = scroller.value
-  const first = props.messages[0]
-  if (!element || !first || props.loadingMore || requestedOlder.value) return
-  requestedOlder.value = true
-  setAnchor(element.querySelector('.message'), 'older')
-  emit('loadMore', first.id)
-}
-
-// 向下补页时窗口会裁掉顶部的一部分，同样用锚点补偿滚动位置
-function requestNewer(): void {
-  const element = scroller.value
-  if (!element || props.loadingMore || requestedNewer.value) return
-  requestedNewer.value = true
-  const items = element.querySelectorAll('.message')
-  setAnchor(items.length > 0 ? items[items.length - 1] : null, 'newer')
-  emit('loadNewer')
-}
-
-watch(
-  () => props.loadingMore,
-  async (loading) => {
-    if (loading) return
-    requestedOlder.value = false
-    requestedNewer.value = false
-    await nextTick()
-    restoreAnchor()
-  }
-)
 
 watch(
   () => props.conversationId,
@@ -224,7 +146,7 @@ watch(
   async (length, previousLength) => {
     await nextTick()
     const element = scroller.value
-    if (!element || requestedOlder.value || requestedNewer.value) return
+    if (!element) return
     if (props.searching) return
     const grew = length > (previousLength ?? 0)
     if (!grew) return
@@ -259,13 +181,6 @@ onMounted(async () => {
   <div class="message-list">
     <div ref="scroller" class="scroller" @scroll="onScroll">
       <div class="stream">
-        <div v-if="hasMore || loadingMore" class="older">
-          <button v-if="!loadingMore" :disabled="loadingMore" @click="requestOlder">
-            查看更早的消息
-          </button>
-          <span v-else class="older-loading">正在加载更早的消息…</span>
-        </div>
-
         <template v-for="row in rows" :key="row.key">
           <div v-if="row.type === 'date'" class="date">
             <span>{{ row.label }}</span>
@@ -319,33 +234,6 @@ onMounted(async () => {
 
 .stream {
   padding: 16px 20px 10px;
-}
-
-.older {
-  display: flex;
-  justify-content: center;
-  padding: 2px 0 12px;
-}
-
-.older button {
-  padding: 3px 10px;
-  border-radius: 10px;
-  font-size: 11px;
-  color: var(--text-secondary);
-  background: rgba(255, 255, 255, 0.7);
-}
-
-.older button:hover:not(:disabled) {
-  color: var(--accent);
-}
-
-.older button:disabled {
-  color: var(--text-muted);
-}
-
-.older-loading {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 
 .date {

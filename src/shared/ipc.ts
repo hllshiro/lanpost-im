@@ -1,6 +1,7 @@
 import type {
   AppEvent,
   AppSnapshot,
+  MessageInfo,
   MessagesPage,
   SendTextResult,
   StagedAttachment
@@ -19,7 +20,7 @@ export const IPC = {
   snapshot: 'state:snapshot',
   event: 'state:event',
   messagesList: 'messages:list',
-  messagesNewer: 'messages:newer',
+  messagesAll: 'messages:all',
   messageSend: 'messages:send',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
@@ -62,12 +63,6 @@ export interface MessagesListRequest {
   limit?: number
 }
 
-export interface MessagesNewerRequest {
-  conversationId: string
-  afterId: number
-  limit?: number
-}
-
 export interface MessagesSendRequest {
   conversationId: string
   text: string
@@ -103,7 +98,7 @@ export type Api = {
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
-    listNewer(request: MessagesNewerRequest): Promise<MessagesPage>
+    all(conversationId: string): Promise<MessageInfo[]>
     send(request: MessagesSendRequest): Promise<SendTextResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
