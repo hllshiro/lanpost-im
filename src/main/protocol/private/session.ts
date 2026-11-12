@@ -675,7 +675,7 @@ export class PrivateSession {
   }
 
   // 重传耗尽说明这条链路已经不可用：把对应消息标记失败，再关闭会话交给上层重连。
-  // 已经交给 ENet 的消息不再回落 IPMSG，避免对端界面出现两条内容相同的消息。
+  // 已经交给 ENet 的消息不再回落到其他通道，避免对端界面出现两条内容相同的消息。
   private handleDrop(seq: number): void {
     if (this.currentState === 'closed') return
     const msgId = this.messageSeqs.get(seq)

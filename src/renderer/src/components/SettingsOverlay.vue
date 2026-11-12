@@ -71,8 +71,7 @@ const shortcutItems: Array<{
 
 const current = ref<CategoryId>('identity')
 const settings = ref<Settings>(structuredClone(defaultSettings))
-const subnetsText = ref('')
-const seedsText = ref('')
+const privateSeedsText = ref('')
 const pending = ref(0)
 const error = ref('')
 const saved = ref(false)
@@ -124,8 +123,7 @@ const showFirewallRepair = computed(
 )
 
 function syncTextFields(): void {
-  subnetsText.value = settings.value.network.subnets.join('\n')
-  seedsText.value = settings.value.network.seeds.join('\n')
+  privateSeedsText.value = settings.value.network.privateSeeds.join('\n')
 }
 
 function applySettings(next: Settings): void {
@@ -213,22 +211,13 @@ function saveField<K extends Section>(section: K, patch: Partial<Settings[K]>): 
   void pushPatch({ [section]: patch } as SettingsPatch)
 }
 
-function saveSubnets(): void {
-  const list = subnetsText.value
+function savePrivateSeeds(): void {
+  const list = privateSeedsText.value
     .split(/[\s,;，；]+/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0)
-  settings.value.network.subnets = list
-  saveField('network', { subnets: list })
-}
-
-function saveSeeds(): void {
-  const list = seedsText.value
-    .split(/[\s,;，；]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0)
-  settings.value.network.seeds = list
-  saveField('network', { seeds: list })
+  settings.value.network.privateSeeds = list
+  saveField('network', { privateSeeds: list })
 }
 
 function setDensity(density: Settings['appearance']['density']): void {
@@ -458,7 +447,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-account">协议账号</label>
-              <p class="hint">IPMSG 协议中的用户名，默认取当前计算机名</p>
+              <p class="hint">私有通道中的账号名，默认取当前计算机名</p>
             </div>
             <div class="control">
               <input
@@ -556,33 +545,78 @@ onBeforeUnmount(() => {
         </div>
 
         <div v-show="current === 'network'" class="group">
-          <h2>发现与连接</h2>
+          <h2>私有通道</h2>
           <div class="row">
             <div class="row-text">
-              <span class="label">飞鸽兼容协议<span class="restart">重启生效</span></span>
-              <p class="hint">关闭后只使用内网通私有协议，不再收发 IPMSG</p>
+              <span class="label">发现端口<span class="restart">重启生效</span></span>
+              <p class="hint">默认 9011，用于 9011/UDP 通告与应答</p>
             </div>
             <div class="control">
-              <ToggleSwitch
-                v-model="settings.network.ipmsg"
-                @update:model-value="saveField('network', { ipmsg: $event })"
+              <input
+                v-model.number="settings.network.privatePort"
+                class="input"
+                type="number"
+                min="1"
+                max="65535"
+                aria-label="发现端口"
+                @change="saveField('network', { privatePort: settings.network.privatePort })"
               />
             </div>
           </div>
           <div class="row">
             <div class="row-text">
-              <span class="label">监听端口<span class="restart">重启生效</span></span>
-              <p class="hint">默认 2425，需与对端一致</p>
+              <span class="label">ENet 端口<span class="restart">重启生效</span></span>
+              <p class="hint">默认 9012，0 表示由系统分配；被占用时自动回退</p>
             </div>
             <div class="control">
               <input
-                v-model.number="settings.network.port"
+                v-model.number="settings.network.privateEnetPort"
+                class="input"
+                type="number"
+                min="0"
+                max="65535"
+                aria-label="ENet 端口"
+                @change="
+                  saveField('network', { privateEnetPort: settings.network.privateEnetPort })
+                "
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">文件端口<span class="restart">重启生效</span></span>
+              <p class="hint">默认 9013，私有文件通道 TCP 监听端口</p>
+            </div>
+            <div class="control">
+              <input
+                v-model.number="settings.network.privateFilePort"
                 class="input"
                 type="number"
                 min="1"
                 max="65535"
-                aria-label="监听端口"
-                @change="saveField('network', { port: settings.network.port })"
+                aria-label="文件端口"
+                @change="
+                  saveField('network', { privateFilePort: settings.network.privateFilePort })
+                "
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">文件夹端口<span class="restart">重启生效</span></span>
+              <p class="hint">默认 9014，0 表示不接收文件夹</p>
+            </div>
+            <div class="control">
+              <input
+                v-model.number="settings.network.privateFolderPort"
+                class="input"
+                type="number"
+                min="0"
+                max="65535"
+                aria-label="文件夹端口"
+                @change="
+                  saveField('network', { privateFolderPort: settings.network.privateFolderPort })
+                "
               />
             </div>
           </div>
@@ -619,7 +653,7 @@ onBeforeUnmount(() => {
           </div>
           <div class="row">
             <div class="row-text">
-              <span class="label">广播间隔</span>
+              <span class="label">发现间隔</span>
               <p class="hint">秒，范围 5 到 3600</p>
             </div>
             <div class="control">
@@ -629,7 +663,7 @@ onBeforeUnmount(() => {
                 type="number"
                 min="5"
                 max="3600"
-                aria-label="广播间隔"
+                aria-label="发现间隔"
                 @change="
                   saveField('network', { broadcastInterval: settings.network.broadcastInterval })
                 "
@@ -638,34 +672,20 @@ onBeforeUnmount(() => {
           </div>
           <div class="row align-top">
             <div class="row-text">
-              <label class="label" for="setting-subnets">额外广播网段</label>
-              <p class="hint">每行一个，例如 192.168.1.255</p>
+              <label class="label" for="setting-private-seeds">固定对端地址</label>
+              <p class="hint">每行一个，例如 192.168.1.20 或 192.168.1.20:9012</p>
             </div>
             <div class="control">
               <textarea
-                id="setting-subnets"
-                v-model="subnetsText"
+                id="setting-private-seeds"
+                v-model="privateSeedsText"
                 class="input textarea"
-                placeholder="留空表示自动"
-                @change="saveSubnets"
+                placeholder="留空表示只依赖 9011 通告"
+                @change="savePrivateSeeds"
               />
             </div>
           </div>
-          <div class="row align-top">
-            <div class="row-text">
-              <label class="label" for="setting-seeds">固定对端地址</label>
-              <p class="hint">每行一个，例如 192.168.1.20:2425</p>
-            </div>
-            <div class="control">
-              <textarea
-                id="setting-seeds"
-                v-model="seedsText"
-                class="input textarea"
-                placeholder="留空表示只依赖广播"
-                @change="saveSeeds"
-              />
-            </div>
-          </div>
+          <p class="note">只使用内网通私有协议；9011 广播不可达时用固定地址直连。</p>
         </div>
 
         <div v-show="current === 'notify'" class="group">
@@ -1052,7 +1072,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="about-text">
-            面向局域网环境的即时通信客户端，基于 IPMSG 协议发现对端并传输消息与文件。
+            面向局域网环境的即时通信客户端，基于内网通私有协议发现对端并传输消息与文件。
           </p>
           <dl class="about-list">
             <div>
@@ -1065,7 +1085,7 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <dt>通信协议</dt>
-              <dd>IPMSG · 局域网广播</dd>
+              <dd>NWT 私有协议 · 局域网发现</dd>
             </div>
             <div>
               <dt>数据目录</dt>

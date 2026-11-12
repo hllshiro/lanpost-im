@@ -1,5 +1,4 @@
 import { randomBytes } from 'node:crypto'
-import { DOCVER } from '../packet'
 import {
   decodeXml,
   encodeChangeInfo,
@@ -19,6 +18,8 @@ import {
 } from '../xml'
 import type { Feature, Handshake, NetPorts, UserInfo, XmlTag, XmlTypes } from '../xml'
 import { encodeBeacon } from './beacon'
+
+const DOCVER = 1
 
 const CMD = {
   HANDSHAKE: 1000,

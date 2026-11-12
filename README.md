@@ -1,14 +1,14 @@
 # 内网传书（Lanpost-IM）
 
-基于 IPMSG 的跨平台局域网即时通信，无需服务器，文字与文件直传。
+基于内网通 NWT 私有协议的跨平台局域网即时通信，无需服务器，文字与文件直传。
 
 ## 项目状态
 
-第一版功能已经完成：文字、文件、图片、文件夹、群聊与头像都能与真实内网通走私有通道收发；IPMSG 兼容层保留基础文字与文件能力。
+第一版功能已经完成：文字、文件、图片、文件夹、群聊与头像都能与真实内网通走私有通道收发；IPMSG 兼容层已移除，只保留 NWT 私有协议。
 
 - 开发交接与环境切换：`docs/handoff.md`
 - 文件传输状态机：`docs/file-transfer.md`
-- NWT/飞秋兼容矩阵：`docs/nwt-compatibility.md`
+- NWT 兼容矩阵：`docs/nwt-compatibility.md`
 - 内网通私有协议（文字、文件、图片、头像）：`docs/nwt-private-protocol.md`
 - 内网通私有文件与文件夹数据通道：`docs/nwt-file-channel.md`
 - 内网通私有群协议：`docs/nwt-group-protocol.md`
@@ -28,7 +28,8 @@
 - 头像：个人头像可设置并同步给联系人；群头像由群主设置，成员自动取图。
 - 表情：QQ、微信、内网通三组表情与收藏，按使用频率排序。
 - SQLite 消息历史、旧历史导入、会话搜索、托盘常驻、系统通知、免打扰。
-- 与真实内网通私有通道互通；IPMSG 兼容层支持基础文字与文件收发。
+- 桌面集成：全局快捷键、开机启动、最小化启动、空闲自动离开、在线状态快捷切换、接收目录布局、防火墙检测与修复。
+- 与真实内网通私有通道互通；不再支持 IPMSG、飞秋、飞鸽。
 
 ## 开发
 
@@ -47,6 +48,8 @@ pnpm dev
 pnpm build:win     # Windows x64，NSIS 安装包与 zip
 pnpm build:linux   # Linux x64/ARM64，deb、rpm 与 AppImage
 ```
+
+私有协议默认使用 9011/UDP 发现、9012/UDP ENet、9013/TCP 文件、9014/TCP 文件夹；可在设置中修改。Windows 安装包会添加按程序路径的防火墙规则，Linux deb/rpm 会为默认端口添加 ufw/firewalld 规则。
 
 版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux x64/ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
 

@@ -50,8 +50,6 @@ import type {
 } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
-import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
-import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
   PrivateCardNode,
@@ -62,16 +60,11 @@ import type {
   PrivateProfile,
   RemoteProfile
 } from './protocol/private/messages'
-import {
-  nextPrivateSeq,
-  outstandingToFail,
-  receiptsToSend,
-  shouldUsePrivate
-} from './protocol/private/route'
+import { nextPrivateSeq, outstandingToFail, receiptsToSend } from './protocol/private/route'
 import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
-import { FileManager } from './files/manager'
+import { PeerRegistry } from './peers/registry'
 import { PrivateFolderTransfer, type OutgoingFolder } from './files/folder-transfer'
 import { scanFolder } from './files/folder-info'
 import { PrivateFileTransfer } from './files/private-transfer'
@@ -106,24 +99,6 @@ import { FavoriteStore } from './emotion/favorites'
 import { AvatarStore } from './avatar/store'
 import { findUtf16Md5 } from './avatar/scan'
 import { logStartup } from './startup-log'
-
-function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
-  return {
-    name: settings.identity.displayName,
-    account: settings.identity.account,
-    host: settings.identity.hostName,
-    group: settings.identity.group,
-    corporation: settings.identity.corporation,
-    department: settings.identity.department,
-    sign: settings.identity.sign,
-    status: settings.identity.status,
-    port: settings.network.port,
-    bindAddr: settings.network.bindAddr,
-    subnets: settings.network.subnets,
-    seeds: settings.network.seeds,
-    broadcastInterval: settings.network.broadcastInterval
-  }
-}
 
 function privateProfile(settings: Settings): PrivateProfile {
   return {
@@ -272,13 +247,11 @@ export class AppService {
   private readonly avatars: AvatarStore
   // 正在取或已经取过的头像 md5，避免同一个头像重复连对端
   private readonly avatarFetches = new Set<string>()
-  private readonly engine: ProtocolEngine
-  private readonly fileManager: FileManager
+  private readonly registry: PeerRegistry
   private readonly notifications: NotificationManager
   private readonly receiveDir: string
   private window: BrowserWindow | null = null
   private started = false
-  private filesStarted = false
   private autoPresence: AutoPresence | null = null
   private lastStatus = 0
   private lastPrivateProfile: PrivateProfile | null = null
@@ -356,7 +329,6 @@ export class AppService {
   private readonly privateOutstanding = new Map<number, OutstandingPrivateSend>()
   private privateSweep: ReturnType<typeof setInterval> | null = null
   private fileSeq = 0
-  private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
   // 待发区：粘贴的图片和选中的文件都在这里等发送
   private readonly staged = new StagedStore()
@@ -381,40 +353,9 @@ export class AppService {
       }
     }
     this.receiveDir = receiveDir
-    this.fileManager = new FileManager({
-      bindAddr: settings.get().network.bindAddr,
-      port: settings.get().network.port,
-      receiveDir,
-      notifyAccepted: (peerKey, packetId) => this.engine.sendFileAccept(peerKey, packetId),
-      identity: () => ({
-        user: this.settings.get().identity.account,
-        host: this.settings.get().identity.hostName,
-        seq: (this.fileRequestSeq = (this.fileRequestSeq + 1) >>> 0)
-      }),
-      callbacks: {
-        onUpdate: (file) => this.handleFileUpdate(file),
-        onLog: (message) => logStartup('files: ' + message),
-        onError: (error) => logStartup('files error: ' + error.message)
-      }
+    this.registry = new PeerRegistry(this.repos.peers.list(), {
+      onPeers: (peers) => this.handlePeers(peers)
     })
-    this.engine = new ProtocolEngine(
-      engineConfig(settings.get()),
-      {
-        onPeers: (peers) => this.handlePeers(peers),
-        onMessage: (peer, text, remoteSeq) =>
-          this.handleIncoming(peer.key, peer.name, text, remoteSeq),
-        onFileOffer: (peer, packetId, text, attachments) =>
-          this.handleFileOffer(peer, packetId, text, attachments),
-        onMessageStatus: (peerKey, seq, status) => this.handleStatus(peerKey, seq, status),
-        onLog: (message) => logStartup('protocol: ' + message),
-        onError: (error) => logStartup('protocol error: ' + error.message)
-      },
-      this.repos.peers.list().map((peer) => ({
-        key: peer.key,
-        ip: peer.ip,
-        lastSeen: peer.lastSeen
-      }))
-    )
     this.notifications = new NotificationManager(settings, () => this.window)
   }
 
@@ -425,20 +366,9 @@ export class AppService {
   async start(): Promise<void> {
     this.importLegacyHistory()
     this.ensurePrivateId()
-    if (this.settings.get().network.ipmsg) {
-      try {
-        await this.fileManager.start()
-        this.filesStarted = true
-      } catch (error) {
-        logStartup('file service start failed: ' + (error as Error).message)
-      }
-      await this.engine.start()
-    } else {
-      logStartup('IPMSG 兼容层已关闭，仅使用内网通私有协议')
-    }
     this.started = true
     await this.startPrivateService()
-    this.handlePeers(this.engine.getPeers())
+    this.handlePeers(this.registry.getPeers())
     this.notifications.setUnread(this.unreadTotal())
   }
 
@@ -455,7 +385,6 @@ export class AppService {
     }
   }
 
-  // 私有通道失败只影响私有收发，IPMSG 依旧按原路径工作
   private async startPrivateService(): Promise<void> {
     try {
       const settings = this.settings.get()
@@ -565,7 +494,7 @@ export class AppService {
           onFileReverse: (ip, taskId) => this.handlePrivateFileReverse(ip, taskId),
           onSendFailed: (ip, msgId) => this.handlePrivateSendFailed(ip, msgId),
           onState: (ip, state, remote) => this.handlePrivateState(ip, state, remote),
-          onActivity: (ip) => this.engine.touchPrivatePeer(ip),
+          onActivity: (ip) => this.registry.touchPrivatePeer(ip),
           onLog: (message) => logStartup('private: ' + message),
           onError: (error) => logStartup('private error: ' + error.message)
         }
@@ -625,7 +554,7 @@ export class AppService {
     const service = this.privateService
     const transfer = this.privateFolders
     if (service === null || transfer === null) return
-    const peerKey = this.engine.peerKeyForIp(ip)
+    const peerKey = this.registry.peerKeyForIp(ip)
     const peer = peerKey === null ? null : this.repos.peers.get(peerKey)
     const name = sanitizeFileName(basename(offer.name)) || '收到的文件夹'
     const saveDir = join(this.receiveDirFor(peerKey ?? ip, peer?.name ?? ip), name)
@@ -1460,10 +1389,6 @@ export class AppService {
 
   async stop(): Promise<void> {
     this.notifications.stop()
-    if (this.filesStarted) {
-      await this.fileManager.stop()
-      this.filesStarted = false
-    }
     const privateService = this.privateService
     this.privateService = null
     const privateFiles = this.privateFiles
@@ -1481,10 +1406,7 @@ export class AppService {
     if (privateService !== null) {
       await privateService.stop()
     }
-    if (this.started) {
-      await this.engine.stop()
-      this.started = false
-    }
+    this.started = false
   }
 
   snapshot(): AppSnapshot {
@@ -1542,34 +1464,25 @@ export class AppService {
     if (conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
-    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
-    if (peer === undefined || !peer.online) {
+    const peer = this.repos.peers.get(conversation.peerKey)
+    if (peer === null || !peer.online) {
       throw new Error('联系人不在线')
     }
     const privateService = this.privateService
-    if (privateService !== null) {
-      const privateReady = privateService.isReady(peer.ip)
-      if (shouldUsePrivate(privateReady, peer.port)) {
-        const msgId = this.allocatePrivateSeq()
-        if (privateService.sendText(peer.ip, msgId, request.text)) {
-          const message = this.recordOutgoing(conversation.id, request.text, msgId)
-          this.trackPrivateSend(peer.ip, conversation.id, msgId)
-          return { message }
-        }
-      } else {
-        // 本条消息按 IPMSG 发送，同时让私有通道开始连接，后续消息才能走私有
-        privateService.ensureSession(peer.ip)
-      }
+    if (privateService === null) {
+      throw new Error('内网通私有会话未就绪')
     }
-    // 只在私有通道出现过的联系人没有 IPMSG 端口，回落过去只会丢包却把消息标成已发送
-    if (peer.port <= 0) {
-      throw new Error('联系人不在线')
-    }
-    if (!this.settings.get().network.ipmsg) {
+    if (!privateService.isReady(peer.ip)) {
+      privateService.ensureSession(peer.ip)
       throw new Error('内网通私有会话未就绪，请稍后重试')
     }
-    const seq = this.engine.sendText(peer.key, request.text)
-    return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
+    const msgId = this.allocatePrivateSeq()
+    if (!privateService.sendText(peer.ip, msgId, request.text)) {
+      throw new Error('内网通私有会话未就绪，请稍后重试')
+    }
+    const message = this.recordOutgoing(conversation.id, request.text, msgId)
+    this.trackPrivateSend(peer.ip, conversation.id, msgId)
+    return { message }
   }
 
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
@@ -1658,7 +1571,7 @@ export class AppService {
     }
   }
 
-  // 交给 ENet 之后不再回落 IPMSG：消息已经是“发不出去”的状态，交给用户决定是否重试
+  // 交给 ENet 之后不再回落到其他通道：消息已经是“发不出去”的状态，交给用户决定是否重试
   private failPrivateSend(entry: OutstandingPrivateSend): void {
     this.privateOutstanding.delete(entry.msgId)
     this.updatePrivateMessageStatus(entry.conversationId, entry.msgId, 'failed')
@@ -1670,7 +1583,7 @@ export class AppService {
       this.failPrivateSend(entry)
       return
     }
-    const peerKey = this.engine.peerKeyForIp(ip)
+    const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`私有消息 ${msgId} 发送失败：没有对应的联系人（${ip}）`)
       return
@@ -1695,8 +1608,8 @@ export class AppService {
     if (conversation === null || conversation.peerKey === null) {
       return
     }
-    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
-    if (peer === undefined || !privateService.isReady(peer.ip)) {
+    const peer = this.repos.peers.get(conversation.peerKey)
+    if (peer === null || !privateService.isReady(peer.ip)) {
       return
     }
     for (const row of receiptsToSend(
@@ -1727,7 +1640,7 @@ export class AppService {
 
   refreshPeers(): void {
     this.privateService?.refresh()
-    this.handlePeers(this.engine.getPeers())
+    this.handlePeers(this.registry.getPeers())
   }
 
   setAlias(peerKey: string, alias: string): void {
@@ -2168,30 +2081,20 @@ export class AppService {
 
   rejectFile(id: string): void {
     const incoming = this.privateIncomingFiles.get(id)
-    if (incoming !== undefined) {
-      this.privateIncomingFiles.delete(id)
-      this.privateFileTasks.delete(incoming.fileId)
-      this.updatePrivateFileTask(id, 'rejected', 0, '')
-      return
+    if (incoming === undefined) {
+      throw new Error('文件任务不存在')
     }
-    if (!this.filesStarted) {
-      throw new Error('文件服务未启动')
-    }
-    this.fileManager.reject(id)
+    this.privateIncomingFiles.delete(id)
+    this.privateFileTasks.delete(incoming.fileId)
+    this.updatePrivateFileTask(id, 'rejected', 0, '')
   }
 
   acceptFile(id: string): void {
     const incoming = this.privateIncomingFiles.get(id)
-    if (incoming !== undefined) {
-      this.acceptPrivateFile(incoming)
-      return
+    if (incoming === undefined) {
+      throw new Error('文件任务不存在')
     }
-    if (!this.filesStarted) {
-      throw new Error('文件服务未启动')
-    }
-    void this.fileManager.accept(id).catch((error: unknown) => {
-      logStartup('file accept failed: ' + (error instanceof Error ? error.message : String(error)))
-    })
+    this.acceptPrivateFile(incoming)
   }
 
   private acceptPrivateFile(incoming: PrivateIncomingFile): void {
@@ -2734,54 +2637,7 @@ export class AppService {
   }
 
   sendFiles(conversationId: string, paths: string[], text = '', sticker = false): void {
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null || conversation.peerKey === null) {
-      throw new Error('会话不存在')
-    }
-    if (!this.settings.get().network.ipmsg) {
-      this.sendFilesPrivate(conversationId, paths, sticker, text)
-      return
-    }
-    if (!this.filesStarted) {
-      throw new Error('文件服务未启动')
-    }
-    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
-    if (peer === undefined || !peer.online) {
-      throw new Error('联系人不在线')
-    }
-    // 只在私有通道出现过的联系人没有 IPMSG 端口，文件邀请发不出去
-    if (peer.port <= 0) {
-      throw new Error('联系人不在线')
-    }
-    for (const path of paths) {
-      const stats = statSync(path)
-      if (!stats.isFile()) {
-        continue
-      }
-      const fileId = this.nextFileId()
-      const name = basename(path)
-      const mtime = Math.floor(stats.mtimeMs / 1000)
-      const attachment: Attachment = {
-        id: fileId,
-        name,
-        size: stats.size,
-        mtime,
-        attr: FILE_ATTR_REGULAR
-      }
-      const packetId = this.engine.sendFileOffer(conversation.peerKey, text, [attachment])
-      this.fileManager.addOutgoing({
-        peerKey: conversation.peerKey,
-        peerIp: peer.ip,
-        peerPort: peer.port,
-        name,
-        size: stats.size,
-        mtime,
-        fileId,
-        packetId,
-        path
-      })
-      text = ''
-    }
+    this.sendFilesPrivate(conversationId, paths, sticker, text)
   }
 
   // 私有模式下的发送：先发 X_SEND_FILE 邀请，再发 X_OPERATE_SEND_FILE 开始，
@@ -3044,20 +2900,6 @@ export class AppService {
     if (this.autoPresence !== null && settings.identity.status !== 2) {
       this.autoPresence = null
     }
-    this.engine.updateProfile({
-      name: settings.identity.displayName,
-      account: settings.identity.account,
-      host: settings.identity.hostName,
-      group: settings.identity.group,
-      corporation: settings.identity.corporation,
-      department: settings.identity.department,
-      sign: settings.identity.sign,
-      status: settings.identity.status,
-      subnets: settings.network.subnets,
-      seeds: settings.network.seeds,
-      broadcastInterval: settings.network.broadcastInterval
-    })
-    this.engine.updateStatus(settings.identity.status)
     const profile = privateProfile(settings)
     this.privateService?.updateProfile(profile)
     if (
@@ -3326,36 +3168,6 @@ export class AppService {
     })()
   }
 
-  private handleFileOffer(
-    peer: ProtocolPeer,
-    packetId: number,
-    _text: string,
-    attachments: Attachment[]
-  ): void {
-    if (!this.filesStarted) {
-      logStartup('file offer ignored: file service not started')
-      return
-    }
-    const created = this.fileManager.offerIncoming({
-      peerKey: peer.key,
-      peerIp: peer.ip,
-      peerPort: peer.port,
-      packetId,
-      attachments
-    })
-    const settings = this.settings.get()
-    for (const file of created) {
-      const limit = settings.files.autoAcceptMaxMB
-      if (settings.files.autoAccept && (limit === 0 || file.size <= limit * 1024 * 1024)) {
-        void this.fileManager.accept(file.id).catch((error: unknown) => {
-          logStartup(
-            'auto accept failed: ' + (error instanceof Error ? error.message : String(error))
-          )
-        })
-      }
-    }
-  }
-
   private handleFileUpdate(file: FileTaskInfo): void {
     const peerKey = file.peerKey
     if (peerKey === undefined || peerKey === '') {
@@ -3417,10 +3229,10 @@ export class AppService {
     return this.fileSeq
   }
 
-  private handlePeers(peers: ReturnType<ProtocolEngine['getPeers']>): void {
+  private handlePeers(peers: PeerInfo[]): void {
     const aliases = new Map(this.repos.peers.list().map((peer) => [peer.key, peer.alias]))
     for (const peer of peers) {
-      this.repos.peers.upsert(toPeerInfo(peer))
+      this.repos.peers.upsert(peer)
       const conversationId = directConversationId(peer.key)
       const title = aliases.get(peer.key)?.trim() || peer.name || peer.user || peer.ip
       const existing = this.repos.conversations.get(conversationId)
@@ -3500,7 +3312,7 @@ export class AppService {
     images: PrivateImageRef[],
     segments: PrivateContentSegment[]
   ): void {
-    const peerKey = this.engine.peerKeyForIp(ip)
+    const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`忽略来自 ${ip} 的私有消息：没有对应的联系人`)
       return
@@ -3683,7 +3495,7 @@ export class AppService {
   }
 
   private handlePrivateStatus(ip: string, msgId: number, status: 'delivered' | 'read'): void {
-    const peerKey = this.engine.peerKeyForIp(ip)
+    const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`忽略来自 ${ip} 的私有状态：没有对应的联系人`)
       return
@@ -3699,7 +3511,7 @@ export class AppService {
       return
     }
     if (state === 'closed') {
-      this.engine.markPrivatePeerOffline(ip)
+      this.registry.markPrivatePeerOffline(ip)
       for (const entry of Array.from(this.privateOutstanding.values())) {
         if (entry.ip === ip) {
           this.failPrivateSend(entry)
@@ -3711,7 +3523,7 @@ export class AppService {
   // 对端可能先发 X_READY 再发 X_HANDSHARK：资料一到就写进联系人表，
   // 否则入站文字会因为没有对应联系人的 IP 映射而被丢弃
   private upsertPrivatePeer(ip: string, profile: RemoteProfile): void {
-    this.engine.upsertPrivatePeer({
+    const key = this.registry.upsertPrivatePeer({
       ip,
       userId: profile.userId,
       name: profile.name,
@@ -3721,9 +3533,7 @@ export class AppService {
       sign: profile.sign,
       status: profile.status,
       online: true
-    })
-    const key = this.engine.peerKeyForIp(ip)
-    if (key === null) return
+    }).key
     if (profile.avatarMd5 !== '') {
       const previous = this.repos.peers.get(key)
       this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
@@ -3742,7 +3552,7 @@ export class AppService {
   }
 
   private peerForIp(ip: string): { key: string; name: string } {
-    const key = this.engine.peerKeyForIp(ip) ?? `${ip}|${ip}`
+    const key = this.registry.peerKeyForIp(ip) ?? `${ip}|${ip}`
     const peer = this.repos.peers.get(key)
     return { key, name: peer?.alias || peer?.name || ip }
   }

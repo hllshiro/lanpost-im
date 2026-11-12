@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { MessageInfo } from '../../../shared/domain'
-import { nextPrivateSeq, outstandingToFail, receiptsToSend, shouldUsePrivate } from './route'
+import { nextPrivateSeq, outstandingToFail, receiptsToSend } from './route'
 
 function message(overrides: Partial<MessageInfo> = {}): MessageInfo {
   return {
@@ -23,13 +23,6 @@ describe('private route helpers', () => {
     expect(nextPrivateSeq(1_700_000_000, 0)).toBe(1_700_000_000_000)
     expect(nextPrivateSeq(1_700_000_000, 1000)).toBe(1_700_000_000_000)
     expect(nextPrivateSeq(1_700_000_000, 2)).toBeGreaterThan(nextPrivateSeq(1_700_000_000, 1))
-  })
-
-  it('prefers the private channel when it is ready or there is no IPMSG port', () => {
-    expect(shouldUsePrivate(true, 2425)).toBe(true)
-    expect(shouldUsePrivate(true, 0)).toBe(true)
-    expect(shouldUsePrivate(false, 2425)).toBe(false)
-    expect(shouldUsePrivate(false, 0)).toBe(true)
   })
 
   it('selects receipts below the watermark that were not sent yet', () => {

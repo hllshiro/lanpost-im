@@ -32,11 +32,13 @@ describe('SettingsStore', () => {
     expect(store.defaultSettings().identity.account).toBe('pc-a')
   })
 
-  it('defaults the IPMSG compatibility layer to on and keeps it when absent', () => {
-    expect(defaultSettings.network.ipmsg).toBe(true)
+  it('defaults the private discovery port and ignores removed IPMSG fields', () => {
+    expect(defaultSettings.network.privatePort).toBe(9011)
     const file = tempFile()
-    writeFileSync(file, JSON.stringify({ network: { port: 12425 } }))
-    expect(new SettingsStore(file).get().network.ipmsg).toBe(true)
+    writeFileSync(file, JSON.stringify({ network: { port: 12425, ipmsg: false } }))
+    const settings = new SettingsStore(file).get()
+    expect(settings.network.privatePort).toBe(9011)
+    expect('ipmsg' in settings.network).toBe(false)
   })
 
   it('merges a nested patch and persists it', () => {
