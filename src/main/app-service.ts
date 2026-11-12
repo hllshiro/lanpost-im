@@ -37,6 +37,7 @@ import type {
   GroupMemberInfo,
   MessageInfo,
   MessagesPage,
+  PeerInfo,
   SendTextResult,
   StagedAttachment
 } from '../shared/domain'
