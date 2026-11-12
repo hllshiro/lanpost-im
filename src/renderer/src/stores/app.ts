@@ -405,6 +405,26 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  async function broadcastText(text: string): Promise<number> {
+    try {
+      const result = await window.api.messages.broadcast({ text })
+      return result.count
+    } catch (reason) {
+      reportError(reason)
+      return 0
+    }
+  }
+
+  async function multicastText(peerKeys: string[], text: string): Promise<number> {
+    try {
+      const result = await window.api.messages.multicast({ peerKeys, text })
+      return result.count
+    } catch (reason) {
+      reportError(reason)
+      return 0
+    }
+  }
+
   function clearDraft(conversationId: string): void {
     const conversation = conversations.value.find((item) => item.id === conversationId)
     if (conversation) conversation.draft = ''
@@ -579,6 +599,8 @@ export const useAppStore = defineStore('app', () => {
     loadMessages,
     sendText,
     sendRich,
+    broadcastText,
+    multicastText,
     saveDraft,
     removeStaged,
     markRead,

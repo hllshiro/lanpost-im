@@ -61,6 +61,7 @@ import type {
   RemoteProfile
 } from './protocol/private/messages'
 import { nextPrivateSeq, outstandingToFail, receiptsToSend } from './protocol/private/route'
+import { eligibleTargets } from './protocol/private/broadcast'
 import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
@@ -1483,6 +1484,54 @@ export class AppService {
     const message = this.recordOutgoing(conversation.id, request.text, msgId)
     this.trackPrivateSend(peer.ip, conversation.id, msgId)
     return { message }
+  }
+
+  broadcastText(text: string): number {
+    const service = this.privateService
+    if (service === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const targets = eligibleTargets(this.repos.peers.list(), (ip) => service.isReady(ip))
+    return this.sendToTargets(targets, text)
+  }
+
+  multicastText(peerKeys: string[], text: string): number {
+    const service = this.privateService
+    if (service === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const peers = peerKeys
+      .map((key) => this.repos.peers.get(key))
+      .filter((peer): peer is PeerInfo => peer !== null)
+    const targets = eligibleTargets(peers, (ip) => service.isReady(ip))
+    return this.sendToTargets(targets, text)
+  }
+
+  private sendToTargets(targets: PeerInfo[], text: string): number {
+    const body = text.trim()
+    if (body === '') {
+      throw new Error('消息不能为空')
+    }
+    const service = this.privateService
+    if (service === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    let count = 0
+    for (const peer of targets) {
+      const msgId = this.allocatePrivateSeq()
+      if (!service.sendText(peer.ip, msgId, body)) continue
+      const conversation = this.repos.conversations.ensureDirect(
+        peer.key,
+        peer.alias.trim() || peer.name || peer.user || peer.ip
+      )
+      this.recordOutgoing(conversation.id, body, msgId)
+      this.trackPrivateSend(peer.ip, conversation.id, msgId)
+      count += 1
+    }
+    if (count === 0) {
+      throw new Error('没有可发送的在线联系人')
+    }
+    return count
   }
 
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人

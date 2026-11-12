@@ -9,6 +9,12 @@ export function registerAppIpc(service: AppService): void {
     service.listAllMessages(conversationId)
   )
   ipcMain.handle(IPC.messageSend, (_event, request) => service.sendText(request))
+  ipcMain.handle(IPC.messageBroadcast, (_event, request) =>
+    service.broadcastText(request.text)
+  )
+  ipcMain.handle(IPC.messageMulticast, (_event, request) =>
+    service.multicastText(request.peerKeys, request.text)
+  )
   ipcMain.handle(IPC.conversationRead, (_event, conversationId: string, messageId: number) =>
     service.markRead(conversationId, messageId)
   )

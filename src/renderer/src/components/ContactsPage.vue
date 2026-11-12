@@ -12,6 +12,12 @@ const emit = defineEmits<{ open: [conversationId: string] }>()
 const store = useAppStore()
 const query = ref('')
 const activeLetter = ref<string | null>(null)
+const boxOpen = ref(false)
+const boxMode = ref<'broadcast' | 'multicast'>('broadcast')
+const boxText = ref('')
+const boxError = ref('')
+const boxBusy = ref(false)
+const selected = ref<Set<string>>(new Set())
 
 const keyword = computed(() => query.value.trim().toLowerCase())
 
@@ -117,9 +123,55 @@ function isCurrent(peer: PeerInfo): boolean {
 }
 
 function openPeer(peer: PeerInfo): void {
+  if (boxOpen.value) {
+    toggleSelect(peer.key)
+    return
+  }
   const conversationId = conversationByPeer.value.get(peer.key)
   if (!conversationId) return
   emit('open', conversationId)
+}
+
+function openBox(mode: 'broadcast' | 'multicast'): void {
+  boxMode.value = mode
+  boxOpen.value = true
+  boxError.value = ''
+  boxText.value = ''
+  selected.value = new Set()
+}
+
+function closeBox(): void {
+  boxOpen.value = false
+  boxError.value = ''
+  boxText.value = ''
+  selected.value = new Set()
+}
+
+function toggleSelect(peerKey: string): void {
+  const next = new Set(selected.value)
+  if (next.has(peerKey)) next.delete(peerKey)
+  else next.add(peerKey)
+  selected.value = next
+}
+
+async function sendBox(): Promise<void> {
+  const text = boxText.value.trim()
+  if (text === '') {
+    boxError.value = '请输入要发送的内容'
+    return
+  }
+  boxBusy.value = true
+  boxError.value = ''
+  const count =
+    boxMode.value === 'broadcast'
+      ? await store.broadcastText(text)
+      : await store.multicastText([...selected.value], text)
+  boxBusy.value = false
+  if (count > 0) {
+    closeBox()
+  } else {
+    boxError.value = '没有可发送的在线联系人'
+  }
 }
 </script>
 
@@ -132,6 +184,10 @@ function openPeer(peer: PeerInfo): void {
           {{ onlineCount }} 位在线 · 共 {{ store.peers.length }} 位
           <template v-if="activeLetter !== null"> · {{ activeLetter }} 开头</template>
         </p>
+      </div>
+      <div class="head-actions">
+        <button class="broadcast" @click="openBox('broadcast')">广播</button>
+        <button class="broadcast secondary" @click="openBox('multicast')">多选</button>
       </div>
       <div class="search">
         <Search :size="14" :stroke-width="1.8" />
@@ -158,7 +214,11 @@ function openPeer(peer: PeerInfo): void {
               v-for="peer in group.peers"
               :key="peer.key"
               class="peer"
-              :class="{ current: isCurrent(peer), unavailable: !hasConversation(peer) }"
+              :class="{
+                current: isCurrent(peer),
+                unavailable: !hasConversation(peer),
+                selected: selected.has(peer.key)
+              }"
               :disabled="!hasConversation(peer)"
               :title="hasConversation(peer) ? '打开聊天' : '会话尚未建立'"
               @click="openPeer(peer)"
@@ -191,7 +251,12 @@ function openPeer(peer: PeerInfo): void {
                 <span class="ip">{{ peer.ip }}</span>
               </span>
 
-              <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+              <span
+                v-if="boxOpen && boxMode === 'multicast'"
+                class="select-mark"
+                :class="{ checked: selected.has(peer.key) }"
+              />
+              <ChevronRight v-else :size="16" :stroke-width="1.8" class="chevron" />
             </button>
           </template>
 
@@ -201,6 +266,26 @@ function openPeer(peer: PeerInfo): void {
             <small v-if="store.peers.length === 0">局域网内发现对端后会显示在这里</small>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div v-if="boxOpen" class="broadcast-box">
+      <div class="box-head">
+        <strong>{{ boxMode === 'broadcast' ? '全体在线' : `已选 ${selected.size} 人` }}</strong>
+        <button class="box-close" title="关闭" @click="closeBox">×</button>
+      </div>
+      <input
+        v-model="boxText"
+        :placeholder="boxMode === 'broadcast' ? '发送给所有在线联系人' : '发送给选中的联系人'"
+        :disabled="boxBusy"
+        @keydown.enter.prevent="sendBox"
+      />
+      <div class="box-actions">
+        <span v-if="boxError" class="box-error">{{ boxError }}</span>
+        <button class="ghost" :disabled="boxBusy" @click="closeBox">取消</button>
+        <button class="primary" :disabled="boxBusy" @click="sendBox">
+          {{ boxBusy ? '发送中…' : '发送' }}
+        </button>
       </div>
     </div>
 
@@ -499,6 +584,116 @@ function openPeer(peer: PeerInfo): void {
 .ip {
   font-size: 11.5px;
   color: var(--text-secondary);
+}
+
+.head-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.broadcast {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-button);
+  background: var(--accent);
+  color: #ffffff;
+  font-size: 12px;
+}
+
+.broadcast.secondary {
+  background: #ffffff;
+  border: 1px solid #dcdcdc;
+  color: var(--text);
+}
+
+.peer.selected {
+  background: #eef8f1;
+}
+
+.select-mark {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  border: 1px solid #c8c8c8;
+  border-radius: 4px;
+  background: #ffffff;
+}
+
+.select-mark.checked {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
+.broadcast-box {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 16px;
+  z-index: 30;
+  padding: 12px;
+  border-radius: 10px;
+  background: #ffffff;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
+}
+
+.box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 12.5px;
+}
+
+.box-close {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.broadcast-box input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid #dcdcdc;
+  border-radius: var(--radius-button);
+  font-size: 12.5px;
+}
+
+.box-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.box-error {
+  flex: 1;
+  min-width: 0;
+  color: var(--danger);
+  font-size: 11.5px;
+}
+
+.box-actions .ghost,
+.box-actions .primary {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--radius-button);
+  font-size: 12px;
+}
+
+.box-actions .ghost {
+  border: 1px solid #e0e0e0;
+  background: #ffffff;
+  color: var(--text-secondary);
+}
+
+.box-actions .primary {
+  background: var(--accent);
+  color: #ffffff;
 }
 
 .chevron {

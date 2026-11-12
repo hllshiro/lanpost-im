@@ -32,6 +32,8 @@ export const IPC = {
   messagesList: 'messages:list',
   messagesAll: 'messages:all',
   messageSend: 'messages:send',
+  messageBroadcast: 'messages:broadcast',
+  messageMulticast: 'messages:multicast',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -105,6 +107,19 @@ export interface MessagesSendRequest {
   text: string
 }
 
+export interface MessageBroadcastRequest {
+  text: string
+}
+
+export interface MessageMulticastRequest {
+  peerKeys: string[]
+  text: string
+}
+
+export interface SentCountResult {
+  count: number
+}
+
 // 拖进窗口的文件里，能直接引用的按路径放行，文件夹等无法当文件处理的名字放在 skipped
 export interface StagePathsResult {
   attachments: StagedAttachment[]
@@ -154,6 +169,8 @@ export type Api = {
     list(request: MessagesListRequest): Promise<MessagesPage>
     all(conversationId: string): Promise<MessageInfo[]>
     send(request: MessagesSendRequest): Promise<SendTextResult>
+    broadcast(request: MessageBroadcastRequest): Promise<SentCountResult>
+    multicast(request: MessageMulticastRequest): Promise<SentCountResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }
