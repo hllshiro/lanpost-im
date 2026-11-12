@@ -55,9 +55,11 @@ const api: Api = {
     open: (id) => ipcRenderer.invoke(IPC.fileOpen, id),
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
-    pickAndSend: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
-    pasteImage: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
-    sendPaths: (conversationId, paths) => ipcRenderer.invoke(IPC.fileSend, conversationId, paths)
+    pick: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
+    paste: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
+    removeStaged: (conversationId, id) =>
+      ipcRenderer.invoke(IPC.fileStagedRemove, conversationId, id),
+    sendStaged: (conversationId) => ipcRenderer.invoke(IPC.fileStagedSend, conversationId)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

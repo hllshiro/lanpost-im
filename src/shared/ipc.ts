@@ -1,4 +1,10 @@
-import type { AppEvent, AppSnapshot, MessagesPage, SendTextResult } from './domain'
+import type {
+  AppEvent,
+  AppSnapshot,
+  MessagesPage,
+  SendTextResult,
+  StagedAttachment
+} from './domain'
 import type { Settings, SettingsPatch } from './settings'
 
 export const IPC = {
@@ -27,7 +33,8 @@ export const IPC = {
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
   filePaste: 'files:paste',
-  fileSend: 'files:send'
+  fileStagedRemove: 'files:staged-remove',
+  fileStagedSend: 'files:staged-send'
 } as const
 
 export interface AppInfo {
@@ -93,8 +100,10 @@ export type Api = {
     open(id: string): Promise<void>
     reveal(id: string): Promise<void>
     saveAs(id: string): Promise<void>
-    pickAndSend(conversationId: string): Promise<void>
-    pasteImage(conversationId: string): Promise<void>
-    sendPaths(conversationId: string, paths: string[]): Promise<void>
+    // 选中与粘贴都只进待发区，返回当前会话最新的待发列表
+    pick(conversationId: string): Promise<StagedAttachment[]>
+    paste(conversationId: string): Promise<StagedAttachment[]>
+    removeStaged(conversationId: string, id: string): Promise<void>
+    sendStaged(conversationId: string): Promise<void>
   }
 }

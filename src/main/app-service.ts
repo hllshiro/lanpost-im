@@ -1,6 +1,14 @@
 import { randomBytes, createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync
+} from 'node:fs'
 import { isIPv4 } from 'node:net'
 import { networkInterfaces } from 'node:os'
 import { app, clipboard, dialog, shell, type BrowserWindow } from 'electron'
@@ -11,7 +19,8 @@ import type {
   FileTaskInfo,
   MessageInfo,
   MessagesPage,
-  SendTextResult
+  SendTextResult,
+  StagedAttachment
 } from '../shared/domain'
 import type { AppInfo, MessagesListRequest, MessagesSendRequest } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
@@ -31,6 +40,7 @@ import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
 import { FileManager } from './files/manager'
 import { PrivateFileTransfer } from './files/private-transfer'
+import { StagedStore, type StagedSource } from './files/staged'
 import { sanitizeFileName, uniqueName } from './files/names'
 import { NotificationManager } from './notify/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
@@ -199,6 +209,8 @@ export class AppService {
   private fileSeq = 0
   private fileRequestSeq = Math.floor(Date.now() / 1000) >>> 0
   private readonly fileLinks = new Map<string, { conversationId: string; messageId: number }>()
+  // 待发区：粘贴的图片和选中的文件都在这里等发送
+  private readonly staged = new StagedStore()
 
   constructor(
     private readonly db: DatabaseSync,
@@ -427,6 +439,7 @@ export class AppService {
       peers: this.repos.peers.list(),
       conversations,
       files: this.repos.files.list(),
+      staged: this.staged.all(),
       unread: conversations.reduce((total, item) => total + item.unread, 0)
     }
   }
@@ -716,44 +729,111 @@ export class AppService {
       })
   }
 
-  async pickAndSend(conversationId: string): Promise<void> {
+  // 「文件」按钮只把文件放进待发区，点发送时才开始传输
+  async pickStaged(conversationId: string): Promise<StagedAttachment[]> {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
     const result = await dialog.showOpenDialog({
-      title: '发送文件',
+      title: '添加文件',
       properties: ['openFile', 'multiSelections']
     })
     if (result.canceled || result.filePaths.length === 0) {
-      return
+      return this.staged.list(conversationId)
     }
-    this.sendFiles(conversationId, result.filePaths)
+    return this.addStaged(conversationId, result.filePaths, false)
   }
 
-  // 剪贴板里的图片先落盘再走正常发送流程，按原图格式发出
-  async pasteImage(conversationId: string): Promise<void> {
+  // 剪贴板里的图片先落盘进待发区，按原图格式发送
+  async pasteStaged(conversationId: string): Promise<StagedAttachment[]> {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
-    let saved: string | null = null
+    const dir = join(app.getPath('userData'), 'clipboard')
+    mkdirSync(dir, { recursive: true })
+    const paths: string[] = []
+    const now = Date.now()
     for (const item of await clipboard.read()) {
       const type = item.types.find((value) => value.startsWith('image/'))
       if (type === undefined) continue
       const blob = await item.getType(type)
       if (!(blob instanceof Blob)) continue
-      const dir = join(app.getPath('userData'), 'clipboard')
-      mkdirSync(dir, { recursive: true })
-      const path = join(dir, `clip-${Date.now()}.${imageExtension(type)}`)
+      const path = join(dir, `clip-${now}-${paths.length}.${imageExtension(type)}`)
       writeFileSync(path, Buffer.from(await blob.arrayBuffer()))
-      saved = path
-      break
+      paths.push(path)
     }
-    if (saved === null) {
+    if (paths.length === 0) {
       throw new Error('剪贴板里没有图片')
     }
-    this.sendFiles(conversationId, [saved])
+    return this.addStaged(conversationId, paths, true)
+  }
+
+  removeStaged(conversationId: string, id: string): void {
+    const file = this.staged.take(conversationId, id)
+    if (file === null) return
+    // 粘贴落盘的临时文件随手删掉；从磁盘选来的原文件不能碰
+    if (file.temporary) {
+      rmSync(file.path, { force: true })
+    }
+    this.emitStaged(conversationId)
+  }
+
+  // 依次发出待发附件，成功一张就移除一张，中途失败时剩下的留在待发区
+  sendStaged(conversationId: string): void {
+    for (;;) {
+      const entry = this.staged.list(conversationId)[0]
+      if (entry === undefined) break
+      const file = this.staged.file(entry.id)
+      if (file === undefined) {
+        this.staged.take(conversationId, entry.id)
+        this.emitStaged(conversationId)
+        continue
+      }
+      this.sendFiles(conversationId, [file.path])
+      this.staged.take(conversationId, entry.id)
+      logStartup(`待发区发出 ${entry.name}，剩余 ${this.staged.list(conversationId).length} 个`)
+      this.emitStaged(conversationId)
+    }
+  }
+
+  stagedImagePath(id: string): string | null {
+    const file = this.staged.file(id)
+    if (file === undefined || !existsSync(file.path)) {
+      return null
+    }
+    return file.path
+  }
+
+  private addStaged(
+    conversationId: string,
+    paths: string[],
+    temporary: boolean
+  ): StagedAttachment[] {
+    const sources: StagedSource[] = []
+    for (const path of paths) {
+      const stats = statSync(path)
+      if (!stats.isFile()) continue
+      sources.push({
+        path,
+        size: stats.size,
+        kind: isImagePath(path) ? 'image' : 'file',
+        temporary
+      })
+    }
+    const attachments = this.staged.add(conversationId, sources)
+    logStartup(`待发区加入 ${sources.length} 个附件，当前 ${attachments.length} 个`)
+    this.emitStaged(conversationId)
+    return attachments
+  }
+
+  private emitStaged(conversationId: string): void {
+    this.emit({
+      type: 'staged',
+      conversationId,
+      attachments: this.staged.list(conversationId)
+    })
   }
 
   sendFiles(conversationId: string, paths: string[], text = ''): void {
@@ -1460,8 +1540,6 @@ export class AppService {
     const transfer = this.privateFiles
     const service = this.privateService
     if (transfer === null || service === null) return
-    // 对端已经来要了，取消“5 秒没人要就发文件邀请”的兜底
-    this.privateImagePushes.delete(fileId)
     const reversePort = service.peerReversePort(ip)
     if (reversePort <= 0) {
       this.updatePrivateFileTask(fileTaskId, 'failed', 0, '对端没有公布反向文件端口')
@@ -1469,12 +1547,31 @@ export class AppService {
     }
     this.privateReverseStarted.add(fileId)
     logStartup(`私有文件通道改用反向连接 ${ip}:${reversePort}（文件 ${fileId}）`)
-    void transfer.sendReverse(ip, reversePort, fileId).catch((error: unknown) => {
+    void this.sendReverseImage(transfer, ip, reversePort, fileId).catch((error: unknown) => {
       logStartup(
         'private file reverse send failed: ' +
           (error instanceof Error ? error.message : String(error))
       )
     })
+  }
+
+  // 对端的反向监听端口偶尔还没就绪，连接被拒绝时重试几次；此时还没写数据，重发是安全的
+  private async sendReverseImage(
+    transfer: PrivateFileTransfer,
+    ip: string,
+    port: number,
+    fileId: number
+  ): Promise<void> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await transfer.sendReverse(ip, port, fileId)
+        return
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code
+        if (code !== 'ECONNREFUSED' || attempt >= 3) throw error
+        await new Promise((resolve) => setTimeout(resolve, 400))
+      }
+    }
   }
 
   private handlePrivateFileProgress(fileId: number, received: number): void {
@@ -1496,7 +1593,7 @@ export class AppService {
   private handlePrivateFileDone(fileId: number, path: string): void {
     const entry = this.privateFileTasks.get(fileId)
     if (entry === undefined) return
-    logStartup(`私有文件接收完成 ${fileId}（${path}）`)
+    logStartup(`私有文件${entry.direction === 'in' ? '接收' : '发送'}完成 ${fileId}（${path}）`)
     const task = this.repos.files.get(entry.fileTaskId)
     if (task === null) return
     const total = Math.max(task.size, task.received)

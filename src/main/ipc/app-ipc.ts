@@ -28,13 +28,16 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileReveal, (_event, id: string) => service.revealFile(id))
   ipcMain.handle(IPC.fileSaveAs, (_event, id: string) => service.saveFileAs(id))
   ipcMain.handle(IPC.filePick, (_event, conversationId: string) =>
-    service.pickAndSend(conversationId)
+    service.pickStaged(conversationId)
   )
   ipcMain.handle(IPC.filePaste, (_event, conversationId: string) =>
-    service.pasteImage(conversationId)
+    service.pasteStaged(conversationId)
   )
-  ipcMain.handle(IPC.fileSend, (_event, conversationId: string, paths: string[]) =>
-    service.sendFiles(conversationId, paths)
+  ipcMain.handle(IPC.fileStagedRemove, (_event, conversationId: string, id: string) =>
+    service.removeStaged(conversationId, id)
+  )
+  ipcMain.handle(IPC.fileStagedSend, (_event, conversationId: string) =>
+    service.sendStaged(conversationId)
   )
   ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
     service.setActiveConversation(conversationId)

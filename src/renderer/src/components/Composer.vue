@@ -1,29 +1,37 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { Paperclip, Send } from '@lucide/vue'
+import { FileText, Paperclip, Send, X } from '@lucide/vue'
+import type { StagedAttachment } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
+import { formatSize } from '../utils/format'
 
 const props = defineProps<{
   draft: string
   sending: boolean
   conversationTitle: string
   conversationId: string
+  staged: StagedAttachment[]
 }>()
 
 const emit = defineEmits<{
   'update:draft': [value: string]
   send: [text: string]
+  'remove-staged': [id: string]
 }>()
 
 const fileBusy = ref(false)
 const fileError = ref('')
+
+function stagedUrl(id: string): string {
+  return `lanpost-staged:///${encodeURIComponent(id)}`
+}
 
 async function pickFile(): Promise<void> {
   if (fileBusy.value || props.conversationId === '') return
   fileBusy.value = true
   fileError.value = ''
   try {
-    await window.api.files.pickAndSend(props.conversationId)
+    await window.api.files.pick(props.conversationId)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   } finally {
@@ -31,7 +39,7 @@ async function pickFile(): Promise<void> {
   }
 }
 
-// 输入框里直接粘贴截图：交给主进程落盘后再按图片发送
+// 输入框里粘贴的图片先落盘进待发区，点发送才发出去
 async function onPaste(event: ClipboardEvent): Promise<void> {
   if (props.conversationId === '' || fileBusy.value) return
   const items = event.clipboardData?.items
@@ -42,7 +50,7 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
   fileBusy.value = true
   fileError.value = ''
   try {
-    await window.api.files.pasteImage(props.conversationId)
+    await window.api.files.paste(props.conversationId)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   } finally {
@@ -56,7 +64,9 @@ const text = computed({
   get: () => props.draft,
   set: (value: string) => emit('update:draft', value)
 })
-const canSend = computed(() => props.draft.trim().length > 0 && !props.sending)
+const canSend = computed(
+  () => !props.sending && (props.draft.trim().length > 0 || props.staged.length > 0)
+)
 
 function resize(): void {
   const element = textarea.value
@@ -69,8 +79,9 @@ function onInput(): void {
 }
 
 function submit(): void {
+  if (props.sending) return
   const body = props.draft.trim()
-  if (!body || props.sending) return
+  if (!body && props.staged.length === 0) return
   emit('send', body)
 }
 
@@ -105,6 +116,30 @@ onMounted(async () => {
 
 <template>
   <footer class="composer">
+    <div v-if="staged.length > 0" class="staged">
+      <div v-for="item in staged" :key="item.id" class="staged-item" :title="item.name">
+        <img
+          v-if="item.kind === 'image'"
+          class="staged-thumb"
+          :src="stagedUrl(item.id)"
+          :alt="item.name"
+        />
+        <div v-else class="staged-file">
+          <FileText :size="16" :stroke-width="1.6" />
+          <span class="staged-name">{{ item.name }}</span>
+          <span class="staged-size">{{ formatSize(item.size) }}</span>
+        </div>
+        <button
+          class="staged-remove"
+          :aria-label="`移除 ${item.name}`"
+          :title="`移除 ${item.name}`"
+          @click="emit('remove-staged', item.id)"
+        >
+          <X :size="11" :stroke-width="2.4" />
+        </button>
+      </div>
+    </div>
+
     <textarea
       ref="textarea"
       v-model="text"
@@ -121,8 +156,8 @@ onMounted(async () => {
       <button
         class="tool"
         :disabled="fileBusy || conversationId === ''"
-        :title="fileBusy ? '正在选择文件' : '发送文件'"
-        aria-label="发送文件"
+        :title="fileBusy ? '正在选择文件' : '添加文件'"
+        aria-label="添加文件"
         @click="pickFile"
       >
         <Paperclip :size="17" :stroke-width="1.8" />
@@ -146,6 +181,78 @@ onMounted(async () => {
   padding: 8px 20px 10px;
   border-top: 1px solid var(--divider);
   background: #ffffff;
+}
+
+/* 待发区：粘贴的图片和选中的文件在发送前挂在这里 */
+.staged {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 10px;
+}
+
+.staged-item {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+
+.staged-thumb {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  object-fit: cover;
+}
+
+.staged-file {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  width: 168px;
+  height: 56px;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: var(--hover);
+  color: var(--text-secondary);
+}
+
+.staged-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.staged-size {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.staged-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+}
+
+.staged-remove:hover {
+  background: rgba(0, 0, 0, 0.75);
 }
 
 .input {

@@ -18,13 +18,25 @@ import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './sta
 
 app.setName(APP_NAME_EN)
 
-// 渲染进程通过它读取已接收的图片；地址形如 lanpost-file:///pf5723
+// 渲染进程通过它读取已接收的图片和待发区里的图片；
+// 地址形如 lanpost-file:///pf5723、lanpost-staged:///stg3
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'lanpost-file',
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
+  {
+    scheme: 'lanpost-staged',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
   }
 ])
+
+// 渲染进程写的是 lanpost-file:///pf123，Chromium 会规范成 lanpost-file://pf123/，
+// 主机名和路径都要取
+function localId(url: string): string {
+  const parsed = new URL(url)
+  return decodeURIComponent(`${parsed.hostname}${parsed.pathname}`.replace(/^\/+|\/+$/g, ''))
+}
 
 // 远程桌面、虚拟机与部分安全策略下 GPU 进程会启动失败并导致 Chromium 退出。
 app.disableHardwareAcceleration()
@@ -121,13 +133,21 @@ if (!gotLock) {
       logStartup('ipc registered')
 
       protocol.handle('lanpost-file', (request) => {
-        // 渲染进程写的是 lanpost-file:///pf123，Chromium 会规范成 lanpost-file://pf123/，
-        // 主机名和路径都要取
-        const url = new URL(request.url)
-        const id = decodeURIComponent(`${url.hostname}${url.pathname}`.replace(/^\/+|\/+$/g, ''))
+        const id = localId(request.url)
         const path = id === '' ? null : (service?.filePath(id) ?? null)
         if (path === null) {
           logStartup(`lanpost-file: 找不到文件任务 ${id}`)
+          return new Response('not found', { status: 404 })
+        }
+        return net.fetch(pathToFileURL(path).toString())
+      })
+
+      // 待发区里的图片还没发出去，直接从暂存文件读
+      protocol.handle('lanpost-staged', (request) => {
+        const id = localId(request.url)
+        const path = id === '' ? null : (service?.stagedImagePath(id) ?? null)
+        if (path === null) {
+          logStartup(`lanpost-staged: 找不到待发图片 ${id}`)
           return new Response('not found', { status: 404 })
         }
         return net.fetch(pathToFileURL(path).toString())

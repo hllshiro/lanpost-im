@@ -47,13 +47,7 @@ export interface MessageInfo {
 }
 
 export type FileState =
-  | 'waiting'
-  | 'offered'
-  | 'transferring'
-  | 'done'
-  | 'rejected'
-  | 'failed'
-  | 'canceled'
+  'waiting' | 'offered' | 'transferring' | 'done' | 'rejected' | 'failed' | 'canceled'
 
 export interface FileTaskInfo {
   id: string
@@ -74,6 +68,16 @@ export interface FileTaskInfo {
   updatedAt: number
 }
 
+// 待发区里的附件：粘贴的图片和选中的文件都先进这里，点发送才真正发出去
+export interface StagedAttachment {
+  id: string
+  conversationId: string
+  name: string
+  size: number
+  kind: 'image' | 'file'
+  createdAt: number
+}
+
 export interface LocalInfo {
   name: string
   account: string
@@ -88,6 +92,7 @@ export interface AppSnapshot {
   peers: PeerInfo[]
   conversations: ConversationInfo[]
   files: FileTaskInfo[]
+  staged: StagedAttachment[]
   unread: number
 }
 
@@ -96,6 +101,7 @@ export type AppEvent =
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
   | { type: 'file'; file: FileTaskInfo }
+  | { type: 'staged'; conversationId: string; attachments: StagedAttachment[] }
   | { type: 'settings'; settings: Settings }
 
 export interface MessagesPage {

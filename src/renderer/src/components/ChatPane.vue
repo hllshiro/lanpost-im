@@ -7,7 +7,8 @@ import type {
   FileTaskInfo,
   LocalInfo,
   MessageInfo,
-  PeerInfo
+  PeerInfo,
+  StagedAttachment
 } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
@@ -19,6 +20,7 @@ const props = defineProps<{
   peer: PeerInfo | null
   messages: MessageInfo[]
   files: FileTaskInfo[]
+  staged: StagedAttachment[]
   local: LocalInfo | null
   loadingMessages: boolean
   hasMore: boolean
@@ -29,6 +31,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   send: [text: string]
   draft: [value: string]
+  'remove-staged': [id: string]
   read: []
   loadMore: [beforeId: number]
 }>()
@@ -242,8 +245,10 @@ onBeforeUnmount(() => {
         :sending="sending"
         :conversation-title="conversation.title"
         :conversation-id="conversation.id"
+        :staged="staged"
         @update:draft="handleDraft"
         @send="handleSend"
+        @remove-staged="emit('remove-staged', $event)"
       />
     </template>
 

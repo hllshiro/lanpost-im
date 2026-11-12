@@ -70,6 +70,11 @@ function handleSend(text: string): void {
   void store.sendText(text)
 }
 
+function handleRemoveStaged(id: string): void {
+  const conversationId = store.currentConversationId
+  if (conversationId) void store.removeStaged(conversationId, id)
+}
+
 function handleRead(): void {
   void store.markReadCurrent()
 }
@@ -173,6 +178,7 @@ onBeforeUnmount(() => {
             :peer="store.currentPeer"
             :messages="store.currentMessages"
             :files="store.currentFiles"
+            :staged="store.currentStaged"
             :local="store.local"
             :loading-messages="currentLoadingMessages"
             :has-more="currentHasMore"
@@ -180,6 +186,7 @@ onBeforeUnmount(() => {
             :unread-after-id="currentUnreadAfterId"
             @send="handleSend"
             @draft="handleDraft"
+            @remove-staged="handleRemoveStaged"
             @read="handleRead"
             @load-more="handleLoadMore"
           />

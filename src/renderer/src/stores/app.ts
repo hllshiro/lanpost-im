@@ -7,7 +7,8 @@ import type {
   FileTaskInfo,
   LocalInfo,
   MessageInfo,
-  PeerInfo
+  PeerInfo,
+  StagedAttachment
 } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 
@@ -20,6 +21,7 @@ export const useAppStore = defineStore('app', () => {
   const peers = ref<PeerInfo[]>([])
   const conversations = ref<ConversationInfo[]>([])
   const files = ref<FileTaskInfo[]>([])
+  const staged = ref<StagedAttachment[]>([])
   const currentConversationId = ref<string | null>(null)
   const messages = ref<Record<string, MessageInfo[]>>({})
   const previews = ref<Record<string, MessageInfo>>({})
@@ -72,6 +74,11 @@ export const useAppStore = defineStore('app', () => {
     return id ? files.value.filter((file) => file.conversationId === id) : []
   })
 
+  const currentStaged = computed(() => {
+    const id = currentConversationId.value
+    return id ? staged.value.filter((item) => item.conversationId === id) : []
+  })
+
   function reportError(reason: unknown): void {
     error.value = errorMessage(reason)
   }
@@ -85,6 +92,7 @@ export const useAppStore = defineStore('app', () => {
     peers.value = snapshot.peers
     conversations.value = snapshot.conversations
     files.value = snapshot.files
+    staged.value = snapshot.staged
     if (
       currentConversationId.value &&
       !snapshot.conversations.some(
@@ -159,6 +167,12 @@ export const useAppStore = defineStore('app', () => {
       }
       case 'file':
         upsertFile(event.file)
+        break
+      case 'staged':
+        staged.value = [
+          ...staged.value.filter((item) => item.conversationId !== event.conversationId),
+          ...event.attachments
+        ]
         break
       case 'settings':
         break
@@ -269,38 +283,52 @@ export const useAppStore = defineStore('app', () => {
     await markRead(id)
   }
 
+  // 发送：待发区的附件按顺序先发出去，再发文字
   async function sendText(text: string): Promise<boolean> {
     const conversationId = currentConversationId.value
     const body = text.trim()
-    if (!conversationId || !body || sending.value) return false
+    if (!conversationId || sending.value) return false
+    if (body === '' && currentStaged.value.length === 0) return false
     sending.value = true
     try {
-      const result = await window.api.messages.send({ conversationId, text: body })
-      upsertMessage(result.message)
-      const conversation = conversations.value.find((item) => item.id === conversationId)
-      if (conversation) {
-        conversation.draft = ''
-        if (result.message.createdAt > conversation.lastMessageAt) {
+      if (currentStaged.value.length > 0) {
+        await window.api.files.sendStaged(conversationId)
+      }
+      if (body !== '') {
+        const result = await window.api.messages.send({ conversationId, text: body })
+        upsertMessage(result.message)
+        previews.value = { ...previews.value, [conversationId]: result.message }
+        const conversation = conversations.value.find((item) => item.id === conversationId)
+        if (conversation && result.message.createdAt > conversation.lastMessageAt) {
           conversation.lastMessageAt = result.message.createdAt
         }
       }
-      previews.value = { ...previews.value, [conversationId]: result.message }
-      const timer = draftTimers.get(conversationId)
-      if (timer !== undefined) {
-        window.clearTimeout(timer)
-        draftTimers.delete(conversationId)
-      }
-      try {
-        await window.api.messages.saveDraft(conversationId, '')
-      } catch (reason) {
-        reportError(reason)
-      }
+      clearDraft(conversationId)
       return true
     } catch (reason) {
       reportError(reason)
       return false
     } finally {
       sending.value = false
+    }
+  }
+
+  function clearDraft(conversationId: string): void {
+    const conversation = conversations.value.find((item) => item.id === conversationId)
+    if (conversation) conversation.draft = ''
+    const timer = draftTimers.get(conversationId)
+    if (timer !== undefined) {
+      window.clearTimeout(timer)
+      draftTimers.delete(conversationId)
+    }
+    void persistDraft(conversationId, '')
+  }
+
+  async function removeStaged(conversationId: string, id: string): Promise<void> {
+    try {
+      await window.api.files.removeStaged(conversationId, id)
+    } catch (reason) {
+      reportError(reason)
     }
   }
 
@@ -396,6 +424,7 @@ export const useAppStore = defineStore('app', () => {
     currentMessages,
     currentPeer,
     currentFiles,
+    currentStaged,
     initialize,
     loadSnapshot,
     refreshPeers,
@@ -403,6 +432,7 @@ export const useAppStore = defineStore('app', () => {
     loadMessages,
     sendText,
     saveDraft,
+    removeStaged,
     markRead,
     markReadCurrent,
     setPinned,
