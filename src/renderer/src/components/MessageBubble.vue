@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle } from '@lucide/vue'
+import { Check, CheckCheck, CircleAlert, FileText, Folder, LoaderCircle } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
-import { formatClock, statusLabel } from '../utils/format'
+import { formatClock, formatSize, statusLabel } from '../utils/format'
 import FileCard from './FileCard.vue'
 
 const props = defineProps<{
@@ -75,6 +75,27 @@ const showImage = computed(() => imageUrl.value !== '' && !imageBroken.value)
 const displayText = computed(() =>
   showImage.value ? props.message.text.replace(/\[图片\]/g, '').trim() : props.message.text
 )
+
+// 文件夹气泡的信息都放在 meta 里：大小、项数、收发方向与完成状态
+const folderMeta = computed(() => {
+  let meta: Record<string, unknown>
+  try {
+    meta = JSON.parse(props.message.meta) as Record<string, unknown>
+  } catch {
+    meta = {}
+  }
+  const parts: string[] = []
+  if (typeof meta.size === 'number') parts.push(formatSize(meta.size))
+  if (typeof meta.count === 'number') parts.push(`${meta.count} 个文件`)
+  if (meta.incoming === true) {
+    parts.push(meta.done === true ? '已接收' : '接收中')
+  } else if (props.message.status === 'failed') {
+    parts.push('发送失败')
+  } else {
+    parts.push(props.message.status === 'delivered' ? '已发送' : '发送中')
+  }
+  return parts.join(' · ')
+})
 </script>
 
 <template>
@@ -91,7 +112,17 @@ const displayText = computed(() =>
       </span>
 
       <div class="content">
-        <div v-if="message.kind === 'file'" class="bubble file-bubble">
+        <div v-if="message.kind === 'folder'" class="bubble folder-bubble">
+          <div class="folder-card">
+            <Folder :size="22" :stroke-width="1.6" />
+            <div class="folder-text">
+              <p class="folder-name">{{ message.text || '文件夹' }}</p>
+              <p class="folder-meta">{{ folderMeta }}</p>
+            </div>
+          </div>
+        </div>
+
+        <div v-else-if="message.kind === 'file'" class="bubble file-bubble">
           <FileCard v-if="file" :file="file" />
           <div v-else class="file-missing">
             <FileText :size="20" :stroke-width="1.6" />
@@ -257,6 +288,42 @@ const displayText = computed(() =>
 
 .file-bubble {
   background: transparent;
+}
+
+.folder-bubble {
+  background: transparent;
+}
+
+.folder-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 220px;
+  max-width: 320px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-card);
+  background: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.folder-text {
+  min-width: 0;
+}
+
+.folder-name {
+  margin: 0 0 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.folder-meta {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .file-bubble :deep(.file-card) {

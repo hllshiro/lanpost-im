@@ -215,6 +215,8 @@ export class AppService {
   // 文件夹通道的研究探针：只记录收到的帧结构
   private privateFolders: PrivateFolderTransfer | null = null
   private readonly folderOutgoing = new Map<string, OutgoingFolder>()
+  // 文件夹任务 → 聊天消息，用于把收发状态写回气泡
+  private readonly folderLinks = new Map<string, { conversationId: string; messageId: number }>()
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<number>()
@@ -424,9 +426,14 @@ export class AppService {
       callbacks: {
         onProgress: (taskId, received, total) =>
           logStartup(`私有文件夹进度 任务=${taskId} ${received}/${total}`),
-        onDone: (taskId, dir) => logStartup(`私有文件夹接收完成 任务=${taskId} 目录=${dir}`),
-        onError: (taskId, error) =>
+        onDone: (taskId, dir) => {
+          logStartup(`私有文件夹接收完成 任务=${taskId} 目录=${dir}`)
+          this.handleFolderDone(taskId, dir)
+        },
+        onError: (taskId, error) => {
           logStartup(`私有文件夹接收失败 任务=${taskId}：${error.message}`)
+          this.handleFolderError(taskId)
+        }
       },
       onLog: (message) => logStartup('private folders: ' + message)
     })
@@ -452,7 +459,8 @@ export class AppService {
     const service = this.privateService
     const transfer = this.privateFolders
     if (service === null || transfer === null) return
-    const peer = this.repos.peers.get(`private:${ip}`) ?? null
+    const peerKey = this.engine.peerKeyForIp(ip)
+    const peer = peerKey === null ? null : this.repos.peers.get(peerKey)
     const peerDir = sanitizeFileName(peer?.name ?? '') || ip
     const name = sanitizeFileName(basename(offer.name)) || '收到的文件夹'
     const saveDir = join(this.receiveDir, peerDir, name)
@@ -464,6 +472,29 @@ export class AppService {
       size: offer.size
     })
     service.sendOperateRecvFolder(ip, offer.taskId, 2)
+    if (peerKey !== null) {
+      const conversation = this.repos.conversations.ensureDirect(
+        peerKey,
+        peer?.alias || peer?.name || ip
+      )
+      const message = this.repos.messages.insertIncoming(
+        conversation.id,
+        name,
+        this.nextPrivateMessageId(),
+        'folder',
+        JSON.stringify({
+          source: 'private-folder',
+          taskId: offer.taskId,
+          size: offer.size,
+          dir: saveDir,
+          incoming: true
+        })
+      )
+      this.folderLinks.set(offer.taskId, { conversationId: conversation.id, messageId: message.id })
+      this.repos.conversations.touch(conversation.id, message.createdAt, 1)
+      this.emit({ type: 'message', message })
+      this.emitConversation(conversation.id)
+    }
     logStartup(`私有文件夹邀请：已回 1015 OP=2（任务 ${offer.taskId}），保存到 ${saveDir}`)
   }
 
@@ -479,19 +510,57 @@ export class AppService {
     const advertised = service.peerFolderPort(ip)
     const port = advertised > 0 ? advertised : 9014
     logStartup(`私有文件夹发送：对端已接受，连接 ${ip}:${port}（任务 ${taskId}）`)
-    void transfer.send(ip, folder, port).catch(async (error: unknown) => {
-      // 对端公布的口径可能不是它实际监听的端口，9014 再试一次
-      if (port === 9014) {
-        logStartup(`私有文件夹发送失败：${(error as Error).message}`)
-        return
-      }
-      logStartup(`私有文件夹发送：${port} 失败，改用 9014 重试`)
-      try {
-        await transfer.send(ip, folder, 9014)
-      } catch (retry: unknown) {
-        logStartup(`私有文件夹发送失败：${(retry as Error).message}`)
-      }
-    })
+    void transfer
+      .send(ip, folder, port)
+      .then(() => this.handleFolderDone(taskId, folder.root))
+      .catch(async (error: unknown) => {
+        // 对端公布的口径可能不是它实际监听的端口，9014 再试一次
+        if (port === 9014) {
+          logStartup(`私有文件夹发送失败：${(error as Error).message}`)
+          this.handleFolderError(taskId)
+          return
+        }
+        logStartup(`私有文件夹发送：${port} 失败，改用 9014 重试`)
+        try {
+          await transfer.send(ip, folder, 9014)
+          this.handleFolderDone(taskId, folder.root)
+        } catch (retry: unknown) {
+          logStartup(`私有文件夹发送失败：${(retry as Error).message}`)
+          this.handleFolderError(taskId)
+        }
+      })
+  }
+
+  // 文件夹任务结束：写回气泡（接收方记录目录，发送方把状态推到已送达）
+  private handleFolderDone(taskId: string, dir: string): void {
+    const link = this.folderLinks.get(taskId)
+    this.folderLinks.delete(taskId)
+    if (link === undefined) return
+    const message = this.repos.messages.getMessage(link.messageId)
+    if (message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const nextMeta = JSON.stringify({ ...meta, dir, done: true })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    const status = message.direction === 'out' ? 'delivered' : message.status
+    if (message.direction === 'out') {
+      this.repos.messages.setStatus(message.id, status)
+    }
+    this.emit({ type: 'message', message: { ...message, meta: nextMeta, status } })
+  }
+
+  private handleFolderError(taskId: string): void {
+    const link = this.folderLinks.get(taskId)
+    this.folderLinks.delete(taskId)
+    if (link === undefined) return
+    const message = this.repos.messages.getMessage(link.messageId)
+    if (message === null || message.direction !== 'out') return
+    this.repos.messages.setStatus(message.id, 'failed')
+    this.emit({ type: 'message', message: { ...message, status: 'failed' } })
   }
 
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
@@ -537,6 +606,24 @@ export class AppService {
         time: item.time
       }))
     })
+    // 邀请发出去就落到聊天记录，状态先置为已发送
+    const message = this.repos.messages.insertOutgoing(
+      conversationId,
+      basename(path),
+      this.nextPrivateMessageId(),
+      'folder',
+      JSON.stringify({
+        source: 'private-folder',
+        taskId,
+        size: info.totalSize,
+        count: info.items.length
+      })
+    )
+    this.folderLinks.set(taskId, { conversationId, messageId: message.id })
+    this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.conversations.touch(conversationId, message.createdAt, 0)
+    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emitConversation(conversationId)
     logStartup(
       `私有文件夹发送：邀请 ${peer.ip} 任务=${taskId} 名称=${path} 大小=${info.totalSize} ` +
         `项数=${info.items.length} 已交给 ENet=${sent}`

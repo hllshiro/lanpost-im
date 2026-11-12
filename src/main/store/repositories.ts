@@ -283,6 +283,10 @@ export class MessageRepository {
     this.db.prepare('UPDATE messages SET remote_seq = ? WHERE id = ?').run(seq, id)
   }
 
+  setMeta(id: number, meta: string): void {
+    this.db.prepare('UPDATE messages SET meta = ? WHERE id = ?').run(meta, id)
+  }
+
   getMessage(id: number): MessageInfo | null {
     const row = this.db.prepare('SELECT * FROM messages WHERE id = ?').get(id) as
       MessageRow | undefined

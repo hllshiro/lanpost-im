@@ -38,7 +38,7 @@ export interface MessageInfo {
   id: number
   conversationId: string
   direction: 'in' | 'out'
-  kind: 'text' | 'file' | 'system'
+  kind: 'text' | 'file' | 'folder' | 'system'
   text: string
   remoteSeq: number
   status: string

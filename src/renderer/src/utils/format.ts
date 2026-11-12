@@ -69,6 +69,7 @@ export function formatSpeed(bytesPerSecond: number): string {
 export function previewText(message: MessageInfo): string {
   const text = message.text.replace(/\s+/g, ' ').trim()
   if (message.kind === 'file') return `[文件] ${text || '文件'}`
+  if (message.kind === 'folder') return `[文件夹] ${text || '文件夹'}`
   if (message.kind === 'system') return text
   return text || '[消息]'
 }
