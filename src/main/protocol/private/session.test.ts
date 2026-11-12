@@ -70,7 +70,8 @@ function makeSession(
         events.push(`share-rsp:${reqId}:${err}:${fileId}:${size}`),
       onRemindFile: (groupId, name, size) => events.push(`remind:${groupId}:${name}:${size}`),
       onGroupReqInfo: (groupId) => events.push(`group-req:${groupId}`),
-      onGroupInfoRsp: (info) => events.push(`group-info-rsp:${info.id}`),
+      onGroupInfoRsp: (ret, groupId, info) =>
+        events.push(`group-info-rsp:${ret}:${groupId}:${info === null ? 'none' : 'full'}`),
       onGroupDismiss: (groupId) => events.push(`group-dismiss:${groupId}`),
       onGroupExit: (groupId) => events.push(`group-exit:${groupId}`),
       onGroupKick: (groupId) => events.push(`group-kick:${groupId}`),

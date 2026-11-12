@@ -266,6 +266,8 @@ export class AppService {
     }
   >()
   private groupRequestSeq = 0
+  // 已发出群资料请求的群，收到应答前不动本地数据
+  private readonly groupInfoProbes = new Set<string>()
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<string>()
@@ -454,11 +456,12 @@ export class AppService {
           onRemindFile: (ip, groupId, name, size) =>
             this.handleGroupFileRemind(ip, groupId, name, size),
           onGroupReqInfo: (ip, groupId) => this.handleGroupReqInfo(ip, groupId),
-          onGroupInfoRsp: (ip, info) => this.handleGroupInfo(ip, info),
+          onGroupInfoRsp: (ip, ret, groupId, info) =>
+            this.handleGroupInfoRsp(ip, ret, groupId, info),
           onGroupDismiss: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '解散'),
           onGroupKick: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '被移出'),
           onGroupExit: (ip, groupId) => this.handleGroupMemberExit(ip, groupId),
-          onReady: (ip, userId) => logStartup(`私有会话 ${ip} 用户号 ${userId}`),
+          onReady: (ip, userId) => this.reconcileGroups(ip, userId),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -630,9 +633,39 @@ export class AppService {
 
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
   // 群资料推送：更新群信息并刷新会话标题
+  // 会话就绪后核对本地群：向该群成员所在节点问一次群资料。
+  // 群已解散、或我们已被踢掉时拿不到 INFO，据此清掉本地残留
+  private reconcileGroups(ip: string, userId: string): void {
+    logStartup(`私有会话 ${ip} 用户号 ${userId}`)
+    for (const group of this.repos.groups.list()) {
+      const members = this.repos.groups.members(group.id)
+      const involved = group.master === userId || members.some((member) => member.userId === userId)
+      if (!involved) continue
+      if (this.privateService?.sendGroupReqInfo(ip, group.id) !== true) continue
+      this.groupInfoProbes.add(`${ip}|${group.id}`)
+      logStartup(`私有群资料核对 ${ip} 群=${group.name} 群号=${group.id}`)
+    }
+  }
+
+  // 群资料应答：带 INFO 就是群还在；只有群号没有 INFO 说明群已经不在了
+  private handleGroupInfoRsp(
+    ip: string,
+    ret: number,
+    groupId: string,
+    info: PrivateGroupInfo | null
+  ): void {
+    const probed = this.groupInfoProbes.delete(`${ip}|${groupId}`)
+    logStartup(`私有群资料应答 ${ip} 群号=${groupId} RET=${ret} 有资料=${info !== null}`)
+    if (info !== null) {
+      this.handleGroupInfo(ip, info)
+      return
+    }
+    if (probed) this.handleGroupRemoved(ip, groupId, '已不存在')
+  }
+
   private handleGroupInfo(ip: string, info: PrivateGroupInfo): void {
     try {
-      logStartup(`私有群资料 ${ip} 群=${info.name} 版本=${info.infoVersion}`)
+      logStartup(`私有群资料 ${ip} 群=${info.name} 群号=${info.id} 版本=${info.infoVersion}`)
       this.repos.groups.upsert({
         id: info.id,
         name: info.name,
@@ -660,7 +693,7 @@ export class AppService {
     members: PrivateGroupMember[]
   ): void {
     try {
-      logStartup(`私有群成员 ${ip} 群=${info.name} 成员=${members.length}`)
+      logStartup(`私有群成员 ${ip} 群=${info.name} 群号=${info.id} 成员=${members.length}`)
       this.handleGroupInfo(ip, info)
       this.repos.groups.replaceMembers(info.id, members)
       this.emitConversation(groupConversationId(info.id))

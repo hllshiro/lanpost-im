@@ -327,8 +327,9 @@ export class ConversationRepository {
 
   // 退群或解散后整段会话连同消息一起删除
   remove(id: string): void {
-    this.db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id)
+    // 文件任务引用消息，必须先删
     this.db.prepare('DELETE FROM file_tasks WHERE conversation_id = ?').run(id)
+    this.db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id)
     this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
   }
 

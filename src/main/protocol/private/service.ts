@@ -63,7 +63,7 @@ export interface PrivateServiceOptions {
       files: PrivateGroupFileRef[]
     ): void
     onGroupReqInfo(ip: string, groupId: string): void
-    onGroupInfoRsp(ip: string, info: PrivateGroupInfo): void
+    onGroupInfoRsp(ip: string, ret: number, groupId: string, info: PrivateGroupInfo | null): void
     onGroupDismiss(ip: string, groupId: string): void
     onGroupExit(ip: string, groupId: string): void
     onGroupKick(ip: string, groupId: string): void
@@ -359,6 +359,10 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupExit(groupId) ?? false
   }
 
+  sendGroupReqInfo(ip: string, groupId: string): boolean {
+    return this.sessions.get(ip)?.sendGroupReqInfo(groupId) ?? false
+  }
+
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
     for (const [ip, readyId] of this.peerUserIds) {
@@ -556,7 +560,8 @@ export class PrivateService {
       onGroupMessage: (groupId, msgId, text, images, files) =>
         this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images, files),
       onGroupReqInfo: (groupId) => this.options.callbacks.onGroupReqInfo(ip, groupId),
-      onGroupInfoRsp: (info) => this.options.callbacks.onGroupInfoRsp(ip, info),
+      onGroupInfoRsp: (ret, groupId, info) =>
+        this.options.callbacks.onGroupInfoRsp(ip, ret, groupId, info),
       onGroupDismiss: (groupId) => this.options.callbacks.onGroupDismiss(ip, groupId),
       onGroupExit: (groupId) => this.options.callbacks.onGroupExit(ip, groupId),
       onGroupKick: (groupId) => this.options.callbacks.onGroupKick(ip, groupId),

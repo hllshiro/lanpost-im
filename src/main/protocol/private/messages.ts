@@ -140,7 +140,7 @@ export type IncomingPrivate =
   | { kind: 'group-info'; info: PrivateGroupInfo }
   | { kind: 'group-user'; info: PrivateGroupInfo; members: PrivateGroupMember[] }
   | { kind: 'group-req-info'; groupId: string }
-  | { kind: 'group-info-rsp'; ret: number; info: PrivateGroupInfo }
+  | { kind: 'group-info-rsp'; ret: number; groupId: string; info: PrivateGroupInfo | null }
   | { kind: 'group-dismiss'; groupId: string }
   | { kind: 'group-exit'; groupId: string }
   | { kind: 'group-kick'; groupId: string }
@@ -538,6 +538,11 @@ export function groupPushUserXml(info: PrivateGroupInfo, members: PrivateGroupMe
 
 export function groupPushInfoXml(info: PrivateGroupInfo): string {
   return `<X_QGROUP_PUSH_INFO docver="1"><INFO>${groupInfoXml(info)}</INFO></X_QGROUP_PUSH_INFO>`
+}
+
+// 主动拉群资料：群还在时会收到 3005，群已不存在则不会收到 RET=20
+export function groupReqInfoXml(groupId: string): string {
+  return `<X_QGROUP_REQ_INFO docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID></X_QGROUP_REQ_INFO>`
 }
 
 // 成员来拉群资料时的应答；真实客户端的 RET 固定为 20
@@ -970,9 +975,16 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       return groupId === null ? unrecognized(cmd) : { kind: 'group-req-info', groupId }
     }
     case CMD.QGROUP_REQ_INFO_RSP: {
-      const info = groupInfoFromXml(xml)
-      if (info === null) return unrecognized(cmd)
-      return { kind: 'group-info-rsp', ret: Number(tagText(xml, 'RET') ?? '0'), info }
+      const block = /<INFO>([\s\S]*)<\/INFO>/.exec(xml)
+      const info = block === null ? null : groupInfoFromXml(block[1])
+      const groupId = info?.id ?? tagText(xml, 'QGROUP_ID')
+      if (groupId === null) return unrecognized(cmd)
+      return {
+        kind: 'group-info-rsp',
+        ret: Number(tagText(xml, 'RET') ?? '0'),
+        groupId,
+        info
+      }
     }
     case CMD.QGROUP_DISMISS:
     case CMD.QGROUP_EXIT:

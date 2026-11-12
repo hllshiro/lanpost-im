@@ -374,6 +374,14 @@ describe('private group messages', () => {
       photoMd5: ''
     }
     const parsed = parsePrivate(3005, groupInfoRspXml(info))
-    expect(parsed).toEqual({ kind: 'group-info-rsp', ret: 20, info })
+    expect(parsed).toEqual({ kind: 'group-info-rsp', ret: 20, groupId: info.id, info })
+  })
+
+  it('treats a response without INFO as a missing group', () => {
+    const parsed = parsePrivate(
+      3005,
+      '<X_QGROUP_REQ_INFO_RSP docver="1"><RET>10</RET><QGROUP_ID>gone</QGROUP_ID></X_QGROUP_REQ_INFO_RSP>'
+    )
+    expect(parsed).toEqual({ kind: 'group-info-rsp', ret: 10, groupId: 'gone', info: null })
   })
 })

@@ -35,6 +35,7 @@ import {
   groupFileXml,
   groupSendXml,
   groupInfoRspXml,
+  groupReqInfoXml,
   groupExitXml,
   shareDownloadXml,
   shareDownloadRspXml,
@@ -77,6 +78,7 @@ const CMD_REVERSE_FILE_REQ = 1019
 const CMD_REVERSE_FOLDER_REQ = 1020
 const CMD_QGROUP_SEND_MSG = 3011
 const CMD_QGROUP_PUSH_USER = 3003
+const CMD_QGROUP_REQ_INFO = 3004
 const CMD_QGROUP_REQ_INFO_RSP = 3005
 const CMD_QGROUP_EXIT = 3009
 const CMD_SHARE_DOWNLOAD = 5004
@@ -132,7 +134,7 @@ export interface SessionCallbacks {
     files: PrivateGroupFileRef[]
   ): void
   onGroupReqInfo(groupId: string): void
-  onGroupInfoRsp(info: PrivateGroupInfo): void
+  onGroupInfoRsp(ret: number, groupId: string, info: PrivateGroupInfo | null): void
   onGroupDismiss(groupId: string): void
   onGroupExit(groupId: string): void
   onGroupKick(groupId: string): void
@@ -427,6 +429,12 @@ export class PrivateSession {
   sendGroupExit(groupId: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_QGROUP_EXIT, groupExitXml(groupId)))
+    return true
+  }
+
+  sendGroupReqInfo(groupId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_REQ_INFO, groupReqInfoXml(groupId)))
     return true
   }
 
@@ -759,7 +767,7 @@ export class PrivateSession {
         this.callbacks.onGroupReqInfo(incoming.groupId)
         return
       case 'group-info-rsp':
-        this.callbacks.onGroupInfoRsp(incoming.info)
+        this.callbacks.onGroupInfoRsp(incoming.ret, incoming.groupId, incoming.info)
         return
       case 'group-dismiss':
         this.callbacks.onGroupDismiss(incoming.groupId)
@@ -795,10 +803,11 @@ export class PrivateSession {
         this.callbacks.onRemindFile(incoming.groupId, incoming.name, incoming.size)
         return
       case 'ready':
-        this.callbacks.onReady(incoming.userId)
+        // 先切到 ready，回调里才能直接下发命令（例如核对群资料）
         if (this.currentState === 'handshaking') {
           this.enterReady()
         }
+        this.callbacks.onReady(incoming.userId)
         return
       case 'heartbeat':
         return
