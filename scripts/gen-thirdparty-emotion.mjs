@@ -1,6 +1,13 @@
 // 把微信与 QQ 的内置表情拷进渲染进程资源，并生成清单：
 // node scripts/gen-thirdparty-emotion.mjs <QQ 表情目录> <微信 assets 目录>
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync
+} from 'node:fs'
 import { join } from 'node:path'
 
 const [qqDir, wechatDir] = process.argv.slice(2)

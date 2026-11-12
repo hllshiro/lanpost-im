@@ -11,6 +11,7 @@ if (!treePath || !outDir || packs.length === 0) {
 
 const tree = JSON.parse(readFileSync(treePath, 'utf8')).tree
 
+// eslint-disable-next-line @typescript-eslint/explicit-function-return-type
 async function fetchWithRetry(url) {
   let lastError = null
   for (let attempt = 0; attempt < 4; attempt += 1) {
