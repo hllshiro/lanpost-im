@@ -53,7 +53,9 @@ function sendSticker(item: EmotionItem): void {
 
 async function runImageSticker(item: EmotionItem): Promise<void> {
   try {
-    const response = await fetch(emotionUrl(item))
+    const url = emotionUrl(item)
+    if (url === '') throw new Error('表情资源不可用')
+    const response = await fetch(url)
     if (!response.ok) throw new Error('表情资源不可用')
     const data = await response.arrayBuffer()
     const name = item.image.split('/').pop() ?? 'sticker.gif'

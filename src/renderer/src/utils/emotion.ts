@@ -42,7 +42,8 @@ export function emotionByKey(key: string): EmotionItem | null {
 }
 
 export function emotionUrl(item: EmotionItem): string {
-  return gifs[`../assets/emotion/${item.image}`] ?? ''
+  const key = `../assets/emotion/${item.image}`
+  return gifs[key] ?? images[key] ?? ''
 }
 
 export function emotionThumb(item: EmotionItem): string {
