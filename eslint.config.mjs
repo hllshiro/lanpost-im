@@ -11,6 +11,8 @@ export default defineConfig(
       '**/dist',
       '**/out',
       '**/.tmp-probe',
+      '**/.tmp-*',
+      '**/.worktrees',
       '**/.dev-data',
       '**/coverage',
       '**/.superpowers'
