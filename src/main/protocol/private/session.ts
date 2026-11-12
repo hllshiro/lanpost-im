@@ -20,23 +20,35 @@ import {
   handshakeXml,
   heartbeatXml,
   helloFrame,
+  operateRecvFileXml,
+  operateSendFileXml,
   parsePrivate,
+  progressRecvFileXml,
   quitXml,
   readyXml,
+  reverseFileReqXml,
+  retrieveImagesXml,
+  imageCardXml,
+  sendFileXml,
   sendMsgAckXml,
   sendMsgXml,
   sendReceiptXml
 } from './messages'
-import type { PrivateProfile, RemoteProfile } from './messages'
+import type { PrivateFileOffer, PrivateImageRef, PrivateProfile, RemoteProfile } from './messages'
 
 const CMD_HELLO = 4
 const CMD_HANDSHAKE = 1000
 const CMD_SEND_MSG = 1004
 const CMD_SEND_MSG_ACK = 1005
 const CMD_SEND_RECEIPT = 1006
+const CMD_SEND_FILE = 1009
+const CMD_OPERATE_SEND_FILE = 1010
+const CMD_OPERATE_RECV_FILE = 1011
+const CMD_PROGRESS_RECV_FILE = 1012
 const CMD_HEARTBEAT = 1016
 const CMD_QUIT = 1017
 const CMD_READY = 1018
+const CMD_REVERSE_FILE_REQ = 1019
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
@@ -59,11 +71,15 @@ const SESSION_TIMEOUT_MS = 120_000
 export type SessionState = 'idle' | 'connecting' | 'verifying' | 'handshaking' | 'ready' | 'closed'
 
 export interface SessionCallbacks {
-  onText(msgId: number, text: string): void
+  onText(msgId: number, text: string, images: PrivateImageRef[]): void
   onUnsupported(msgId: number): void
   onAck(msgId: number): void
   onReceipt(msgId: number): void
-  onProfile(profile: RemoteProfile): void
+  onProfile(profile: RemoteProfile, filePort: number, reversePort: number): void
+  onFileOffer(offer: PrivateFileOffer): void
+  onFileOperate(cmd: number, taskId: string, op: number): void
+  onFileProgress(taskId: string, totalSize: number, recvdSize: number): void
+  onFileReverse(taskId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
   onSendFailed(msgId: number): void
   onState(state: SessionState): void
@@ -78,6 +94,8 @@ interface PrivateSessionOptions {
   localPort: number
   identity: { userId: string; peerId: Buffer }
   profile: PrivateProfile
+  // 本机私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
+  filePort?: number
   send: (data: Buffer) => void
   now?: () => number
   callbacks: SessionCallbacks
@@ -110,6 +128,7 @@ export class PrivateSession {
   private readonly remoteLabel: string
   private readonly identity: { userId: string; peerId: Buffer }
   private readonly profile: PrivateProfile
+  private readonly filePort: number
   private readonly sendRaw: (data: Buffer) => void
   private readonly now: () => number
   private readonly callbacks: SessionCallbacks
@@ -137,6 +156,7 @@ export class PrivateSession {
     this.remoteLabel = `${options.remoteIp}:${options.remotePort}`
     this.identity = options.identity
     this.profile = options.profile
+    this.filePort = options.filePort ?? 0
     this.sendRaw = options.send
     this.now = options.now ?? Date.now
     this.callbacks = options.callbacks
@@ -217,6 +237,54 @@ export class PrivateSession {
       return
     }
     this.sendFrame(CMD_SEND_RECEIPT, sendReceiptXml(msgId))
+  }
+
+  // 文件邀请必须确认已交给 ENet，失败时上层不能进入发送流程
+  sendFileOffer(input: {
+    taskId: string
+    fileId: number
+    name: string
+    size: number
+    lastModify: string
+  }): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_SEND_FILE, sendFileXml(input)))
+    return true
+  }
+
+  sendOperateSendFile(taskId: string, op: number): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_OPERATE_SEND_FILE, operateSendFileXml(taskId, op))
+  }
+
+  sendOperateRecvFile(taskId: string, op: number): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_OPERATE_RECV_FILE, operateRecvFileXml(taskId, op))
+  }
+
+  // 取图请求：把收到的 img 节点原样回给发送方，请它把原图推过来
+  sendRetrieveImages(msgId: number, refs: PrivateImageRef[]): void {
+    if (this.currentState !== 'ready' || refs.length === 0) return
+    this.sendFrame(CMD_SEND_MSG, retrieveImagesXml(msgId, refs))
+  }
+
+  sendProgressRecvFile(taskId: string, totalSize: number, recvdSize: number): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(
+      CMD_PROGRESS_RECV_FILE,
+      progressRecvFileXml(taskId, totalSize, recvdSize, '未知速度，剩余时间: 未知')
+    )
+  }
+
+  sendReverseFileReq(taskId: string): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_REVERSE_FILE_REQ, reverseFileReqXml(taskId))
+  }
+
+  sendImageCard(msgId: number, value: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, value)))
+    return true
   }
 
   close(): void {
@@ -425,7 +493,7 @@ export class PrivateSession {
   }
 
   private sendHandshake(): void {
-    this.sendFrame(CMD_HANDSHAKE, handshakeXml(this.profile, this.identity.userId))
+    this.sendFrame(CMD_HANDSHAKE, handshakeXml(this.profile, this.identity.userId, this.filePort))
   }
 
   private sendFrame(cmd: number, xml: string): void {
@@ -447,7 +515,7 @@ export class PrivateSession {
     switch (incoming.kind) {
       case 'text':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
-        this.callbacks.onText(incoming.msgId, incoming.text)
+        this.callbacks.onText(incoming.msgId, incoming.text, incoming.images)
         return
       case 'text-unsupported':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
@@ -460,11 +528,28 @@ export class PrivateSession {
         this.callbacks.onReceipt(incoming.msgId)
         return
       case 'handshake':
-        this.callbacks.onProfile(incoming.profile)
+        this.callbacks.onProfile(incoming.profile, incoming.filePort, incoming.reversePort)
+        if (incoming.filePort > 0 || incoming.reversePort > 0) {
+          this.callbacks.onLog(
+            `私有会话 ${this.remoteLabel} 对端文件端口 ${incoming.filePort}，反向端口 ${incoming.reversePort}`
+          )
+        }
         if (!this.readySent) {
           this.readySent = true
           this.sendFrame(CMD_READY, readyXml(this.identity.userId))
         }
+        return
+      case 'file-offer':
+        this.callbacks.onFileOffer(incoming.offer)
+        return
+      case 'file-operate':
+        this.callbacks.onFileOperate(incoming.cmd, incoming.taskId, incoming.op)
+        return
+      case 'file-progress':
+        this.callbacks.onFileProgress(incoming.taskId, incoming.totalSize, incoming.recvdSize)
+        return
+      case 'file-reverse':
+        this.callbacks.onFileReverse(incoming.taskId)
         return
       case 'ready':
         if (this.currentState === 'handshaking') {

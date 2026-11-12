@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Check, CheckCheck, CircleAlert, FileText, LoaderCircle } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, statusLabel } from '../utils/format'
@@ -33,6 +33,35 @@ const statusClass = computed(() => {
   if (props.message.status === 'read') return 'read'
   return ''
 })
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
+
+const imageUrl = computed(() => {
+  const file = props.file
+  if (file === null || !IMAGE_EXTENSIONS.test(file.name)) {
+    return ''
+  }
+  // 自己发的图片本地就有原图，立刻显示；收到的要等文件落盘完成
+  if (file.direction === 'out' || file.state === 'done') {
+    return `lanpost-file:///${encodeURIComponent(file.id)}`
+  }
+  return ''
+})
+
+const imageBroken = ref(false)
+watch(
+  () => props.file?.id,
+  () => {
+    imageBroken.value = false
+  }
+)
+
+const showImage = computed(() => imageUrl.value !== '' && !imageBroken.value)
+
+// 图片已经显示出来时，去掉占位文字
+const displayText = computed(() =>
+  showImage.value ? props.message.text.replace(/\[图片\]/g, '').trim() : props.message.text
+)
 </script>
 
 <template>
@@ -60,8 +89,20 @@ const statusClass = computed(() => {
           </div>
         </div>
 
-        <div v-else class="bubble text-bubble" :class="{ failed: message.status === 'failed' }">
-          {{ message.text }}
+        <div
+          v-else
+          class="bubble text-bubble"
+          :class="{ failed: message.status === 'failed', 'image-bubble': showImage }"
+        >
+          <img
+            v-if="showImage"
+            class="inline-image"
+            :src="imageUrl"
+            :alt="file?.name ?? '图片'"
+            loading="lazy"
+            @error="imageBroken = true"
+          />
+          <span v-if="displayText !== ''" class="text-body">{{ displayText }}</span>
         </div>
 
         <div v-if="own" class="meta" :class="statusClass">
@@ -168,6 +209,33 @@ const statusClass = computed(() => {
 
 .text-bubble.failed {
   box-shadow: 0 0 0 1px rgba(250, 81, 81, 0.55);
+}
+
+/* 图片不加气泡底色和留白，直接显示图片本身 */
+.text-bubble.image-bubble,
+.row.own .text-bubble.image-bubble {
+  padding: 0;
+  background: transparent;
+}
+
+.text-bubble.image-bubble .text-body {
+  padding: 6px 10px;
+}
+
+.inline-image {
+  display: block;
+  max-width: 280px;
+  max-height: 320px;
+  border-radius: 10px;
+  object-fit: contain;
+}
+
+.text-body {
+  display: block;
+}
+
+.inline-image + .text-body {
+  margin-top: 6px;
 }
 
 .file-bubble {

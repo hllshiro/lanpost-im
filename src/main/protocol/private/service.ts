@@ -2,7 +2,7 @@ import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
 import { decodeBeacon } from './beacon'
 import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
-import type { PrivateProfile, RemoteProfile } from './messages'
+import type { PrivateFileOffer, PrivateImageRef, PrivateProfile, RemoteProfile } from './messages'
 import { PrivateSession, type SessionCallbacks, type SessionState } from './session'
 
 const COMMAND_MASK = 0x7f
@@ -18,13 +18,19 @@ export interface PrivateServiceOptions {
   enetPort: number
   localIp?: string
   seeds: Array<{ ip: string; port?: number }>
+  // 本机私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
+  filePort?: number
   callbacks: {
-    onText(ip: string, msgId: number, text: string): void
+    onText(ip: string, msgId: number, text: string, images: PrivateImageRef[]): void
     onUnsupported(ip: string, msgId: number): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
     // 对端的 X_HANDSHARK 解析出新资料时触发，与状态推进无关
-    onProfile(ip: string, profile: RemoteProfile): void
+    onProfile(ip: string, profile: RemoteProfile, filePort: number, reversePort: number): void
+    onFileOffer(ip: string, offer: PrivateFileOffer): void
+    onFileOperate(ip: string, cmd: number, taskId: string, op: number): void
+    onFileProgress(ip: string, taskId: string, totalSize: number, recvdSize: number): void
+    onFileReverse(ip: string, taskId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
@@ -101,6 +107,9 @@ export class PrivateService {
   private readonly sessions = new Map<string, PrivateSession>()
   private readonly peerPorts = new Map<string, number>()
   private readonly peerProfiles = new Map<string, RemoteProfile>()
+  // 对端 X_HANDSHARK 里公布的私有文件通道 TCP 端口
+  private readonly peerFilePorts = new Map<string, number>()
+  private readonly peerReversePorts = new Map<string, number>()
 
   constructor(options: PrivateServiceOptions) {
     this.options = options
@@ -213,6 +222,51 @@ export class PrivateService {
     session.sendReceipt(msgId)
   }
 
+  sendFileOffer(
+    ip: string,
+    input: { taskId: string; fileId: number; name: string; size: number; lastModify: string }
+  ): boolean {
+    return this.sessions.get(ip)?.sendFileOffer(input) ?? false
+  }
+
+  sendOperateSendFile(ip: string, taskId: string, op: number): void {
+    this.sessions.get(ip)?.sendOperateSendFile(taskId, op)
+  }
+
+  sendOperateRecvFile(ip: string, taskId: string, op: number): void {
+    this.sessions.get(ip)?.sendOperateRecvFile(taskId, op)
+  }
+
+  sendProgressRecvFile(ip: string, taskId: string, totalSize: number, recvdSize: number): void {
+    this.sessions.get(ip)?.sendProgressRecvFile(taskId, totalSize, recvdSize)
+  }
+
+  sendReverseFileReq(ip: string, taskId: string): void {
+    this.sessions.get(ip)?.sendReverseFileReq(taskId)
+  }
+
+  sendRetrieveImages(ip: string, msgId: number, refs: PrivateImageRef[]): void {
+    this.sessions.get(ip)?.sendRetrieveImages(msgId, refs)
+  }
+
+  sendImageCard(ip: string, msgId: number, value: string): boolean {
+    return this.sessions.get(ip)?.sendImageCard(msgId, value) ?? false
+  }
+
+  // 对端公布的文件通道端口；0 表示没收到或没公布
+  peerFilePort(ip: string): number {
+    return this.peerFilePorts.get(ip) ?? 0
+  }
+
+  // 对端公布的反向文件端口，直连不通时发送方按它反过来连接
+  peerReversePort(ip: string): number {
+    return this.peerReversePorts.get(ip) ?? 0
+  }
+
+  peerUserId(ip: string): string {
+    return this.peerProfiles.get(ip)?.userId ?? ''
+  }
+
   isReady(ip: string): boolean {
     return this.sessions.get(ip)?.state === 'ready'
   }
@@ -317,14 +371,25 @@ export class PrivateService {
     }
     let session: PrivateSession
     const callbacks: SessionCallbacks = {
-      onText: (msgId, text) => this.options.callbacks.onText(ip, msgId, text),
+      onText: (msgId, text, images) => this.options.callbacks.onText(ip, msgId, text, images),
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
       onAck: (msgId) => this.options.callbacks.onAck(ip, msgId),
       onReceipt: (msgId) => this.options.callbacks.onReceipt(ip, msgId),
-      onProfile: (profile) => {
+      onProfile: (profile, filePort, reversePort) => {
         this.peerProfiles.set(ip, profile)
-        this.options.callbacks.onProfile(ip, profile)
+        if (filePort > 0) {
+          this.peerFilePorts.set(ip, filePort)
+        }
+        if (reversePort > 0) {
+          this.peerReversePorts.set(ip, reversePort)
+        }
+        this.options.callbacks.onProfile(ip, profile, filePort, reversePort)
       },
+      onFileOffer: (offer) => this.options.callbacks.onFileOffer(ip, offer),
+      onFileOperate: (cmd, taskId, op) => this.options.callbacks.onFileOperate(ip, cmd, taskId, op),
+      onFileProgress: (taskId, totalSize, recvdSize) =>
+        this.options.callbacks.onFileProgress(ip, taskId, totalSize, recvdSize),
+      onFileReverse: (taskId) => this.options.callbacks.onFileReverse(ip, taskId),
       onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)
@@ -338,6 +403,7 @@ export class PrivateService {
         localPort: this.boundEnetPort,
         identity: this.options.identity,
         profile: this.profile,
+        filePort: this.options.filePort,
         send: (data) => this.sendRaw(ip, remotePort, data),
         callbacks
       })

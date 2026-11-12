@@ -1,8 +1,9 @@
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createHash } from 'node:crypto'
 import { basename, join } from 'node:path'
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { isIPv4 } from 'node:net'
-import { app, dialog, shell, type BrowserWindow } from 'electron'
+import { networkInterfaces } from 'node:os'
+import { app, clipboard, dialog, shell, type BrowserWindow } from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AppEvent,
@@ -17,6 +18,7 @@ import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
+import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type { PrivateProfile, RemoteProfile } from './protocol/private/messages'
 import {
   nextPrivateSeq,
@@ -26,7 +28,10 @@ import {
 } from './protocol/private/route'
 import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
+import { fileTimeFromMs } from './protocol/private/messages'
 import { FileManager } from './files/manager'
+import { PrivateFileTransfer } from './files/private-transfer'
+import { sanitizeFileName, uniqueName } from './files/names'
 import { NotificationManager } from './notify/manager'
 import { createRepositories, directConversationId, type Repositories } from './store/repositories'
 import { importLegacyHistory } from './store/import'
@@ -100,6 +105,45 @@ function privateSeeds(settings: Settings): Array<{ ip: string; port?: number }> 
 const PRIVATE_SEND_TIMEOUT_MS = 30_000
 const PRIVATE_SEND_SWEEP_MS = 1000
 
+const IMAGE_PATH = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
+
+function imageExtension(mime: string): string {
+  switch (mime) {
+    case 'image/jpeg':
+      return 'jpg'
+    case 'image/gif':
+      return 'gif'
+    case 'image/bmp':
+      return 'bmp'
+    case 'image/webp':
+      return 'webp'
+    default:
+      return 'png'
+  }
+}
+
+function isImagePath(path: string): boolean {
+  return IMAGE_PATH.test(path)
+}
+
+// 图片卡片里的 md5 用于对端判断缓存命中；只对图片计算，且限制大小
+function fileMd5(path: string): string {
+  const stats = statSync(path)
+  if (stats.size > 32 * 1024 * 1024) {
+    return ''
+  }
+  return createHash('md5').update(readFileSync(path)).digest('hex')
+}
+
+function localIpv4(): string {
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family === 'IPv4' && !entry.internal) return entry.address
+    }
+  }
+  return '127.0.0.1'
+}
+
 interface OutstandingPrivateSend {
   ip: string
   conversationId: string
@@ -107,15 +151,45 @@ interface OutstandingPrivateSend {
   sentAt: number
 }
 
+interface PrivateIncomingFile {
+  taskId: string
+  fileId: number
+  ip: string
+  fileTaskId: string
+  name: string
+  size: number
+  saveDir: string
+  savePath: string
+  peerUserId: string
+  // 用户（或自动接收）已经同意；对端宣布开始（1010）后才真正去连
+  accepted: boolean
+  startSignaled: boolean
+  started: boolean
+}
+
 export class AppService {
   private readonly repos: Repositories
   private readonly engine: ProtocolEngine
   private readonly fileManager: FileManager
   private readonly notifications: NotificationManager
+  private readonly receiveDir: string
   private window: BrowserWindow | null = null
   private started = false
   private filesStarted = false
   private privateService: PrivateService | null = null
+  private privateFiles: PrivateFileTransfer | null = null
+  private readonly privateFileTasks = new Map<
+    number,
+    { fileTaskId: string; direction: 'in' | 'out'; taskId: string; ip: string }
+  >()
+  private readonly privateIncomingFiles = new Map<string, PrivateIncomingFile>()
+  // 图片消息里的文件号 → 消息 id，图片收到后挂到这条消息上
+  private readonly privateImageMessages = new Map<number, number>()
+  // 只发了卡片的图片：等对端发 1019 来要，再用窗口通道推过去
+  private readonly privateImagePushes = new Map<number, { ip: string; taskId: string }>()
+  private readonly privateTaskIds = new Map<string, number>()
+  // 已经因 1019 反向请求开始推数据的文件，避免重复连接
+  private readonly privateReverseStarted = new Set<number>()
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -143,6 +217,7 @@ export class AppService {
         logStartup(`下载目录不可写，接收目录改为 ${receiveDir}`)
       }
     }
+    this.receiveDir = receiveDir
     this.fileManager = new FileManager({
       bindAddr: settings.get().network.bindAddr,
       port: settings.get().network.port,
@@ -221,15 +296,34 @@ export class AppService {
   private async startPrivateService(): Promise<void> {
     try {
       const settings = this.settings.get()
+      const userId = privateUserId(settings)
+      const profile = privateProfile(settings)
+      const filePort = settings.network.privateFilePort
+      const transfer = new PrivateFileTransfer({
+        bindAddr: settings.network.bindAddr,
+        port: filePort,
+        localUserId: userId,
+        localIp: localIpv4(),
+        localName: profile.name,
+        callbacks: {
+          onProgress: (fileId, received) => this.handlePrivateFileProgress(fileId, received),
+          onDone: (fileId, path) => this.handlePrivateFileDone(fileId, path),
+          onError: (fileId, error) => this.handlePrivateFileError(fileId, error)
+        },
+        onLog: (message) => logStartup('private files: ' + message)
+      })
+      await transfer.start()
+      this.privateFiles = transfer
       const service = new PrivateService({
-        identity: { userId: privateUserId(settings), peerId: randomBytes(16) },
-        profile: privateProfile(settings),
+        identity: { userId, peerId: randomBytes(16) },
+        profile,
         bindAddr: settings.network.bindAddr,
         beaconPort: settings.network.privatePort,
         enetPort: 0,
+        filePort,
         seeds: privateSeeds(settings),
         callbacks: {
-          onText: (ip, msgId, text) => this.handlePrivateText(ip, msgId, text),
+          onText: (ip, msgId, text, images) => this.handlePrivateText(ip, msgId, text, images),
           onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
           onAck: (ip, msgId) => {
             this.privateOutstanding.delete(msgId)
@@ -239,9 +333,21 @@ export class AppService {
             this.privateOutstanding.delete(msgId)
             this.handlePrivateStatus(ip, msgId, 'read')
           },
-          onProfile: (ip, profile) => this.upsertPrivatePeer(ip, profile),
+          onProfile: (ip, remote, filePort) => {
+            this.upsertPrivatePeer(ip, remote)
+            // 对端可能先探测“同号文件端口”再决定是否发图，握手后就把它的端口号也监听起来
+            if (filePort > 0) {
+              void this.privateFiles?.listenExtra(filePort)
+            }
+          },
+          onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
+          onFileOperate: (ip, cmd, taskId, op) =>
+            this.handlePrivateFileOperate(ip, cmd, taskId, op),
+          onFileProgress: (ip, taskId, totalSize, recvdSize) =>
+            this.handlePrivateFileRemoteProgress(ip, taskId, totalSize, recvdSize),
+          onFileReverse: (ip, taskId) => this.handlePrivateFileReverse(ip, taskId),
           onSendFailed: (ip, msgId) => this.handlePrivateSendFailed(ip, msgId),
-          onState: (ip, state, profile) => this.handlePrivateState(ip, state, profile),
+          onState: (ip, state, remote) => this.handlePrivateState(ip, state, remote),
           onActivity: (ip) => this.engine.touchPrivatePeer(ip),
           onLog: (message) => logStartup('private: ' + message),
           onError: (error) => logStartup('private error: ' + error.message)
@@ -287,9 +393,16 @@ export class AppService {
     }
     const privateService = this.privateService
     this.privateService = null
+    const privateFiles = this.privateFiles
+    this.privateFiles = null
     this.privateReceipts.clear()
     this.privateOutstanding.clear()
+    this.privateFileTasks.clear()
+    this.privateIncomingFiles.clear()
     this.stopPrivateSweep()
+    if (privateFiles !== null) {
+      await privateFiles.stop()
+    }
     if (privateService !== null) {
       await privateService.stop()
     }
@@ -502,7 +615,23 @@ export class AppService {
     return this.repos.files.list(conversationId)
   }
 
+  // 渲染进程读图片用：只暴露已经落盘的文件
+  filePath(id: string): string | null {
+    const task = this.repos.files.get(id)
+    if (task === null || task.path === '' || !existsSync(task.path)) {
+      return null
+    }
+    return task.path
+  }
+
   rejectFile(id: string): void {
+    const incoming = this.privateIncomingFiles.get(id)
+    if (incoming !== undefined) {
+      this.privateIncomingFiles.delete(id)
+      this.privateFileTasks.delete(incoming.fileId)
+      this.updatePrivateFileTask(id, 'rejected', 0, '')
+      return
+    }
     if (!this.filesStarted) {
       throw new Error('文件服务未启动')
     }
@@ -510,12 +639,81 @@ export class AppService {
   }
 
   acceptFile(id: string): void {
+    const incoming = this.privateIncomingFiles.get(id)
+    if (incoming !== undefined) {
+      this.acceptPrivateFile(incoming)
+      return
+    }
     if (!this.filesStarted) {
       throw new Error('文件服务未启动')
     }
     void this.fileManager.accept(id).catch((error: unknown) => {
       logStartup('file accept failed: ' + (error instanceof Error ? error.message : String(error)))
     })
+  }
+
+  private acceptPrivateFile(incoming: PrivateIncomingFile): void {
+    const transfer = this.privateFiles
+    if (transfer === null) {
+      this.updatePrivateFileTask(incoming.fileTaskId, 'failed', 0, '私有文件通道未启动')
+      return
+    }
+    incoming.accepted = true
+    this.updatePrivateFileTask(incoming.fileTaskId, 'transferring', 0, '')
+    transfer.registerIncoming({
+      fileId: incoming.fileId,
+      name: incoming.name,
+      size: incoming.size,
+      savePath: incoming.savePath,
+      saveDir: incoming.saveDir
+    })
+    const service = this.privateService
+    // 先请对端反过来连（真实客户端在直连不通时就是这个走法），2 秒没有进展再直连兜底
+    if (service !== null && service.peerReversePort(incoming.ip) > 0) {
+      const extraPort = service.peerFilePort(incoming.ip)
+      // 对端反向连接时用的是它自己的文件端口号，先补开同号监听再请它连
+      void transfer.listenExtra(extraPort).finally(() => {
+        service.sendReverseFileReq(incoming.ip, incoming.taskId)
+      })
+    }
+    service?.sendOperateRecvFile(incoming.ip, incoming.taskId, 2)
+    setTimeout(() => {
+      const current = this.privateIncomingFiles.get(incoming.fileTaskId)
+      if (current === undefined || current.started) return
+      const task = this.repos.files.get(incoming.fileTaskId)
+      if (task !== null && task.received > 0) return
+      this.startPrivateReceive(incoming)
+    }, 2500)
+  }
+
+  private startPrivateReceive(incoming: PrivateIncomingFile): void {
+    if (incoming.started) return
+    incoming.started = true
+    const transfer = this.privateFiles
+    const service = this.privateService
+    if (transfer === null || service === null) {
+      this.updatePrivateFileTask(incoming.fileTaskId, 'failed', 0, '私有文件通道未启动')
+      return
+    }
+    const peerPort = service.peerFilePort(incoming.ip)
+    if (peerPort <= 0) {
+      this.updatePrivateFileTask(incoming.fileTaskId, 'failed', 0, '对端没有公布文件通道端口')
+      return
+    }
+    transfer.registerIncoming({
+      fileId: incoming.fileId,
+      name: incoming.name,
+      size: incoming.size,
+      savePath: incoming.savePath,
+      saveDir: incoming.saveDir
+    })
+    void transfer
+      .receive(incoming.ip, peerPort, incoming.fileId, incoming.peerUserId)
+      .catch((error: unknown) => {
+        logStartup(
+          'private file receive failed: ' + (error instanceof Error ? error.message : String(error))
+        )
+      })
   }
 
   async pickAndSend(conversationId: string): Promise<void> {
@@ -533,13 +731,39 @@ export class AppService {
     this.sendFiles(conversationId, result.filePaths)
   }
 
+  // 剪贴板里的图片先落盘再走正常发送流程，按原图格式发出
+  async pasteImage(conversationId: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    let saved: string | null = null
+    for (const item of await clipboard.read()) {
+      const type = item.types.find((value) => value.startsWith('image/'))
+      if (type === undefined) continue
+      const blob = await item.getType(type)
+      if (!(blob instanceof Blob)) continue
+      const dir = join(app.getPath('userData'), 'clipboard')
+      mkdirSync(dir, { recursive: true })
+      const path = join(dir, `clip-${Date.now()}.${imageExtension(type)}`)
+      writeFileSync(path, Buffer.from(await blob.arrayBuffer()))
+      saved = path
+      break
+    }
+    if (saved === null) {
+      throw new Error('剪贴板里没有图片')
+    }
+    this.sendFiles(conversationId, [saved])
+  }
+
   sendFiles(conversationId: string, paths: string[], text = ''): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
     if (!this.settings.get().network.ipmsg) {
-      throw new Error('当前仅启用内网通协议，暂不支持发送文件')
+      this.sendFilesPrivate(conversationId, paths)
+      return
     }
     if (!this.filesStarted) {
       throw new Error('文件服务未启动')
@@ -581,6 +805,110 @@ export class AppService {
       })
       text = ''
     }
+  }
+
+  // 私有模式下的发送：先发 X_SEND_FILE 邀请，再发 X_OPERATE_SEND_FILE 开始，
+  // 对端连到本机文件端口后由 PrivateFileTransfer 推数据
+  private sendFilesPrivate(conversationId: string, paths: string[]): void {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const service = this.privateService
+    const transfer = this.privateFiles
+    if (service === null || transfer === null) {
+      throw new Error('内网通私有文件通道未启动')
+    }
+    const peer = this.repos.peers.get(conversation.peerKey)
+    if (peer === null) {
+      throw new Error('联系人不在线')
+    }
+    if (!service.isReady(peer.ip)) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const peerPort = service.peerFilePort(peer.ip)
+    if (peerPort <= 0) {
+      throw new Error('对端没有公布文件通道端口')
+    }
+    for (const path of paths) {
+      const stats = statSync(path)
+      if (!stats.isFile()) {
+        continue
+      }
+      const fileId = this.nextFileId()
+      const taskId = this.nextPrivateTaskId(peer.ip)
+      const name = basename(path)
+      const image = isImagePath(name)
+      const imageValue = image ? `${fileId}|${fileMd5(path)}` : undefined
+      const offer = {
+        taskId,
+        fileId,
+        name: path,
+        size: stats.size,
+        lastModify: fileTimeFromMs(stats.mtimeMs)
+      }
+      transfer.registerOutgoing({ fileId, path, size: stats.size, window: imageValue })
+      const fileTaskId = `pf${fileId}`
+      this.privateFileTasks.set(fileId, { fileTaskId, direction: 'out', taskId, ip: peer.ip })
+      const now = Date.now()
+      const task: FileTaskInfo = {
+        id: fileTaskId,
+        messageId: null,
+        conversationId,
+        peerKey: peer.key,
+        direction: 'out',
+        name,
+        size: stats.size,
+        mtime: Math.floor(stats.mtimeMs / 1000),
+        fileId: String(fileId),
+        packetId: 0,
+        path,
+        state: 'transferring',
+        received: 0,
+        error: '',
+        createdAt: now,
+        updatedAt: now
+      }
+      if (image) {
+        // 图片只发卡片，对端会发 1019 来要，再用窗口通道推过去；
+        // 这样对端只显示图片，不会多出一条“文件接收成功”
+        const value = imageValue ?? `${fileId}`
+        const message = this.repos.messages.insertOutgoing(
+          conversationId,
+          '[图片]',
+          this.nextPrivateMessageId(),
+          'text',
+          JSON.stringify({ source: 'private-image', fileId: fileTaskId })
+        )
+        this.fileLinks.set(fileTaskId, { conversationId, messageId: message.id })
+        task.messageId = message.id
+        this.repos.conversations.touch(conversationId, message.createdAt, 0)
+        this.emitConversation(conversationId)
+        service.sendImageCard(peer.ip, message.id, value)
+        this.privateImagePushes.set(fileId, { ip: peer.ip, taskId })
+        // 卡片已经交给可靠通道，状态先置为已发送；回执来了再更新
+        this.repos.messages.setStatus(message.id, 'sent')
+        this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+      } else {
+        if (!service.sendFileOffer(peer.ip, offer)) {
+          throw new Error('内网通私有会话未就绪')
+        }
+        service.sendOperateSendFile(peer.ip, taskId, 2)
+      }
+      this.repos.files.upsert(task)
+      this.handleFileUpdate(task)
+    }
+  }
+
+  private nextPrivateMessageId(): number {
+    this.privateSeq = (this.privateSeq + 1) >>> 0
+    return nextPrivateSeq(Date.now(), this.privateSeq)
+  }
+
+  private nextPrivateTaskId(ip: string): string {
+    const next = (this.privateTaskIds.get(ip) ?? 0) + 1
+    this.privateTaskIds.set(ip, next)
+    return String(next)
   }
 
   async openFile(id: string): Promise<void> {
@@ -722,9 +1050,14 @@ export class AppService {
     this.emit({ type: 'file', file: persisted })
   }
 
+  // 私有文件通道的帧头只有 32 位文件号，必须是小整数；
+  // 历史数据里可能存着旧的超大文件号，不能拿来续号
   private nextFileId(): number {
+    if (this.fileSeq === 0) {
+      this.fileSeq = 100000 + (Date.now() % 800000)
+    }
     this.fileSeq += 1
-    return Date.now() * 1000 + (this.fileSeq % 1000)
+    return this.fileSeq
   }
 
   private handlePeers(peers: ReturnType<ProtocolEngine['getPeers']>): void {
@@ -752,7 +1085,7 @@ export class AppService {
     text: string,
     remoteSeq: number,
     meta = '{}'
-  ): void {
+  ): MessageInfo {
     const conversation = this.repos.conversations.ensureDirect(peerKey, peerName || peerKey)
     const message = this.repos.messages.insertIncoming(
       conversation.id,
@@ -775,6 +1108,7 @@ export class AppService {
         unread: this.unreadTotal()
       })
     }
+    return message
   }
 
   private handleStatus(peerKey: string, seq: number, status: 'delivered' | 'read'): void {
@@ -802,7 +1136,12 @@ export class AppService {
     }
   }
 
-  private handlePrivateText(ip: string, msgId: number, text: string): void {
+  private handlePrivateText(
+    ip: string,
+    msgId: number,
+    text: string,
+    images: PrivateImageRef[]
+  ): void {
     const peerKey = this.engine.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`忽略来自 ${ip} 的私有消息：没有对应的联系人`)
@@ -810,7 +1149,116 @@ export class AppService {
     }
     const peer = this.repos.peers.get(peerKey)
     const meta = JSON.stringify({ source: 'private', msgId: String(msgId) })
-    this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, text, msgId, meta)
+    const message = this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, text, msgId, meta)
+    if (images.length > 0) {
+      this.requestImages(ip, message.id, images)
+    }
+  }
+
+  // 图片消息只带发送方缓存里的编号，先回 retrieve 消息请对方推原图，
+  // 再按几种可能的操作指令依次探测，哪种能触发 1009 一看抓包就知道
+  private requestImages(ip: string, messageId: number, images: PrivateImageRef[]): void {
+    const service = this.privateService
+    if (service === null) return
+    const pending: PrivateImageRef[] = []
+    for (const ref of images) {
+      if (this.privateFileTasks.has(ref.id)) continue
+      this.privateImageMessages.set(ref.id, messageId)
+      pending.push(ref)
+    }
+    if (pending.length === 0) return
+    logStartup(`私有图片消息 ${messageId} 请求 ${pending.map((ref) => ref.id).join(',')}`)
+    for (const ref of pending) {
+      this.registerImageTask(ip, messageId, ref)
+    }
+    // 对方收到卡片后等的是 1019，越早发越早开始推送；retrieve 只用来告诉它要哪张
+    const msgId = nextPrivateSeq(Date.now(), (this.privateSeq = (this.privateSeq + 1) >>> 0))
+    service.sendRetrieveImages(ip, msgId, pending)
+    for (const ref of pending) {
+      service.sendReverseFileReq(ip, String(ref.id))
+    }
+    // 没等到推送就再要两次
+    for (const delay of [3000, 8000]) {
+      setTimeout(() => {
+        for (const ref of pending) {
+          if (this.imagePending(ref.id)) {
+            logStartup(`私有图片 ${ref.id} 再次请求 ${delay}ms`)
+            service.sendReverseFileReq(ip, String(ref.id))
+          }
+        }
+      }, delay)
+    }
+  }
+
+  // 图片还没开始收、也没收完时继续探测
+  private imagePending(fileId: number): boolean {
+    const incoming = this.privateIncomingFiles.get(`pf${fileId}`)
+    if (incoming !== undefined && incoming.started) return false
+    const task = this.repos.files.get(`pf${fileId}`)
+    if (task === null) return true
+    return task.received === 0 && task.state !== 'done' && task.state !== 'failed'
+  }
+
+  // 图片没有 X_SEND_FILE 邀请，先登记一条待接收任务，对端连过来才接得住
+  private registerImageTask(ip: string, messageId: number, ref: PrivateImageRef): void {
+    const transfer = this.privateFiles
+    if (transfer === null) return
+    const fileTaskId = `pf${ref.id}`
+    if (this.privateIncomingFiles.has(fileTaskId)) return
+    const peer = this.peerForIp(ip)
+    const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
+    mkdirSync(saveDir, { recursive: true })
+    const savePath = join(saveDir, `image-${ref.id}.png`)
+    const conversation = this.repos.conversations.ensureDirect(peer.key, peer.name)
+    const now = Date.now()
+    this.privateFileTasks.set(ref.id, {
+      fileTaskId,
+      direction: 'in',
+      taskId: String(ref.id),
+      ip
+    })
+    this.privateIncomingFiles.set(fileTaskId, {
+      taskId: String(ref.id),
+      fileId: ref.id,
+      ip,
+      fileTaskId,
+      name: `image-${ref.id}.png`,
+      size: 0,
+      saveDir,
+      savePath,
+      peerUserId: this.privateService?.peerUserId(ip) ?? '',
+      accepted: true,
+      startSignaled: true,
+      started: false
+    })
+    this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId })
+    transfer.registerIncoming({
+      fileId: ref.id,
+      name: `image-${ref.id}.png`,
+      size: 0,
+      savePath,
+      saveDir
+    })
+    const task: FileTaskInfo = {
+      id: fileTaskId,
+      messageId,
+      conversationId: conversation.id,
+      peerKey: peer.key,
+      direction: 'in',
+      name: `image-${ref.id}.png`,
+      size: 0,
+      mtime: 0,
+      fileId: String(ref.id),
+      packetId: 0,
+      path: savePath,
+      state: 'waiting',
+      received: 0,
+      error: '',
+      createdAt: now,
+      updatedAt: now
+    }
+    this.repos.files.upsert(task)
+    this.handleFileUpdate(task)
   }
 
   private handlePrivateStatus(ip: string, msgId: number, status: 'delivered' | 'read'): void {
@@ -851,6 +1299,248 @@ export class AppService {
       status: profile.status,
       online: true
     })
+  }
+
+  private peerForIp(ip: string): { key: string; name: string } {
+    const key = this.engine.peerKeyForIp(ip) ?? `${ip}|${ip}`
+    const peer = this.repos.peers.get(key)
+    return { key, name: peer?.alias || peer?.name || ip }
+  }
+
+  // 对端发来 X_SEND_FILE：登记一条待接收任务，按自动接收设置决定是否立即连过去
+  private handlePrivateFileOffer(ip: string, offer: PrivateFileOffer): void {
+    const name = sanitizeFileName(offer.name)
+    if (name === '' || offer.size < 0) {
+      logStartup(`私有文件邀请无效: ${offer.name}`)
+      return
+    }
+    const existing = this.privateFileTasks.get(offer.fileId)
+    if (existing !== undefined) {
+      const incoming = this.privateIncomingFiles.get(existing.fileTaskId)
+      if (incoming === undefined) {
+        logStartup(`私有文件邀请重复，忽略 ${offer.fileId}`)
+        return
+      }
+      // 图片先建了占位任务，这里用邀请里的真实大小和文件名补全
+      incoming.size = offer.size
+      this.acceptPrivateFile(incoming)
+      return
+    }
+    const peer = this.peerForIp(ip)
+    const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
+    mkdirSync(saveDir, { recursive: true })
+    const reserved = new Set(
+      Array.from(this.privateIncomingFiles.values()).map((item) => basename(item.savePath))
+    )
+    const fileName = uniqueName(saveDir, name, (candidate) => reserved.has(candidate))
+    const savePath = join(saveDir, fileName)
+    const fileTaskId = `pf${offer.fileId}`
+    this.privateFileTasks.set(offer.fileId, {
+      fileTaskId,
+      direction: 'in',
+      taskId: offer.taskId,
+      ip
+    })
+    this.privateIncomingFiles.set(fileTaskId, {
+      taskId: offer.taskId,
+      fileId: offer.fileId,
+      ip,
+      fileTaskId,
+      name: fileName,
+      size: offer.size,
+      saveDir,
+      savePath,
+      peerUserId: this.privateService?.peerUserId(ip) ?? '',
+      accepted: false,
+      startSignaled: false,
+      started: false
+    })
+    const conversation = this.repos.conversations.ensureDirect(peer.key, peer.name)
+    const now = Date.now()
+    const imageMessageId = this.privateImageMessages.get(offer.fileId)
+    const task: FileTaskInfo = {
+      id: fileTaskId,
+      messageId: imageMessageId ?? null,
+      conversationId: conversation.id,
+      peerKey: peer.key,
+      direction: 'in',
+      name: fileName,
+      size: offer.size,
+      mtime: 0,
+      fileId: String(offer.fileId),
+      packetId: 0,
+      path: savePath,
+      state: 'offered',
+      received: 0,
+      error: '',
+      createdAt: now,
+      updatedAt: now
+    }
+    if (imageMessageId !== undefined) {
+      // 图片文件不单独出一条文件卡片，挂到引用它的那条消息上
+      this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId: imageMessageId })
+      this.privateImageMessages.delete(offer.fileId)
+    }
+    this.repos.files.upsert(task)
+    this.handleFileUpdate(task)
+    const settings = this.settings.get()
+    const limit = settings.files.autoAcceptMaxMB
+    if (settings.files.autoAccept && (limit === 0 || offer.size <= limit * 1024 * 1024)) {
+      this.acceptFile(fileTaskId)
+    }
+  }
+
+  // 对端的 1011 是“我开始接收了”，不是接收完成；完成以本端发送结束或 1012 进度为准
+  private handlePrivateFileOperate(_ip: string, cmd: number, taskId: string, op: number): void {
+    const entry = this.findPrivateFileByTaskId(taskId)
+    if (entry === null) return
+    if (cmd === 1011) {
+      logStartup(`私有文件 ${taskId} 对端确认接收（OP=${op}）`)
+      return
+    }
+    if (cmd === 1010 && op === 2) {
+      const task = this.repos.files.get(entry.fileTaskId)
+      if (task === null || task.direction !== 'in') return
+      const incoming = this.privateIncomingFiles.get(entry.fileTaskId)
+      if (incoming === undefined) return
+      // 真实客户端在对端宣布开始之后才建立 TCP，提前连会被拒绝
+      incoming.startSignaled = true
+      if (incoming.accepted) {
+        this.startPrivateReceive(incoming)
+      }
+    }
+  }
+
+  private findPrivateFileByTaskId(taskId: string): { fileTaskId: string } | null {
+    for (const entry of this.privateFileTasks.values()) {
+      if (entry.taskId === taskId) return { fileTaskId: entry.fileTaskId }
+    }
+    return null
+  }
+
+  private handlePrivateFileRemoteProgress(
+    _ip: string,
+    taskId: string,
+    totalSize: number,
+    recvdSize: number
+  ): void {
+    const entry = this.findPrivateFileByTaskId(taskId)
+    if (entry === null) return
+    const task = this.repos.files.get(entry.fileTaskId)
+    if (task === null || task.direction !== 'out') return
+    this.updatePrivateFileTask(
+      entry.fileTaskId,
+      recvdSize >= totalSize ? 'done' : 'transferring',
+      recvdSize,
+      ''
+    )
+  }
+
+  // 接收方直连不通时会发 1019，让发送方反过来连它的反向端口
+  private handlePrivateFileReverse(ip: string, taskId: string): void {
+    const entry = this.findPrivateFileByTaskId(taskId)
+    let fileTaskId: string
+    let fileId: number
+    if (entry !== null) {
+      const fileTask = this.repos.files.get(entry.fileTaskId)
+      if (fileTask === null || fileTask.direction !== 'out') return
+      fileTaskId = entry.fileTaskId
+      fileId = Number(fileTask.fileId)
+    } else {
+      // 图片的 1019 用对端自己的任务号，按“最近一张待推的图片”匹配
+      const pending = Array.from(this.privateImagePushes.entries()).find(
+        ([, push]) => push.ip === ip
+      )
+      if (pending === undefined) return
+      fileId = pending[0]
+      fileTaskId = `pf${fileId}`
+      this.privateImagePushes.delete(fileId)
+    }
+    if (this.privateReverseStarted.has(fileId)) return
+    const transfer = this.privateFiles
+    const service = this.privateService
+    if (transfer === null || service === null) return
+    // 对端已经来要了，取消“5 秒没人要就发文件邀请”的兜底
+    this.privateImagePushes.delete(fileId)
+    const reversePort = service.peerReversePort(ip)
+    if (reversePort <= 0) {
+      this.updatePrivateFileTask(fileTaskId, 'failed', 0, '对端没有公布反向文件端口')
+      return
+    }
+    this.privateReverseStarted.add(fileId)
+    logStartup(`私有文件通道改用反向连接 ${ip}:${reversePort}（文件 ${fileId}）`)
+    void transfer.sendReverse(ip, reversePort, fileId).catch((error: unknown) => {
+      logStartup(
+        'private file reverse send failed: ' +
+          (error instanceof Error ? error.message : String(error))
+      )
+    })
+  }
+
+  private handlePrivateFileProgress(fileId: number, received: number): void {
+    const entry = this.privateFileTasks.get(fileId)
+    if (entry === undefined) return
+    const task = this.repos.files.get(entry.fileTaskId)
+    if (task === null) return
+    const next: FileTaskInfo = {
+      ...task,
+      state: 'transferring',
+      received,
+      size: Math.max(task.size, received),
+      updatedAt: Date.now()
+    }
+    this.repos.files.upsert(next)
+    this.emit({ type: 'file', file: next })
+  }
+
+  private handlePrivateFileDone(fileId: number, path: string): void {
+    const entry = this.privateFileTasks.get(fileId)
+    if (entry === undefined) return
+    logStartup(`私有文件接收完成 ${fileId}（${path}）`)
+    const task = this.repos.files.get(entry.fileTaskId)
+    if (task === null) return
+    const total = Math.max(task.size, task.received)
+    if (entry.direction === 'in') {
+      this.privateService?.sendOperateRecvFile(entry.ip, entry.taskId, 2)
+      this.privateService?.sendProgressRecvFile(entry.ip, entry.taskId, total, total)
+    }
+    this.updatePrivateFileTask(
+      entry.fileTaskId,
+      'done',
+      Math.max(task.size, task.received),
+      '',
+      path
+    )
+    this.privateFileTasks.delete(fileId)
+  }
+
+  private handlePrivateFileError(fileId: number, error: Error): void {
+    const entry = this.privateFileTasks.get(fileId)
+    if (entry === undefined) return
+    logStartup(`私有文件失败 ${fileId}: ${error.message}`)
+    this.updatePrivateFileTask(entry.fileTaskId, 'failed', 0, error.message)
+    this.privateFileTasks.delete(fileId)
+  }
+
+  private updatePrivateFileTask(
+    id: string,
+    state: FileTaskInfo['state'],
+    received: number,
+    error: string,
+    path?: string
+  ): void {
+    const task = this.repos.files.get(id)
+    if (task === null) return
+    const next: FileTaskInfo = {
+      ...task,
+      state,
+      received,
+      error,
+      path: path === undefined ? task.path : path,
+      updatedAt: Date.now()
+    }
+    this.repos.files.upsert(next)
+    this.emit({ type: 'file', file: next })
   }
 
   private emitConversation(id: string): void {

@@ -116,6 +116,37 @@ export interface ChatReceipt {
   MsgID: number
 }
 
+export interface SendFile {
+  Docver: number
+  TaskID: string
+  FileID: number
+  Name: string
+  Pwd: string
+  Size: number
+  LastModify: string
+  Offline: number
+}
+
+export interface OperateSendFile {
+  Docver: number
+  TaskID: string
+  Op: number
+}
+
+export interface OperateRecvFile {
+  Docver: number
+  TaskID: string
+  Op: number
+}
+
+export interface ProgressRecvFile {
+  Docver: number
+  TaskID: string
+  TotalSize: number
+  RecvdSize: number
+  Speed: string
+}
+
 export interface XmlTypes {
   X_HANDSHARK: Handshake
   X_CHANGE_INFO: ChangeInfo
@@ -127,6 +158,10 @@ export interface XmlTypes {
   X_SEND_MSG: ChatMsg
   X_SEND_MSG_ACK: ChatMsgAck
   X_SEND_RECEIPT: ChatReceipt
+  X_SEND_FILE: SendFile
+  X_OPERATE_SEND_FILE: OperateSendFile
+  X_OPERATE_RECV_FILE: OperateRecvFile
+  X_PROGRESS_RECV_FILE: ProgressRecvFile
 }
 
 export type XmlTag = keyof XmlTypes
@@ -312,6 +347,33 @@ const DECODERS: { [K in XmlTag]: (root: XmlNode) => XmlTypes[K] } = {
   X_SEND_RECEIPT: (root) => ({
     Docver: num(root, '@_docver'),
     MsgID: num(root, 'MSG_ID')
+  }),
+  X_SEND_FILE: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    FileID: num(root, 'FILE_ID'),
+    Name: str(root, 'NAME'),
+    Pwd: str(root, 'PWD'),
+    Size: num(root, 'SIZE'),
+    LastModify: str(root, 'LAST_MODIFY'),
+    Offline: num(root, 'OFFLINE')
+  }),
+  X_OPERATE_SEND_FILE: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    Op: num(root, 'OP')
+  }),
+  X_OPERATE_RECV_FILE: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    Op: num(root, 'OP')
+  }),
+  X_PROGRESS_RECV_FILE: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    TotalSize: num(root, 'TOTAL_SIZE'),
+    RecvdSize: num(root, 'RECVD_SIZE'),
+    Speed: str(root, 'SPEED')
   })
 }
 
@@ -417,7 +479,34 @@ const ENCODERS: { [K in XmlTag]: (value: XmlTypes[K]) => XmlNode } = {
     HIDE_RECORD: value.HideRecord
   }),
   X_SEND_MSG_ACK: (value) => ({ '@_docver': value.Docver, MSG_ID: value.MsgID }),
-  X_SEND_RECEIPT: (value) => ({ '@_docver': value.Docver, MSG_ID: value.MsgID })
+  X_SEND_RECEIPT: (value) => ({ '@_docver': value.Docver, MSG_ID: value.MsgID }),
+  X_SEND_FILE: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    FILE_ID: value.FileID,
+    NAME: value.Name,
+    PWD: value.Pwd,
+    SIZE: value.Size,
+    LAST_MODIFY: value.LastModify,
+    OFFLINE: value.Offline
+  }),
+  X_OPERATE_SEND_FILE: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    OP: value.Op
+  }),
+  X_OPERATE_RECV_FILE: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    OP: value.Op
+  }),
+  X_PROGRESS_RECV_FILE: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    TOTAL_SIZE: value.TotalSize,
+    RECVD_SIZE: value.RecvdSize,
+    SPEED: value.Speed
+  })
 }
 
 export function encodeXml<K extends XmlTag>(tag: K, value: XmlTypes[K]): string {
@@ -463,4 +552,20 @@ export function encodeChatMsgAck(value: ChatMsgAck): string {
 
 export function encodeChatReceipt(value: ChatReceipt): string {
   return encodeXml('X_SEND_RECEIPT', value)
+}
+
+export function encodeSendFile(value: SendFile): string {
+  return encodeXml('X_SEND_FILE', value)
+}
+
+export function encodeOperateSendFile(value: OperateSendFile): string {
+  return encodeXml('X_OPERATE_SEND_FILE', value)
+}
+
+export function encodeOperateRecvFile(value: OperateRecvFile): string {
+  return encodeXml('X_OPERATE_RECV_FILE', value)
+}
+
+export function encodeProgressRecvFile(value: ProgressRecvFile): string {
+  return encodeXml('X_PROGRESS_RECV_FILE', value)
 }

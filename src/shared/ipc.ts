@@ -26,6 +26,7 @@ export const IPC = {
   fileReveal: 'files:reveal',
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
+  filePaste: 'files:paste',
   fileSend: 'files:send'
 } as const
 
@@ -93,6 +94,7 @@ export type Api = {
     reveal(id: string): Promise<void>
     saveAs(id: string): Promise<void>
     pickAndSend(conversationId: string): Promise<void>
+    pasteImage(conversationId: string): Promise<void>
     sendPaths(conversationId: string, paths: string[]): Promise<void>
   }
 }

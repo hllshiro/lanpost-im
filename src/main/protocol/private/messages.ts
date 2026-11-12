@@ -6,7 +6,11 @@ import {
   encodeChatMsgAck,
   encodeChatReceipt,
   encodeHandshake,
-  encodeReady
+  encodeOperateRecvFile,
+  encodeOperateSendFile,
+  encodeProgressRecvFile,
+  encodeReady,
+  encodeSendFile
 } from '../xml'
 import type { Feature, Handshake, NetPorts, UserInfo, XmlTag, XmlTypes } from '../xml'
 import { encodeBeacon } from './beacon'
@@ -16,14 +20,18 @@ const CMD = {
   SEND_MSG: 1004,
   SEND_MSG_ACK: 1005,
   SEND_RECEIPT: 1006,
+  SEND_FILE: 1009,
+  OPERATE_SEND_FILE: 1010,
+  OPERATE_RECV_FILE: 1011,
+  PROGRESS_RECV_FILE: 1012,
   HEARTBEAT: 1016,
   QUIT: 1017,
-  READY: 1018
+  READY: 1018,
+  REVERSE_FILE_REQ: 1019
 } as const
 
 const HELLO_TYPE = 4
 const ENABLED = '1'
-const DISABLED = '0'
 const SUPPORTED_MSG = '2:1'
 
 const XML_SPACE = '&nbsp;'
@@ -44,13 +52,26 @@ export interface RemoteProfile extends PrivateProfile {
   userId: string
 }
 
+export interface PrivateFileOffer {
+  taskId: string
+  fileId: number
+  // 对端发来的是发送端的完整路径，只取文件名与目录
+  name: string
+  size: number
+  lastModify: string
+}
+
 export type IncomingPrivate =
-  | { kind: 'text'; msgId: number; text: string }
+  | { kind: 'text'; msgId: number; text: string; images: PrivateImageRef[] }
   | { kind: 'text-unsupported'; msgId: number }
   | { kind: 'ack'; msgId: number }
   | { kind: 'receipt'; msgId: number }
-  | { kind: 'handshake'; profile: RemoteProfile }
+  | { kind: 'handshake'; profile: RemoteProfile; filePort: number; reversePort: number }
   | { kind: 'ready'; userId: string }
+  | { kind: 'file-offer'; offer: PrivateFileOffer }
+  | { kind: 'file-operate'; cmd: number; taskId: string; op: number }
+  | { kind: 'file-progress'; taskId: string; totalSize: number; recvdSize: number }
+  | { kind: 'file-reverse'; taskId: string }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -67,33 +88,36 @@ export function helloFrame(input: {
 
 function featureNode(): Feature {
   return {
-    Major: DISABLED,
-    Minor: DISABLED,
-    Build: DISABLED,
-    App: DISABLED,
+    // 与真实客户端 3.4.3055 完全一致；版本或能力位为 0 时对端会降级，
+    // 图片只发卡片不发 X_SEND_FILE，本端就收不到原图
+    Major: '3',
+    Minor: '4',
+    Build: '3055',
+    App: ENABLED,
     Msg: SUPPORTED_MSG,
-    FileTran: DISABLED,
-    FolderTran: DISABLED,
-    RemoteAssistance: DISABLED,
-    FileShare: DISABLED,
-    QGroup: DISABLED,
-    QGroupMsg: DISABLED,
-    QGroupFile: DISABLED,
-    QGroupFolder: DISABLED,
-    OfflineMsg: DISABLED,
-    OfflineFile: DISABLED,
-    LanUpdate: DISABLED,
+    FileTran: ENABLED,
+    FolderTran: SUPPORTED_MSG,
+    RemoteAssistance: ENABLED,
+    FileShare: ENABLED,
+    QGroup: SUPPORTED_MSG,
+    QGroupMsg: SUPPORTED_MSG,
+    QGroupFile: '',
+    QGroupFolder: '',
+    OfflineMsg: ENABLED,
+    OfflineFile: ENABLED,
+    LanUpdate: ENABLED,
     HideRecord: ENABLED
   }
 }
 
-function netPorts(): NetPorts {
+function netPorts(filePort: number): NetPorts {
   return {
-    FileTranTCPPort: 0,
+    FileTranTCPPort: filePort,
     FileTranEnetPort: 0,
     FolderTranTCPPort: 0,
     FolderTranEnetPort: 0,
-    FileTranTCPReversePort: 0,
+    // 反向端口指回同一个监听端口：对端直连不通时会按这个地址反过来连
+    FileTranTCPReversePort: filePort,
     FileTranEnetReversePort: 0,
     FolderTranTCPReversePort: 0,
     FolderTranEnetReversePort: 0,
@@ -117,7 +141,7 @@ function userInfo(profile: PrivateProfile, userId: string): UserInfo {
     Sign: profile.sign,
     SysFace: 0,
     Status: profile.status,
-    ActiveSend: 0,
+    ActiveSend: 1,
     OnlinePopup: 0,
     HideIP: 0,
     ColorName: 0,
@@ -126,12 +150,12 @@ function userInfo(profile: PrivateProfile, userId: string): UserInfo {
   }
 }
 
-export function handshakeXml(profile: PrivateProfile, userId: string): string {
+export function handshakeXml(profile: PrivateProfile, userId: string, filePort = 0): string {
   return encodeHandshake({
     Docver: DOCVER,
     Feature: featureNode(),
     Info: userInfo(profile, userId),
-    Net: netPorts()
+    Net: netPorts(filePort)
   })
 }
 
@@ -200,8 +224,144 @@ export function sendMsgAckXml(msgId: number): string {
   return encodeChatMsgAck({ Docver: DOCVER, MsgID: msgId })
 }
 
+// 取图请求：dt 里放 retrieve 节点，字段与收到的 img 节点一致
+function retrieveJsonBody(refs: PrivateImageRef[]): string {
+  const items = refs.map((ref) =>
+    [
+      '      {',
+      '         "retrieve" : {',
+      `            "t" : ${JSON.stringify(ref.type)},`,
+      `            "v" : ${JSON.stringify(ref.value)}`,
+      '         }',
+      '      }'
+    ].join('\n')
+  )
+  return [
+    '{',
+    '   "app" : "shiyeline",',
+    '   "dt" : [',
+    items.join(',\n'),
+    '   ],',
+    '   "ft" : {',
+    '      "b" : "0",',
+    '      "c" : "0x000000",',
+    '      "i" : "0",',
+    '      "n" : "微软雅黑",',
+    '      "s" : "9",',
+    '      "u" : "0"',
+    '   },',
+    `   "id" : "${randomBytes(16).toString('hex')}",`,
+    '   "type" : "0",',
+    '   "ver" : "6.0"',
+    '}'
+  ].join('\n')
+}
+
+export function retrieveImagesXml(msgId: number, refs: PrivateImageRef[]): string {
+  const xml = encodeChatMsg({
+    Docver: DOCVER,
+    MsgID: msgId,
+    Receipt: 0,
+    Msg: retrieveJsonBody(refs),
+    MsgTime: 0,
+    Offline: 0,
+    HideRecord: 0
+  })
+  return escapeMsgBody(xml)
+}
+
+// 发图片时内网通先发 X_SEND_FILE，再发一条 img 卡片；v 是“文件号|md5”
+export function imageCardXml(msgId: number, value: string): string {
+  const body = [
+    '{',
+    '   "app" : "shiyeline",',
+    '   "dt" : [',
+    '      {',
+    '         "img" : {',
+    '            "t" : "feihu",',
+    `            "v" : ${JSON.stringify(value)}`,
+    '         }',
+    '      }',
+    '   ],',
+    '   "ft" : {',
+    '      "b" : "0",',
+    '      "c" : "0x000000",',
+    '      "i" : "0",',
+    '      "n" : "微软雅黑",',
+    '      "s" : "9",',
+    '      "u" : "0"',
+    '   },',
+    `   "id" : "${randomBytes(16).toString('hex')}",`,
+    '   "type" : "0",',
+    '   "ver" : "6.0"',
+    '}'
+  ].join('\n')
+  const xml = encodeChatMsg({
+    Docver: DOCVER,
+    MsgID: msgId,
+    Receipt: 0,
+    Msg: body,
+    MsgTime: 0,
+    Offline: 0,
+    HideRecord: 0
+  })
+  return escapeMsgBody(xml)
+}
+
 export function sendReceiptXml(msgId: number): string {
   return encodeChatReceipt({ Docver: DOCVER, MsgID: msgId })
+}
+
+export function sendFileXml(input: {
+  taskId: string
+  fileId: number
+  name: string
+  size: number
+  lastModify: string
+}): string {
+  return encodeSendFile({
+    Docver: DOCVER,
+    TaskID: input.taskId,
+    FileID: input.fileId,
+    Name: input.name,
+    Pwd: '',
+    Size: input.size,
+    LastModify: input.lastModify,
+    Offline: 0
+  })
+}
+
+export function operateSendFileXml(taskId: string, op: number): string {
+  return encodeOperateSendFile({ Docver: DOCVER, TaskID: taskId, Op: op })
+}
+
+export function operateRecvFileXml(taskId: string, op: number): string {
+  return encodeOperateRecvFile({ Docver: DOCVER, TaskID: taskId, Op: op })
+}
+
+export function progressRecvFileXml(
+  taskId: string,
+  totalSize: number,
+  recvdSize: number,
+  speed: string
+): string {
+  return encodeProgressRecvFile({
+    Docver: DOCVER,
+    TaskID: taskId,
+    TotalSize: totalSize,
+    RecvdSize: recvdSize,
+    Speed: speed
+  })
+}
+
+// 接收方连不上发送方时用它请对方反过来连自己的反向端口
+export function reverseFileReqXml(taskId: string): string {
+  return `<X_REVERSE_FILE_REQ docver="1"><TASK_ID>${taskId}</TASK_ID></X_REVERSE_FILE_REQ>`
+}
+
+// Windows FILETIME：100 纳秒为单位，起点 1601-01-01；超过 2^53，必须用字符串
+export function fileTimeFromMs(ms: number): string {
+  return ((BigInt(Math.trunc(ms)) + 11644473600000n) * 10000n).toString()
 }
 
 export function heartbeatXml(): string {
@@ -254,6 +414,47 @@ function nodeText(item: unknown): string {
   return ''
 }
 
+// 内网通的图片节点只给编号和摘要，例如 {"img":{"t":"feihu","v":"5723|6825bf..."}}；
+// 编号是发送方缓存里的文件号，收到消息后要按它回一条 retrieve 消息把原图取回来
+export interface PrivateImageRef {
+  id: number
+  type: string
+  value: string
+}
+
+function imageRefsFromJson(raw: string): PrivateImageRef[] {
+  const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return []
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return []
+  }
+  const dt = (parsed as { dt?: unknown }).dt
+  if (!Array.isArray(dt)) {
+    return []
+  }
+  const refs: PrivateImageRef[] = []
+  for (const item of dt) {
+    if (typeof item !== 'object' || item === null) continue
+    const img = (item as { img?: unknown }).img
+    if (typeof img !== 'object' || img === null) continue
+    const record = img as { v?: unknown; t?: unknown }
+    if (typeof record.v !== 'string') continue
+    const id = Number(record.v.split('|')[0])
+    if (!Number.isSafeInteger(id) || id <= 0) continue
+    refs.push({
+      id,
+      type: typeof record.t === 'string' ? record.t : '',
+      value: record.v
+    })
+  }
+  return refs
+}
+
 function textFromJson(raw: string): string | null {
   const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
   let parsed: unknown
@@ -294,7 +495,12 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const handshake = decodePrivate('X_HANDSHARK', xml)
       return handshake === null
         ? unrecognized(cmd)
-        : { kind: 'handshake', profile: remoteProfile(handshake) }
+        : {
+            kind: 'handshake',
+            profile: remoteProfile(handshake),
+            filePort: handshake.Net.FileTranTCPPort,
+            reversePort: handshake.Net.FileTranTCPReversePort
+          }
     }
     case CMD.SEND_MSG: {
       const msg = decodePrivate('X_SEND_MSG', xml)
@@ -304,7 +510,7 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const text = textFromJson(msg.Msg)
       return text === null
         ? { kind: 'text-unsupported', msgId: msg.MsgID }
-        : { kind: 'text', msgId: msg.MsgID, text }
+        : { kind: 'text', msgId: msg.MsgID, text, images: imageRefsFromJson(msg.Msg) }
     }
     case CMD.SEND_MSG_ACK: {
       const ack = decodePrivate('X_SEND_MSG_ACK', xml)
@@ -314,6 +520,45 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const receipt = decodePrivate('X_SEND_RECEIPT', xml)
       return receipt === null ? unrecognized(cmd) : { kind: 'receipt', msgId: receipt.MsgID }
     }
+    case CMD.SEND_FILE: {
+      const offer = decodePrivate('X_SEND_FILE', xml)
+      if (offer === null) {
+        return unrecognized(cmd)
+      }
+      return {
+        kind: 'file-offer',
+        offer: {
+          taskId: offer.TaskID,
+          fileId: offer.FileID,
+          name: offer.Name,
+          size: offer.Size,
+          lastModify: offer.LastModify
+        }
+      }
+    }
+    case CMD.OPERATE_SEND_FILE: {
+      const value = decodePrivate('X_OPERATE_SEND_FILE', xml)
+      return value === null
+        ? unrecognized(cmd)
+        : { kind: 'file-operate', cmd, taskId: value.TaskID, op: value.Op }
+    }
+    case CMD.OPERATE_RECV_FILE: {
+      const value = decodePrivate('X_OPERATE_RECV_FILE', xml)
+      return value === null
+        ? unrecognized(cmd)
+        : { kind: 'file-operate', cmd, taskId: value.TaskID, op: value.Op }
+    }
+    case CMD.PROGRESS_RECV_FILE: {
+      const value = decodePrivate('X_PROGRESS_RECV_FILE', xml)
+      return value === null
+        ? unrecognized(cmd)
+        : {
+            kind: 'file-progress',
+            taskId: value.TaskID,
+            totalSize: value.TotalSize,
+            recvdSize: value.RecvdSize
+          }
+    }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }
     case CMD.QUIT:
@@ -321,6 +566,10 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
     case CMD.READY: {
       const ready = decodePrivate('X_READY', xml)
       return ready === null ? unrecognized(cmd) : { kind: 'ready', userId: ready.UserID }
+    }
+    case CMD.REVERSE_FILE_REQ: {
+      const match = /<TASK_ID>(\d+)<\/TASK_ID>/.exec(xml)
+      return match === null ? unrecognized(cmd) : { kind: 'file-reverse', taskId: match[1] }
     }
     default:
       return unrecognized(cmd)

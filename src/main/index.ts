@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog } from 'electron'
+import { app, BrowserWindow, dialog, net, protocol } from 'electron'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
@@ -16,6 +17,14 @@ import { createTray, destroyTray } from './tray'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
+
+// 渲染进程通过它读取已接收的图片；地址形如 lanpost-file:///pf5723
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'lanpost-file',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  }
+])
 
 // 远程桌面、虚拟机与部分安全策略下 GPU 进程会启动失败并导致 Chromium 退出。
 app.disableHardwareAcceleration()
@@ -110,6 +119,19 @@ if (!gotLock) {
       registerIpc(handlers)
       registerAppIpc(appService)
       logStartup('ipc registered')
+
+      protocol.handle('lanpost-file', (request) => {
+        // 渲染进程写的是 lanpost-file:///pf123，Chromium 会规范成 lanpost-file://pf123/，
+        // 主机名和路径都要取
+        const url = new URL(request.url)
+        const id = decodeURIComponent(`${url.hostname}${url.pathname}`.replace(/^\/+|\/+$/g, ''))
+        const path = id === '' ? null : (service?.filePath(id) ?? null)
+        if (path === null) {
+          logStartup(`lanpost-file: 找不到文件任务 ${id}`)
+          return new Response('not found', { status: 404 })
+        }
+        return net.fetch(pathToFileURL(path).toString())
+      })
 
       createMainWindow(settings)
       appService.attachWindow(getMainWindow())

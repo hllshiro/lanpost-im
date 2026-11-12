@@ -31,6 +31,25 @@ async function pickFile(): Promise<void> {
   }
 }
 
+// 输入框里直接粘贴截图：交给主进程落盘后再按图片发送
+async function onPaste(event: ClipboardEvent): Promise<void> {
+  if (props.conversationId === '' || fileBusy.value) return
+  const items = event.clipboardData?.items
+  if (items === undefined) return
+  const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'))
+  if (!hasImage) return
+  event.preventDefault()
+  fileBusy.value = true
+  fileError.value = ''
+  try {
+    await window.api.files.pasteImage(props.conversationId)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
+
 const INPUT_HEIGHT = 132
 const textarea = ref<HTMLTextAreaElement | null>(null)
 const text = computed({
@@ -95,6 +114,7 @@ onMounted(async () => {
       spellcheck="false"
       @input="onInput"
       @keydown="onKeydown"
+      @paste="onPaste"
     />
 
     <div class="toolbar">
@@ -110,7 +130,7 @@ onMounted(async () => {
       </button>
 
       <span v-if="fileError" class="file-error">{{ fileError }}</span>
-      <span v-else class="hint">Enter 发送 · Shift + Enter 换行</span>
+      <span v-else class="hint">Enter 发送 · Shift + Enter 换行 · Ctrl + V 粘贴图片</span>
 
       <button class="send" :disabled="!canSend" @click="submit">
         <Send :size="14" :stroke-width="2" />
