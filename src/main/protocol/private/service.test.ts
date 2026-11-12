@@ -97,6 +97,7 @@ function options(
       onGroupMessage: () => {},
       onShareDownload: () => {},
       onShareDownloadRsp: () => {},
+      onRemindFile: () => {},
       onReady: () => {},
       onSendFailed: () => {},
       onState: () => {},

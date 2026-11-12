@@ -68,6 +68,7 @@ function makeSession(
       onShareDownload: (reqId, shareId) => events.push(`share-dl:${reqId}:${shareId}`),
       onShareDownloadRsp: (reqId, err, fileId, size) =>
         events.push(`share-rsp:${reqId}:${err}:${fileId}:${size}`),
+      onRemindFile: (groupId, name, size) => events.push(`remind:${groupId}:${name}:${size}`),
       onReady: (userId) => events.push(`ready-user:${userId}`),
       onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),

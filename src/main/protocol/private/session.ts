@@ -36,6 +36,7 @@ import {
   groupSendXml,
   shareDownloadXml,
   shareDownloadRspXml,
+  remindFileXml,
   retrieveImagesXml,
   imageCardXml,
   sendFileXml,
@@ -76,6 +77,7 @@ const CMD_QGROUP_SEND_MSG = 3011
 const CMD_QGROUP_PUSH_USER = 3003
 const CMD_SHARE_DOWNLOAD = 5004
 const CMD_SHARE_DOWNLOAD_RSP = 5005
+const CMD_REMIND_FILE = 1025
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
@@ -133,6 +135,8 @@ export interface SessionCallbacks {
     fileSize: number,
     lastModify: string
   ): void
+  // 群成员下载完某个群文件后的回执
+  onRemindFile(groupId: string, name: string, size: number): void
   // 对端在 X_READY 里公布的 32 位用户号，群消息靠它识别发送者
   onReady(userId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
@@ -396,6 +400,12 @@ export class PrivateSession {
     this.reliable.send(
       encodeFrame(CMD_SHARE_DOWNLOAD_RSP, shareDownloadRspXml(reqId, fileId, fileSize, lastModify))
     )
+    return true
+  }
+
+  sendRemindFile(groupId: string, size: number, name: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_REMIND_FILE, remindFileXml(groupId, size, name)))
     return true
   }
 
@@ -744,6 +754,9 @@ export class PrivateSession {
           incoming.fileSize,
           incoming.lastModify
         )
+        return
+      case 'remind-file':
+        this.callbacks.onRemindFile(incoming.groupId, incoming.name, incoming.size)
         return
       case 'ready':
         this.callbacks.onReady(incoming.userId)

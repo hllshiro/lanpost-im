@@ -71,6 +71,7 @@ export interface PrivateServiceOptions {
       fileSize: number,
       lastModify: string
     ): void
+    onRemindFile(ip: string, groupId: string, name: string, size: number): void
     onReady(ip: string, userId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
@@ -341,6 +342,10 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendShareDownloadRsp(reqId, fileId, fileSize, lastModify) ?? false
   }
 
+  sendRemindFile(ip: string, groupId: string, size: number, name: string): boolean {
+    return this.sessions.get(ip)?.sendRemindFile(groupId, size, name) ?? false
+  }
+
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
     for (const [ip, readyId] of this.peerUserIds) {
@@ -541,6 +546,8 @@ export class PrivateService {
         this.options.callbacks.onShareDownload(ip, reqId, shareId),
       onShareDownloadRsp: (reqId, err, fileId, fileSize, lastModify) =>
         this.options.callbacks.onShareDownloadRsp(ip, reqId, err, fileId, fileSize, lastModify),
+      onRemindFile: (groupId, name, size) =>
+        this.options.callbacks.onRemindFile(ip, groupId, name, size),
       onReady: (userId) => {
         if (userId !== '') {
           this.peerUserIds.set(ip, userId)

@@ -261,6 +261,8 @@ export class AppService {
       savePath: string
       saveDir: string
       text: string
+      // 发送方给的原始路径，回执里要原样带回
+      sourcePath: string
     }
   >()
   private groupRequestSeq = 0
@@ -449,6 +451,8 @@ export class AppService {
             this.handleGroupShareDownload(ip, reqId, shareId),
           onShareDownloadRsp: (ip, reqId, err, fileId, fileSize, lastModify) =>
             this.handleGroupShareResponse(ip, reqId, err, fileId, fileSize, lastModify),
+          onRemindFile: (ip, groupId, name, size) =>
+            this.handleGroupFileRemind(ip, groupId, name, size),
           onReady: (ip, userId) => logStartup(`私有会话 ${ip} 用户号 ${userId}`),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
@@ -765,7 +769,8 @@ export class AppService {
       size: file.size,
       savePath,
       saveDir,
-      text
+      text,
+      sourcePath: file.path
     })
     service.sendShareDownload(ip, reqId, file.shareId)
     logStartup(`群文件请求 ${file.name} share=${file.shareId} 发送方=${ip}`)
@@ -826,7 +831,11 @@ export class AppService {
     })
     this.updateGroupFileTask(ctx.fileTaskId, 'transferring', 0, '')
     void this.receiveGroupFileFrom(transfer, ip, port, fileId, service.peerUserId(ip))
-      .then(() => this.handlePrivateFileDone(fileId, ctx.savePath))
+      .then(() => {
+        this.handlePrivateFileDone(fileId, ctx.savePath)
+        // 收完给发送方发回执，群里的其他成员据此看到“谁下载了”
+        service.sendRemindFile(ip, ctx.groupId, ctx.size, ctx.sourcePath)
+      })
       .catch((error: unknown) => {
         const message = (error as Error).message
         logStartup(`群文件接收失败 ${ctx.name} 文件号=${fileId}：${message}`)
@@ -851,6 +860,45 @@ export class AppService {
       if (port === 9013 || port <= 0) throw error
       logStartup(`群文件接收 9013 失败，改用对端公布的 ${port} 重试`)
       await transfer.receive(ip, port, fileId, peerUserId)
+    }
+  }
+
+  // 群成员下载完文件后的回执：把下载者名字写到发送方那条文件消息上
+  private handleGroupFileRemind(ip: string, groupId: string, name: string, size: number): void {
+    try {
+      const base = name.split(/[\\/]/).pop() ?? name
+      const conversationId = groupConversationId(groupId)
+      const tasks = this.repos.files
+        .list(conversationId)
+        .filter((task) => task.direction === 'out' && task.name === base && task.messageId !== null)
+      const task = tasks[tasks.length - 1]
+      if (task === undefined || task.messageId === null) return
+      const message = this.repos.messages.getMessage(task.messageId)
+      if (message === null) return
+      let meta: Record<string, unknown>
+      try {
+        meta = JSON.parse(message.meta) as Record<string, unknown>
+      } catch {
+        meta = {}
+      }
+      const senderId = this.privateService?.peerUserId(ip) ?? ''
+      const downloader =
+        this.repos.groups.members(groupId).find((member) => member.userId === senderId)?.name ?? ip
+      const previous = Array.isArray(meta.downloadedBy)
+        ? (meta.downloadedBy as unknown[]).filter(
+            (item): item is string => typeof item === 'string'
+          )
+        : []
+      if (previous.includes(downloader)) return
+      const nextMeta = JSON.stringify({
+        ...meta,
+        downloadedBy: [...previous, downloader]
+      })
+      this.repos.messages.setMeta(message.id, nextMeta)
+      this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
+      logStartup(`群文件回执 ${base} 下载者=${downloader} 大小=${size}`)
+    } catch (error) {
+      logStartup(`群文件回执处理失败：${(error as Error).message}`)
     }
   }
 

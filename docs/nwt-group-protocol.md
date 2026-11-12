@@ -68,6 +68,27 @@
 - 每个成员收到卡片后各自发 `X_REVERSE_FILE_REQ(1019)`，发送方按成员逐个反向推送原图，走的就是私聊文件通道那一套。
 - 发送方要按“文件号 + 对端 IP”记录待推状态，同一个文件号会被多个成员分别拉取。
 
+### 2.5 群文件下载回执（`1025`）
+
+成员把群文件拉完以后，会发一条 `X_REMIND_FILE` 给发送方，`GROUP_ID` 是群号，`FILE_NAME` 用的是最初那条 `file2.v` 里的路径：
+
+```xml
+<X_REMIND_FILE docver="1"><GROUP_ID>b1eea1ca794d894d9cd8284932e97892</GROUP_ID><FILE>1</FILE><FILE_SIZE>11</FILE_SIZE><FILE_NAME>C:\Users\Public\Nwt\cache\recv\私有联调\probe-folder(297)\中文.txt</FILE_NAME></X_REMIND_FILE>
+```
+
+发送方据此在文件卡片上显示“谁下载了”。
+
+### 2.6 群文件的请求与应答（`5004` / `5005`）
+
+```xml
+<X_SHARE_DOWNLOAD_FILE docver="1"><REQ_ID>1</REQ_ID><SHARE_ID>64b54fba42f929418d2e14b703cf16c5</SHARE_ID><SHARE_PATH></SHARE_PATH><SHARE_PWD></SHARE_PWD><CHECK_PWD>0</CHECK_PWD><GO_ON>0</GO_ON></X_SHARE_DOWNLOAD_FILE>
+
+<X_SHARE_DOWNLOAD_FILE_RSP docver="1"><ERR>0</ERR><REQ_ID>1</REQ_ID><FILE_ID>13066</FILE_ID><FILE_SIZE>11</FILE_SIZE><LAST_MODIFY>1794455042</LAST_MODIFY></X_SHARE_DOWNLOAD_FILE_RSP>
+```
+
+- `SHARE_ID` 就是群消息 `file2.i`；`REQ_ID` 由接收方自增，应答里原样带回。
+- 拿到 `FILE_ID` 之后，接收方连发送方的 **9013**（实测公布的文件端口 13603 是关的），用文件通道的 HELLO/ACK/PATH/DATA 把数据收下来。
+
 ## 3. 时序（实测）
 
 ```

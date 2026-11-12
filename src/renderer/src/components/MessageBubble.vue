@@ -101,6 +101,18 @@ const folderMeta = computed(() => {
   return parts.join(' · ')
 })
 
+// 群文件的下载回执：谁已经把这个文件拉走了
+const downloadedBy = computed(() => {
+  try {
+    const meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return Array.isArray(meta.downloadedBy)
+      ? (meta.downloadedBy as unknown[]).filter((item): item is string => typeof item === 'string')
+      : []
+  } catch {
+    return []
+  }
+})
+
 // 群消息里显示发送者名字，私聊不显示
 const senderLabel = computed(() => {
   if (props.own) return ''
@@ -169,6 +181,9 @@ async function openFolder(): Promise<void> {
               <p class="missing-hint">文件记录不可用</p>
             </div>
           </div>
+          <p v-if="downloadedBy.length > 0" class="downloaded">
+            已下载：{{ downloadedBy.join('、') }}
+          </p>
         </div>
 
         <div
@@ -396,6 +411,13 @@ async function openFolder(): Promise<void> {
   border-radius: var(--radius-card);
   background: var(--card-bg);
   color: var(--text-secondary);
+}
+
+.downloaded {
+  margin: 4px 0 0;
+  padding-left: 2px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .missing-name {

@@ -40,7 +40,8 @@ const CMD = {
   QGROUP_PUSH_USER: 3003,
   QGROUP_SEND_MSG: 3011,
   SHARE_DOWNLOAD: 5004,
-  SHARE_DOWNLOAD_RSP: 5005
+  SHARE_DOWNLOAD_RSP: 5005,
+  REMIND_FILE: 1025
 } as const
 
 const HELLO_TYPE = 4
@@ -105,6 +106,8 @@ export interface PrivateGroupFileRef {
   shareId: string
   size: number
   name: string
+  // 发送方给的完整缓存路径，回执里原样带回去
+  path: string
   folder: boolean
 }
 
@@ -148,6 +151,7 @@ export type IncomingPrivate =
       fileSize: number
       lastModify: string
     }
+  | { kind: 'remind-file'; groupId: string; name: string; size: number }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -603,6 +607,15 @@ export function shareDownloadRspXml(
   )
 }
 
+// 群文件下载完的回执：告诉发送方（以及群里）谁已经拿到这个文件
+export function remindFileXml(groupId: string, size: number, name: string): string {
+  return (
+    `<X_REMIND_FILE docver="1"><GROUP_ID>${escapeXmlText(groupId)}</GROUP_ID>` +
+    `<FILE>1</FILE><FILE_SIZE>${size}</FILE_SIZE>` +
+    `<FILE_NAME>${escapeXmlText(name)}</FILE_NAME></X_REMIND_FILE>`
+  )
+}
+
 export function sendFolderXml(input: {
   taskId: string
   name: string
@@ -775,6 +788,7 @@ function groupFilesFromJson(raw: string): PrivateGroupFileRef[] {
       shareId: record.i,
       size: Number(record.s ?? '0') || 0,
       name,
+      path,
       folder: record.t === 'offline_folder'
     })
   }
@@ -962,6 +976,17 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const fileSize = Number(tagText(xml, 'FILE_SIZE') ?? '0')
       const lastModify = tagText(xml, 'LAST_MODIFY') ?? ''
       return { kind: 'share-download-rsp', reqId, err, fileId, fileSize, lastModify }
+    }
+    case CMD.REMIND_FILE: {
+      const groupId = tagText(xml, 'GROUP_ID')
+      const name = tagText(xml, 'FILE_NAME')
+      if (groupId === null || name === null) return unrecognized(cmd)
+      return {
+        kind: 'remind-file',
+        groupId,
+        name,
+        size: Number(tagText(xml, 'FILE_SIZE') ?? '0')
+      }
     }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }
