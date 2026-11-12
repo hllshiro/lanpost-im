@@ -53,6 +53,7 @@ import {
   sendReceiptXml
 } from './messages'
 import type {
+  PrivateContentSegment,
   PrivateFileOffer,
   PrivateFolderOffer,
   PrivateGroupFileRef,
@@ -114,7 +115,12 @@ const SESSION_TIMEOUT_MS = 120_000
 export type SessionState = 'idle' | 'connecting' | 'verifying' | 'handshaking' | 'ready' | 'closed'
 
 export interface SessionCallbacks {
-  onText(msgId: number, text: string, images: PrivateImageRef[]): void
+  onText(
+    msgId: number,
+    text: string,
+    images: PrivateImageRef[],
+    segments: PrivateContentSegment[]
+  ): void
   onUnsupported(msgId: number): void
   onAck(msgId: number): void
   onReceipt(msgId: number): void
@@ -139,7 +145,8 @@ export interface SessionCallbacks {
     msgId: number,
     text: string,
     images: PrivateImageRef[],
-    files: PrivateGroupFileRef[]
+    files: PrivateGroupFileRef[],
+    segments: PrivateContentSegment[]
   ): void
   onGroupReqInfo(groupId: string): void
   onGroupInfoRsp(ret: number, groupId: string, info: PrivateGroupInfo | null): void
@@ -386,9 +393,11 @@ export class PrivateSession {
     return true
   }
 
-  sendGroupImage(groupId: string, msgId: number, values: string[]): boolean {
+  sendGroupImage(groupId: string, msgId: number, values: string[], text = ''): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, values)))
+    this.reliable.send(
+      encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, values, text))
+    )
     return true
   }
 
@@ -495,9 +504,9 @@ export class PrivateSession {
     this.sendFrame(CMD_REVERSE_FILE_REQ, reverseFileReqXml(taskId))
   }
 
-  sendImageCard(msgId: number, values: string[]): boolean {
+  sendImageCard(msgId: number, values: string[], text = ''): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, values)))
+    this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, values, text)))
     return true
   }
 
@@ -739,7 +748,7 @@ export class PrivateSession {
     switch (incoming.kind) {
       case 'text':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
-        this.callbacks.onText(incoming.msgId, incoming.text, incoming.images)
+        this.callbacks.onText(incoming.msgId, incoming.text, incoming.images, incoming.segments)
         return
       case 'text-unsupported':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
@@ -822,7 +831,8 @@ export class PrivateSession {
           incoming.msgId,
           incoming.text,
           incoming.images,
-          incoming.files
+          incoming.files,
+          incoming.segments
         )
         return
       case 'share-download':

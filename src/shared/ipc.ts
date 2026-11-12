@@ -159,7 +159,7 @@ export type Api = {
     // 拖进来的 File 对象要经它换成磁盘路径
     pathFor(file: File): string
     removeStaged(conversationId: string, id: string): Promise<void>
-    sendStaged(conversationId: string): Promise<void>
+    sendStaged(conversationId: string, text?: string): Promise<void>
     // 发送文件夹：先发 1013 邀请，对端接受后由文件夹通道推送
     sendFolder(conversationId: string, path: string): Promise<void>
   }

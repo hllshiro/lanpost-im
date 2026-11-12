@@ -119,7 +119,13 @@ export interface PrivateGroupFileRef {
 }
 
 export type IncomingPrivate =
-  | { kind: 'text'; msgId: number; text: string; images: PrivateImageRef[] }
+  | {
+      kind: 'text'
+      msgId: number
+      text: string
+      images: PrivateImageRef[]
+      segments: PrivateContentSegment[]
+    }
   | { kind: 'text-unsupported'; msgId: number }
   | { kind: 'ack'; msgId: number }
   | { kind: 'receipt'; msgId: number }
@@ -153,6 +159,7 @@ export type IncomingPrivate =
       text: string
       images: PrivateImageRef[]
       files: PrivateGroupFileRef[]
+      segments: PrivateContentSegment[]
     }
   | { kind: 'share-download'; reqId: number; shareId: string }
   | { kind: 'share-download-folder'; reqId: number; shareId: string; channelId: string }
@@ -376,16 +383,31 @@ export function retrieveImagesXml(msgId: number, refs: PrivateImageRef[]): strin
 
 // 发图片时内网通先发 X_SEND_FILE，再发一条 img 卡片；v 是“文件号|md5”。
 // 一条消息可以带多张图片，dt 里就是多个 img 节点。
-function imageCardBody(values: string[]): string {
-  const nodes = values.map((value) =>
-    [
-      '      {',
-      '         "img" : {',
-      '            "t" : "feihu",',
-      `            "v" : ${JSON.stringify(value)}`,
-      '         }',
-      '      }'
-    ].join('\n')
+function imageCardBody(values: string[], text = ''): string {
+  const nodes: string[] = []
+  if (text !== '') {
+    nodes.push(
+      [
+        '      {',
+        '         "txt" : {',
+        '            "t" : "normal",',
+        `            "v" : ${JSON.stringify(text)}`,
+        '         }',
+        '      }'
+      ].join('\n')
+    )
+  }
+  nodes.push(
+    ...values.map((value) =>
+      [
+        '      {',
+        '         "img" : {',
+        '            "t" : "feihu",',
+        `            "v" : ${JSON.stringify(value)}`,
+        '         }',
+        '      }'
+      ].join('\n')
+    )
   )
   return [
     '{',
@@ -408,12 +430,12 @@ function imageCardBody(values: string[]): string {
   ].join('\n')
 }
 
-export function imageCardXml(msgId: number, values: string[]): string {
+export function imageCardXml(msgId: number, values: string[], text = ''): string {
   const xml = encodeChatMsg({
     Docver: DOCVER,
     MsgID: msgId,
     Receipt: 0,
-    Msg: imageCardBody(values),
+    Msg: imageCardBody(values, text),
     MsgTime: 0,
     Offline: 0,
     HideRecord: 0
@@ -422,8 +444,8 @@ export function imageCardXml(msgId: number, values: string[]): string {
 }
 
 // 群图片：dt 里只放 img 卡片，纯图片的群消息不需要额外的文本占位
-export function groupImageXml(groupId: string, msgId: number, values: string[]): string {
-  const body = imageCardBody(values)
+export function groupImageXml(groupId: string, msgId: number, values: string[], text = ''): string {
+  const body = imageCardBody(values, text)
   const escaped = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -819,6 +841,50 @@ function textFromJson(raw: string): string | null {
   return text === '' ? null : text
 }
 
+// dt 里文字和图片可以交替出现，按原顺序记下来，气泡按这个顺序排版
+export interface PrivateContentSegment {
+  kind: 'text' | 'image'
+  text?: string
+  value?: string
+}
+
+function contentSegmentsFromJson(raw: string): PrivateContentSegment[] {
+  const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return []
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return []
+  }
+  const dt = (parsed as { dt?: unknown }).dt
+  if (!Array.isArray(dt)) {
+    return []
+  }
+  const segments: PrivateContentSegment[] = []
+  for (const item of dt) {
+    if (typeof item !== 'object' || item === null) continue
+    const img = (item as { img?: unknown }).img
+    if (typeof img === 'object' && img !== null) {
+      const value = (img as { v?: unknown }).v
+      if (typeof value === 'string') {
+        segments.push({ kind: 'image', value })
+      }
+      continue
+    }
+    const txt = (item as { txt?: unknown }).txt
+    if (typeof txt === 'object' && txt !== null) {
+      const value = (txt as { v?: unknown }).v
+      if (typeof value === 'string' && value !== '') {
+        segments.push({ kind: 'text', text: value })
+      }
+    }
+  }
+  return segments
+}
+
 function remoteProfile(handshake: Handshake): RemoteProfile {
   return {
     userId: handshake.Info.CorpID,
@@ -932,12 +998,22 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       if (text === null && images.length === 0) {
         return { kind: 'text-unsupported', msgId: msg.MsgID }
       }
+      const segments = contentSegmentsFromJson(msg.Msg)
+      const textOnly = segments
+        .filter((segment) => segment.kind === 'text')
+        .map((segment) => segment.text ?? '')
+        .join('')
       const stickersOnly = images.length > 0 && images.every((ref) => ref.sticker === true)
       return {
         kind: 'text',
         msgId: msg.MsgID,
-        text: text ?? (stickersOnly ? '' : '[图片]'),
-        images
+        // 图文混排时预览只留文字，避免一串 [图片] 占位
+        text:
+          images.length > 0 && textOnly !== ''
+            ? textOnly
+            : (text ?? (stickersOnly ? '' : '[图片]')),
+        images,
+        segments
       }
     }
     case CMD.SEND_MSG_ACK: {
@@ -1069,14 +1145,21 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
         return unrecognized(cmd)
       }
       const stickersOnly = images.length > 0 && images.every((ref) => ref.sticker === true)
+      const segments = body === null ? [] : contentSegmentsFromJson(body)
+      const textOnly = segments
+        .filter((segment) => segment.kind === 'text')
+        .map((segment) => segment.text ?? '')
+        .join('')
       const fallback = files.length > 0 ? '[文件]' : stickersOnly ? '' : '[图片]'
       return {
         kind: 'group-message',
         groupId,
         msgId,
-        text: text ?? fallback,
+        // 图文混排时预览只留文字，避免一串 [图片] 占位
+        text: images.length > 0 && textOnly !== '' ? textOnly : (text ?? fallback),
         images,
-        files
+        files,
+        segments
       }
     }
     case CMD.SHARE_DOWNLOAD: {

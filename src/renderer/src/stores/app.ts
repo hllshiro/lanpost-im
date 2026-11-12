@@ -347,10 +347,14 @@ export const useAppStore = defineStore('app', () => {
     if (body === '' && currentStaged.value.length === 0) return false
     sending.value = true
     try {
+      const hasImages = currentStaged.value.some((item) => item.kind === 'image')
       if (currentStaged.value.length > 0) {
-        await window.api.files.sendStaged(conversationId)
+        await window.api.files.sendStaged(
+          conversationId,
+          hasImages && body !== '' ? body : undefined
+        )
       }
-      if (body !== '') {
+      if (body !== '' && !hasImages) {
         const result = await window.api.messages.send({ conversationId, text: body })
         upsertMessage(result.message)
         previews.value = { ...previews.value, [conversationId]: result.message }

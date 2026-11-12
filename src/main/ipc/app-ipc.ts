@@ -67,8 +67,8 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileStagedRemove, (_event, conversationId: string, id: string) =>
     service.removeStaged(conversationId, id)
   )
-  ipcMain.handle(IPC.fileStagedSend, (_event, conversationId: string) =>
-    service.sendStaged(conversationId)
+  ipcMain.handle(IPC.fileStagedSend, (_event, conversationId: string, text?: string) =>
+    service.sendStaged(conversationId, text)
   )
   ipcMain.handle(IPC.fileSendFolder, (_event, conversationId: string, path: string) =>
     service.sendFolder(conversationId, path)

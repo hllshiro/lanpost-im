@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os'
 import { decodeBeacon } from './beacon'
 import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type {
+  PrivateContentSegment,
   PrivateFileOffer,
   PrivateFolderOffer,
   PrivateGroupFileRef,
@@ -32,7 +33,13 @@ export interface PrivateServiceOptions {
   // 本机私有文件夹通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
   folderPort?: number
   callbacks: {
-    onText(ip: string, msgId: number, text: string, images: PrivateImageRef[]): void
+    onText(
+      ip: string,
+      msgId: number,
+      text: string,
+      images: PrivateImageRef[],
+      segments: PrivateContentSegment[]
+    ): void
     onUnsupported(ip: string, msgId: number): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
@@ -60,7 +67,8 @@ export interface PrivateServiceOptions {
       msgId: number,
       text: string,
       images: PrivateImageRef[],
-      files: PrivateGroupFileRef[]
+      files: PrivateGroupFileRef[],
+      segments: PrivateContentSegment[]
     ): void
     onGroupReqInfo(ip: string, groupId: string): void
     onGroupInfoRsp(ip: string, ret: number, groupId: string, info: PrivateGroupInfo | null): void
@@ -317,8 +325,8 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupPushUser(info, members) ?? false
   }
 
-  sendGroupImage(ip: string, groupId: string, msgId: number, values: string[]): boolean {
-    return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, values) ?? false
+  sendGroupImage(ip: string, groupId: string, msgId: number, values: string[], text = ''): boolean {
+    return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, values, text) ?? false
   }
 
   sendGroupFile(
@@ -410,8 +418,8 @@ export class PrivateService {
     this.sessions.get(ip)?.sendRetrieveImages(msgId, refs)
   }
 
-  sendImageCard(ip: string, msgId: number, values: string[]): boolean {
-    return this.sessions.get(ip)?.sendImageCard(msgId, values) ?? false
+  sendImageCard(ip: string, msgId: number, values: string[], text = ''): boolean {
+    return this.sessions.get(ip)?.sendImageCard(msgId, values, text) ?? false
   }
 
   // 对端公布的文件通道端口；0 表示没收到或没公布
@@ -543,7 +551,8 @@ export class PrivateService {
     }
     let session: PrivateSession
     const callbacks: SessionCallbacks = {
-      onText: (msgId, text, images) => this.options.callbacks.onText(ip, msgId, text, images),
+      onText: (msgId, text, images, segments) =>
+        this.options.callbacks.onText(ip, msgId, text, images, segments),
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
       onAck: (msgId) => this.options.callbacks.onAck(ip, msgId),
       onReceipt: (msgId) => this.options.callbacks.onReceipt(ip, msgId),
@@ -581,8 +590,8 @@ export class PrivateService {
       onFolderReverse: (taskId) => this.options.callbacks.onFolderReverse(ip, taskId),
       onGroupInfo: (info) => this.options.callbacks.onGroupInfo(ip, info),
       onGroupUsers: (info, members) => this.options.callbacks.onGroupUsers(ip, info, members),
-      onGroupMessage: (groupId, msgId, text, images, files) =>
-        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images, files),
+      onGroupMessage: (groupId, msgId, text, images, files, segments) =>
+        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images, files, segments),
       onGroupReqInfo: (groupId) => this.options.callbacks.onGroupReqInfo(ip, groupId),
       onGroupInfoRsp: (ret, groupId, info) =>
         this.options.callbacks.onGroupInfoRsp(ip, ret, groupId, info),

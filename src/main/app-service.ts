@@ -51,6 +51,7 @@ import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discov
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
+  PrivateContentSegment,
   PrivateGroupFileRef,
   PrivateGroupInfo,
   PrivateGroupMember,
@@ -460,7 +461,8 @@ export class AppService {
         folderPort,
         seeds: privateSeeds(settings),
         callbacks: {
-          onText: (ip, msgId, text, images) => this.handlePrivateText(ip, msgId, text, images),
+          onText: (ip, msgId, text, images, segments) =>
+            this.handlePrivateText(ip, msgId, text, images, segments),
           onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
           onAck: (ip, msgId) => {
             this.privateOutstanding.delete(msgId)
@@ -496,8 +498,8 @@ export class AppService {
           onFolderReverse: (ip, taskId) => this.handlePrivateFolderReverse(ip, taskId),
           onGroupInfo: (ip, info) => this.handleGroupInfo(ip, info),
           onGroupUsers: (ip, info, members) => this.handleGroupUsers(ip, info, members),
-          onGroupMessage: (ip, groupId, msgId, text, images, files) =>
-            this.handleGroupMessage(ip, groupId, msgId, text, images, files),
+          onGroupMessage: (ip, groupId, msgId, text, images, files, segments) =>
+            this.handleGroupMessage(ip, groupId, msgId, text, images, files, segments),
           onShareDownload: (ip, reqId, shareId) =>
             this.handleGroupShareDownload(ip, reqId, shareId),
           onShareDownloadFolder: (ip, reqId, shareId, channelId) =>
@@ -817,7 +819,8 @@ export class AppService {
     msgId: number,
     text: string,
     images: PrivateImageRef[],
-    files: PrivateGroupFileRef[]
+    files: PrivateGroupFileRef[],
+    segments: PrivateContentSegment[]
   ): void {
     try {
       const group = this.repos.groups.get(groupId)
@@ -846,6 +849,7 @@ export class AppService {
         senderName: senderName ?? ip
       }
       if (stickers.length > 0) metaRecord.sticker = stickers[0].value
+      if (segments.length > 0) metaRecord.segments = segments
       const meta = JSON.stringify(metaRecord)
       const body = text === '' && stickers.length > 0 ? '[表情]' : text
       const message = this.repos.messages.insertIncoming(conversation.id, body, msgId, 'text', meta)
@@ -2169,7 +2173,7 @@ export class AppService {
   }
 
   // 依次发出待发附件，成功一张就移除一张，中途失败时剩下的留在待发区
-  async sendStaged(conversationId: string): Promise<void> {
+  async sendStaged(conversationId: string, text = ''): Promise<void> {
     const conversation = this.repos.conversations.get(conversationId)
     // 图片与表情合并成一条消息，其余附件各自发送
     const entries = this.staged.list(conversationId)
@@ -2184,9 +2188,9 @@ export class AppService {
       if (paths.length > 0) {
         const sticker = images.every((entry) => entry.sticker === true)
         if (conversation !== null && conversation.kind === 'group') {
-          this.sendGroupImages(conversation, paths, sticker)
+          this.sendGroupImages(conversation, paths, sticker, text)
         } else {
-          this.sendFiles(conversationId, paths, '', sticker)
+          this.sendFiles(conversationId, paths, text, sticker)
         }
       }
       for (const entry of images) {
@@ -2383,7 +2387,12 @@ export class AppService {
     logStartup(`群文件夹已发 ${name} share=${shareId} 成员=${targets.length}`)
   }
 
-  private sendGroupImages(conversation: ConversationInfo, paths: string[], sticker = false): void {
+  private sendGroupImages(
+    conversation: ConversationInfo,
+    paths: string[],
+    sticker = false,
+    text = ''
+  ): void {
     const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
     const service = this.privateService
     const transfer = this.privateFiles
@@ -2444,12 +2453,16 @@ export class AppService {
     if (values.length === 0) return
     const message = this.repos.messages.insertOutgoing(
       conversation.id,
-      '[图片]',
+      text === '' ? '[图片]' : text,
       messageId,
       'text',
       JSON.stringify({
         source: 'private-image',
         files: tasks.map((task) => task.id),
+        segments: [
+          ...(text === '' ? [] : [{ kind: 'text', text }]),
+          ...values.map((value) => ({ kind: 'image', value }))
+        ],
         groupId,
         ...(sticker ? { sticker: true } : {})
       })
@@ -2466,7 +2479,7 @@ export class AppService {
     this.emit({ type: 'message', message: { ...message, status: 'sent' } })
     this.emitConversation(conversation.id)
     for (const target of targets) {
-      service.sendGroupImage(target.ip, groupId, message.id, values)
+      service.sendGroupImage(target.ip, groupId, message.id, values, text)
     }
     logStartup(`群图片已发卡片 ${values.length} 张 成员=${targets.length}`)
   }
@@ -2510,7 +2523,7 @@ export class AppService {
       throw new Error('会话不存在')
     }
     if (!this.settings.get().network.ipmsg) {
-      this.sendFilesPrivate(conversationId, paths, sticker)
+      this.sendFilesPrivate(conversationId, paths, sticker, text)
       return
     }
     if (!this.filesStarted) {
@@ -2557,7 +2570,12 @@ export class AppService {
 
   // 私有模式下的发送：先发 X_SEND_FILE 邀请，再发 X_OPERATE_SEND_FILE 开始，
   // 对端连到本机文件端口后由 PrivateFileTransfer 推数据
-  private sendFilesPrivate(conversationId: string, paths: string[], sticker = false): void {
+  private sendFilesPrivate(
+    conversationId: string,
+    paths: string[],
+    sticker = false,
+    text = ''
+  ): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
@@ -2576,7 +2594,7 @@ export class AppService {
     }
     const images = paths.filter((path) => isImagePath(basename(path)))
     if (images.length > 0) {
-      this.sendPrivateImages(conversation, peer.ip, peer.key, images, sticker)
+      this.sendPrivateImages(conversation, peer.ip, peer.key, images, sticker, text)
     }
     const files = paths.filter((path) => !isImagePath(basename(path)))
     if (files.length === 0) return
@@ -2636,7 +2654,8 @@ export class AppService {
     ip: string,
     peerKey: string,
     paths: string[],
-    sticker: boolean
+    sticker: boolean,
+    text = ''
   ): void {
     const service = this.privateService
     const transfer = this.privateFiles
@@ -2679,11 +2698,15 @@ export class AppService {
     const meta = JSON.stringify({
       source: 'private-image',
       files: tasks.map((task) => task.id),
+      segments: [
+        ...(text === '' ? [] : [{ kind: 'text', text }]),
+        ...values.map((value) => ({ kind: 'image', value }))
+      ],
       ...(sticker ? { sticker: true } : {})
     })
     const message = this.repos.messages.insertOutgoing(
       conversation.id,
-      '[图片]',
+      text === '' ? '[图片]' : text,
       messageId,
       'text',
       meta
@@ -2696,7 +2719,7 @@ export class AppService {
       this.handleFileUpdate(task)
     }
     this.repos.conversations.touch(conversation.id, message.createdAt, 0)
-    service.sendImageCard(ip, message.id, values)
+    service.sendImageCard(ip, message.id, values, text)
     this.repos.messages.setStatus(message.id, 'sent')
     this.emit({ type: 'message', message: { ...message, status: 'sent' } })
     this.emitConversation(conversation.id)
@@ -2978,7 +3001,8 @@ export class AppService {
     ip: string,
     msgId: number,
     text: string,
-    images: PrivateImageRef[]
+    images: PrivateImageRef[],
+    segments: PrivateContentSegment[]
   ): void {
     const peerKey = this.engine.peerKeyForIp(ip)
     if (peerKey === null) {
@@ -2990,6 +3014,7 @@ export class AppService {
     const photos = images.filter((ref) => ref.sticker !== true)
     const metaRecord: Record<string, unknown> = { source: 'private', msgId: String(msgId) }
     if (stickers.length > 0) metaRecord.sticker = stickers[0].value
+    if (segments.length > 0) metaRecord.segments = segments
     const meta = JSON.stringify(metaRecord)
     const body = text === '' && stickers.length > 0 ? '[表情]' : text
     const message = this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, body, msgId, meta)

@@ -36,7 +36,13 @@ describe('private messages', () => {
     expect(xml).toContain('&quot;app&quot;&nbsp;:&nbsp;&quot;shiyeline&quot;')
     expect(xml).toContain('&quot;v&quot;&nbsp;:&nbsp;&quot;你好&quot;')
     expect(xml).toContain('<MSG_TIME>0</MSG_TIME><OFFLINE>0</OFFLINE><HIDE_RECORD>0</HIDE_RECORD>')
-    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 7, text: '你好', images: [] })
+    expect(parsePrivate(1004, xml)).toEqual({
+      kind: 'text',
+      msgId: 7,
+      text: '你好',
+      images: [],
+      segments: [{ kind: 'text', text: '你好' }]
+    })
   })
 
   it('parses ack and receipt', () => {
@@ -69,7 +75,8 @@ describe('private messages', () => {
       kind: 'text',
       msgId: 6,
       text: 'https://example.com/a',
-      images: []
+      images: [],
+      segments: []
     })
   })
 
@@ -80,7 +87,8 @@ describe('private messages', () => {
       kind: 'text',
       msgId: 3,
       text: '[图片]',
-      images: []
+      images: [],
+      segments: [{ kind: 'image', value: 'x' }]
     })
     const real =
       '<X_SEND_MSG docver="1"><MSG_ID>5</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;img&quot;:{&quot;t&quot;:&quot;feihu&quot;,&quot;v&quot;:&quot;5723|6825bf031f45b541a19c305eb5c898a1&quot;}}]}</MSG></X_SEND_MSG>'
@@ -88,7 +96,8 @@ describe('private messages', () => {
       kind: 'text',
       msgId: 5,
       text: '[图片]',
-      images: [{ id: 5723, type: 'feihu', value: '5723|6825bf031f45b541a19c305eb5c898a1' }]
+      images: [{ id: 5723, type: 'feihu', value: '5723|6825bf031f45b541a19c305eb5c898a1' }],
+      segments: [{ kind: 'image', value: '5723|6825bf031f45b541a19c305eb5c898a1' }]
     })
     const unknown =
       '<X_SEND_MSG docver="1"><MSG_ID>4</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;voip&quot;:{}}]}</MSG></X_SEND_MSG>'
@@ -184,13 +193,25 @@ describe('private messages round-trip', () => {
     const text = 'a b<c>'
     const xml = sendMsgXml(11, text)
     expect(xml).toContain('&quot;a&nbsp;b&lt;c&gt;&quot;')
-    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 11, text, images: [] })
+    expect(parsePrivate(1004, xml)).toEqual({
+      kind: 'text',
+      msgId: 11,
+      text,
+      images: [],
+      segments: [{ kind: 'text', text }]
+    })
   })
 
   it('keeps quotes in the message text', () => {
     const text = 'say "hi"'
     const xml = sendMsgXml(13, text)
-    expect(parsePrivate(1004, xml)).toEqual({ kind: 'text', msgId: 13, text, images: [] })
+    expect(parsePrivate(1004, xml)).toEqual({
+      kind: 'text',
+      msgId: 13,
+      text,
+      images: [],
+      segments: [{ kind: 'text', text }]
+    })
   })
 
   it('concatenates every text segment', () => {
@@ -200,7 +221,12 @@ describe('private messages round-trip', () => {
       kind: 'text',
       msgId: 4,
       text: 'a[图片]b',
-      images: []
+      images: [],
+      segments: [
+        { kind: 'text', text: 'a' },
+        { kind: 'image', value: 'x' },
+        { kind: 'text', text: 'b' }
+      ]
     })
   })
 
@@ -328,7 +354,8 @@ describe('private group messages', () => {
       msgId: 7,
       text: '大家好',
       images: [],
-      files: []
+      files: [],
+      segments: [{ kind: 'text', text: '大家好' }]
     })
   })
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed } from 'vue'
 import { Check, CheckCheck, CircleAlert, FileText, Folder, LoaderCircle } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, formatSize, statusLabel } from '../utils/format'
@@ -54,39 +54,59 @@ function openImageMenu(file: FileTaskInfo, event: MouseEvent): void {
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 
-// 一条消息可以带多张图片，按文件任务逐张渲染
-const imageEntries = computed(() => {
-  const entries: Array<{ file: FileTaskInfo; url: string }> = []
-  for (const file of props.files) {
-    if (!IMAGE_EXTENSIONS.test(file.name)) continue
-    // 自己发的图片本地就有原图，立刻显示；收到的要等文件落盘完成
-    if (file.direction !== 'out' && file.state !== 'done') continue
-    entries.push({ file, url: `lanpost-file:///${encodeURIComponent(file.id)}` })
+type RenderPart =
+  | { kind: 'text'; text: string }
+  | { kind: 'image'; url: string; file: FileTaskInfo }
+  | { kind: 'sticker'; url: string; tips: string }
+
+// dt 里文字与图片按原顺序排版；没有 segments 的老消息走后面的单图逻辑
+const renderParts = computed<RenderPart[]>(() => {
+  let meta: Record<string, unknown>
+  try {
+    meta = JSON.parse(props.message.meta) as Record<string, unknown>
+  } catch {
+    return []
   }
-  return entries
+  const segments = Array.isArray(meta.segments) ? meta.segments : []
+  const parts: RenderPart[] = []
+  for (const item of segments) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    if (record.kind === 'text' && typeof record.text === 'string') {
+      parts.push({ kind: 'text', text: record.text })
+      continue
+    }
+    if (record.kind !== 'image' || typeof record.value !== 'string') continue
+    const fileId = record.value.split('|')[0]
+    const file = props.files.find((task) => task.fileId === fileId)
+    if (
+      file !== undefined &&
+      IMAGE_EXTENSIONS.test(file.name) &&
+      (file.direction === 'out' || file.state === 'done')
+    ) {
+      parts.push({
+        kind: 'image',
+        url: `lanpost-file:///${encodeURIComponent(file.id)}`,
+        file
+      })
+      continue
+    }
+    const sticker = emotionByKey(record.value)
+    if (sticker !== null) {
+      parts.push({ kind: 'sticker', url: emotionUrl(sticker), tips: sticker.tips })
+    }
+  }
+  return parts
 })
 
-const brokenImages = ref<string[]>([])
-watch(
-  () => [props.message.id, props.files.map((file) => `${file.id}:${file.state}`).join(',')],
-  () => {
-    brokenImages.value = []
-  }
-)
+const hasSegments = computed(() => renderParts.value.length > 0)
 
-function markBroken(file: FileTaskInfo): void {
-  if (!brokenImages.value.includes(file.id)) {
-    brokenImages.value = [...brokenImages.value, file.id]
-  }
-}
+const textBody = computed(() => {
+  if (hasSegments.value) return ''
+  if (stickerUrl.value !== '') return ''
+  return props.message.text.replace(/\[图片\]/g, '').trim()
+})
 
-const visibleImages = computed(() =>
-  imageEntries.value.filter((entry) => !brokenImages.value.includes(entry.file.id))
-)
-
-const showImage = computed(() => visibleImages.value.length > 0)
-
-// 发送方/接收方共用的第一张文件任务，文件卡片和文件夹消息用它
 const file = computed(() => props.files[0] ?? null)
 
 // 内置表情：meta 里存的是表情表的 Id 或文件名，用本机表情包渲染，不走文件通道
@@ -111,12 +131,6 @@ const imageSticker = computed(() => {
   } catch {
     return false
   }
-})
-
-// 图片和表情已经显示出来时，去掉占位文字
-const displayText = computed(() => {
-  if (stickerUrl.value !== '') return ''
-  return showImage.value ? props.message.text.replace(/\[图片\]/g, '').trim() : props.message.text
 })
 
 // 文件夹气泡的信息都放在 meta 里：大小、项数、收发方向与完成状态
@@ -257,31 +271,33 @@ async function revealFolder(): Promise<void> {
           class="bubble text-bubble"
           :class="{
             failed: message.status === 'failed',
-            'image-bubble': showImage,
-            'sticker-bubble': stickerUrl !== ''
+            'image-bubble': hasSegments || stickerUrl !== '',
+            'sticker-bubble': stickerUrl !== '' && !hasSegments
           }"
         >
+          <div v-if="hasSegments" class="segment-row">
+            <template v-for="(part, index) in renderParts" :key="index">
+              <span v-if="part.kind === 'text'" class="segment-text">{{ part.text }}</span>
+              <img
+                v-else-if="part.kind === 'image'"
+                class="inline-image"
+                :class="{ 'sticker-photo': imageSticker }"
+                :src="part.url"
+                :alt="part.file.name"
+                loading="lazy"
+                @click="previewImage(part.file)"
+                @contextmenu.prevent="openImageMenu(part.file, $event)"
+              />
+              <img v-else class="sticker-image segment-sticker" :src="part.url" :alt="part.tips" />
+            </template>
+          </div>
           <img
-            v-if="stickerUrl !== ''"
+            v-else-if="stickerUrl !== ''"
             class="sticker-image"
             :src="stickerUrl"
             :alt="sticker?.tips ?? '表情'"
           />
-          <div v-if="showImage" class="image-row">
-            <img
-              v-for="entry in visibleImages"
-              :key="entry.file.id"
-              class="inline-image"
-              :class="{ 'sticker-photo': imageSticker }"
-              :src="entry.url"
-              :alt="entry.file.name"
-              loading="lazy"
-              @click="previewImage(entry.file)"
-              @contextmenu.prevent="openImageMenu(entry.file, $event)"
-              @error="markBroken(entry.file)"
-            />
-          </div>
-          <span v-if="displayText !== ''" class="text-body">{{ displayText }}</span>
+          <span v-if="textBody !== ''" class="text-body">{{ textBody }}</span>
         </div>
 
         <div v-if="own" class="meta" :class="statusClass">
@@ -422,6 +438,24 @@ async function revealFolder(): Promise<void> {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+}
+
+/* 文字与图片混排时保持 dt 的顺序 */
+.segment-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+}
+
+.segment-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.segment-sticker {
+  width: 40px;
+  height: 40px;
 }
 
 /* 表情不套气泡底色，按原始尺寸显示 */
