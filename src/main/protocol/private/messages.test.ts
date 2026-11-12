@@ -321,7 +321,8 @@ describe('private group messages', () => {
       groupId: '3793f2276684a242a0b0aabc68b3660b',
       msgId: 7,
       text: '大家好',
-      images: []
+      images: [],
+      files: []
     })
   })
 

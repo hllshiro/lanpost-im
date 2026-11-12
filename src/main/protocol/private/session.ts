@@ -32,7 +32,10 @@ import {
   reverseFolderReqXml,
   groupPushUserXml,
   groupImageXml,
+  groupFileXml,
   groupSendXml,
+  shareDownloadXml,
+  shareDownloadRspXml,
   retrieveImagesXml,
   imageCardXml,
   sendFileXml,
@@ -44,6 +47,7 @@ import {
 import type {
   PrivateFileOffer,
   PrivateFolderOffer,
+  PrivateGroupFileRef,
   PrivateGroupInfo,
   PrivateGroupMember,
   PrivateImageRef,
@@ -70,6 +74,8 @@ const CMD_REVERSE_FILE_REQ = 1019
 const CMD_REVERSE_FOLDER_REQ = 1020
 const CMD_QGROUP_SEND_MSG = 3011
 const CMD_QGROUP_PUSH_USER = 3003
+const CMD_SHARE_DOWNLOAD = 5004
+const CMD_SHARE_DOWNLOAD_RSP = 5005
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
@@ -112,7 +118,21 @@ export interface SessionCallbacks {
   onFolderReverse(taskId: string): void
   onGroupInfo(info: PrivateGroupInfo): void
   onGroupUsers(info: PrivateGroupInfo, members: PrivateGroupMember[]): void
-  onGroupMessage(groupId: string, msgId: number, text: string, images: PrivateImageRef[]): void
+  onGroupMessage(
+    groupId: string,
+    msgId: number,
+    text: string,
+    images: PrivateImageRef[],
+    files: PrivateGroupFileRef[]
+  ): void
+  onShareDownload(reqId: number, shareId: string): void
+  onShareDownloadRsp(
+    reqId: number,
+    err: number,
+    fileId: number,
+    fileSize: number,
+    lastModify: string
+  ): void
   // 对端在 X_READY 里公布的 32 位用户号，群消息靠它识别发送者
   onReady(userId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
@@ -344,6 +364,38 @@ export class PrivateSession {
   sendGroupImage(groupId: string, msgId: number, value: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, value)))
+    return true
+  }
+
+  sendGroupFile(input: {
+    groupId: string
+    msgId: number
+    shareId: string
+    size: number
+    path: string
+    folder: boolean
+  }): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupFileXml(input)))
+    return true
+  }
+
+  sendShareDownload(reqId: number, shareId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_SHARE_DOWNLOAD, shareDownloadXml(reqId, shareId)))
+    return true
+  }
+
+  sendShareDownloadRsp(
+    reqId: number,
+    fileId: number,
+    fileSize: number,
+    lastModify: string
+  ): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(
+      encodeFrame(CMD_SHARE_DOWNLOAD_RSP, shareDownloadRspXml(reqId, fileId, fileSize, lastModify))
+    )
     return true
   }
 
@@ -602,6 +654,10 @@ export class PrivateSession {
     if (cmd === CMD_SEND_FILE) {
       this.callbacks.onLog(`私有文件邀请原文 ${xml}`)
     }
+    // 群里的文件走“离线文件”节点，研究阶段先把原文打出来
+    if (cmd === 3011 && xml.includes('file2')) {
+      this.callbacks.onLog(`私有群文件消息原文 ${xml.slice(0, 4000)}`)
+    }
     const incoming = parsePrivate(cmd, xml)
     switch (incoming.kind) {
       case 'text':
@@ -673,7 +729,20 @@ export class PrivateSession {
           incoming.groupId,
           incoming.msgId,
           incoming.text,
-          incoming.images
+          incoming.images,
+          incoming.files
+        )
+        return
+      case 'share-download':
+        this.callbacks.onShareDownload(incoming.reqId, incoming.shareId)
+        return
+      case 'share-download-rsp':
+        this.callbacks.onShareDownloadRsp(
+          incoming.reqId,
+          incoming.err,
+          incoming.fileId,
+          incoming.fileSize,
+          incoming.lastModify
         )
         return
       case 'ready':

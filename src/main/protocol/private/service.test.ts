@@ -95,6 +95,8 @@ function options(
       onGroupInfo: () => {},
       onGroupUsers: () => {},
       onGroupMessage: () => {},
+      onShareDownload: () => {},
+      onShareDownloadRsp: () => {},
       onReady: () => {},
       onSendFailed: () => {},
       onState: () => {},

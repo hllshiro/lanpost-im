@@ -38,7 +38,9 @@ const CMD = {
   REVERSE_FOLDER_REQ: 1020,
   QGROUP_PUSH_INFO: 3002,
   QGROUP_PUSH_USER: 3003,
-  QGROUP_SEND_MSG: 3011
+  QGROUP_SEND_MSG: 3011,
+  SHARE_DOWNLOAD: 5004,
+  SHARE_DOWNLOAD_RSP: 5005
 } as const
 
 const HELLO_TYPE = 4
@@ -98,6 +100,14 @@ export interface PrivateGroupMember {
   name: string
 }
 
+// 群里的文件走“离线文件”：消息里只带 share id，接收方按它去发送方那里拉
+export interface PrivateGroupFileRef {
+  shareId: string
+  size: number
+  name: string
+  folder: boolean
+}
+
 export type IncomingPrivate =
   | { kind: 'text'; msgId: number; text: string; images: PrivateImageRef[] }
   | { kind: 'text-unsupported'; msgId: number }
@@ -127,6 +137,16 @@ export type IncomingPrivate =
       msgId: number
       text: string
       images: PrivateImageRef[]
+      files: PrivateGroupFileRef[]
+    }
+  | { kind: 'share-download'; reqId: number; shareId: string }
+  | {
+      kind: 'share-download-rsp'
+      reqId: number
+      err: number
+      fileId: number
+      fileSize: number
+      lastModify: string
     }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
@@ -516,6 +536,73 @@ export function groupSendXml(groupId: string, msgId: number, text: string): stri
   return escapeMsgBody(xml)
 }
 
+// 群文件：消息里只带 share id 和发送方的缓存路径，接收方按 share id 去拉
+export function groupFileXml(input: {
+  groupId: string
+  msgId: number
+  shareId: string
+  size: number
+  path: string
+  folder: boolean
+}): string {
+  const body = [
+    '{',
+    '   "app" : "shiyeline",',
+    '   "dt" : [',
+    '      {',
+    '         "txt" : {',
+    '            "t" : "compatible",',
+    '            "v" : "对方给您发送了一个离线文件，当前版本不支持。请升级到最新版本接收此文件。"',
+    '         }',
+    '      },',
+    '      {',
+    '         "file2" : {',
+    '            "a" : "false",',
+    `            "i" : ${JSON.stringify(input.shareId)},`,
+    `            "s" : ${JSON.stringify(String(input.size))},`,
+    `            "t" : "${input.folder ? 'offline_folder' : 'offline_file'}",`,
+    `            "v" : ${JSON.stringify(input.path)}`,
+    '         }',
+    '      }',
+    '   ],',
+    '   "ft" : {',
+    '      "s" : "10"',
+    '   },',
+    `   "id" : "${randomBytes(16).toString('hex')}",`,
+    '   "type" : "0",',
+    '   "ver" : "6.0"',
+    '}'
+  ].join('\n')
+  const escaped = body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  const xml = `<X_QGROUP_SEND_MSG docver="1"><QGROUP_ID>${escapeXmlText(input.groupId)}</QGROUP_ID><MSG_ID>${input.msgId}</MSG_ID><MSG>${escaped}</MSG><HIDE_RECORD>0</HIDE_RECORD></X_QGROUP_SEND_MSG>`
+  return escapeMsgBody(xml)
+}
+
+export function shareDownloadXml(reqId: number, shareId: string): string {
+  return (
+    `<X_SHARE_DOWNLOAD_FILE docver="1"><REQ_ID>${reqId}</REQ_ID>` +
+    `<SHARE_ID>${escapeXmlText(shareId)}</SHARE_ID><SHARE_PATH></SHARE_PATH>` +
+    `<SHARE_PWD></SHARE_PWD><CHECK_PWD>0</CHECK_PWD><GO_ON>0</GO_ON></X_SHARE_DOWNLOAD_FILE>`
+  )
+}
+
+export function shareDownloadRspXml(
+  reqId: number,
+  fileId: number,
+  fileSize: number,
+  lastModify: string
+): string {
+  return (
+    `<X_SHARE_DOWNLOAD_FILE_RSP docver="1"><ERR>0</ERR><REQ_ID>${reqId}</REQ_ID>` +
+    `<FILE_ID>${fileId}</FILE_ID><FILE_SIZE>${fileSize}</FILE_SIZE>` +
+    `<LAST_MODIFY>${escapeXmlText(lastModify)}</LAST_MODIFY></X_SHARE_DOWNLOAD_FILE_RSP>`
+  )
+}
+
 export function sendFolderXml(input: {
   taskId: string
   name: string
@@ -662,6 +749,36 @@ function remoteProfile(handshake: Handshake): RemoteProfile {
     sign: handshake.Info.Sign,
     status: handshake.Info.Status
   }
+}
+
+function groupFilesFromJson(raw: string): PrivateGroupFileRef[] {
+  const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json)
+  } catch {
+    return []
+  }
+  if (typeof parsed !== 'object' || parsed === null) return []
+  const dt = (parsed as { dt?: unknown }).dt
+  if (!Array.isArray(dt)) return []
+  const files: PrivateGroupFileRef[] = []
+  for (const item of dt) {
+    if (typeof item !== 'object' || item === null) continue
+    const file = (item as { file2?: unknown }).file2
+    if (typeof file !== 'object' || file === null) continue
+    const record = file as { i?: unknown; s?: unknown; t?: unknown; v?: unknown }
+    if (typeof record.i !== 'string' || typeof record.v !== 'string') continue
+    const path = record.v
+    const name = path.split(/[\\/]/).pop() ?? path
+    files.push({
+      shareId: record.i,
+      size: Number(record.s ?? '0') || 0,
+      name,
+      folder: record.t === 'offline_folder'
+    })
+  }
+  return files
 }
 
 function tagText(xml: string, tag: string): string | null {
@@ -816,16 +933,35 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const msgId = Number(tagText(xml, 'MSG_ID') ?? '0')
       const body = tagText(xml, 'MSG')
       const images = body === null ? [] : imageRefsFromJson(body)
+      const files = body === null ? [] : groupFilesFromJson(body)
       const text = body === null ? null : textFromJson(body)
-      // 纯图片的群消息没有 txt 节点，用占位文字落库
-      if (groupId === null || (text === null && images.length === 0)) return unrecognized(cmd)
+      // 纯图片/纯文件的群消息没有可读文本，用占位文字落库
+      if (groupId === null || (text === null && images.length === 0 && files.length === 0)) {
+        return unrecognized(cmd)
+      }
+      const fallback = images.length > 0 ? '[图片]' : '[文件]'
       return {
         kind: 'group-message',
         groupId,
         msgId,
-        text: text ?? '[图片]',
-        images
+        text: text ?? fallback,
+        images,
+        files
       }
+    }
+    case CMD.SHARE_DOWNLOAD: {
+      const reqId = Number(tagText(xml, 'REQ_ID') ?? '0')
+      const shareId = tagText(xml, 'SHARE_ID')
+      if (shareId === null) return unrecognized(cmd)
+      return { kind: 'share-download', reqId, shareId }
+    }
+    case CMD.SHARE_DOWNLOAD_RSP: {
+      const reqId = Number(tagText(xml, 'REQ_ID') ?? '0')
+      const err = Number(tagText(xml, 'ERR') ?? '0')
+      const fileId = Number(tagText(xml, 'FILE_ID') ?? '0')
+      const fileSize = Number(tagText(xml, 'FILE_SIZE') ?? '0')
+      const lastModify = tagText(xml, 'LAST_MODIFY') ?? ''
+      return { kind: 'share-download-rsp', reqId, err, fileId, fileSize, lastModify }
     }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }

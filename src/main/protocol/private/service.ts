@@ -5,6 +5,7 @@ import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type {
   PrivateFileOffer,
   PrivateFolderOffer,
+  PrivateGroupFileRef,
   PrivateGroupInfo,
   PrivateGroupMember,
   PrivateImageRef,
@@ -58,7 +59,17 @@ export interface PrivateServiceOptions {
       groupId: string,
       msgId: number,
       text: string,
-      images: PrivateImageRef[]
+      images: PrivateImageRef[],
+      files: PrivateGroupFileRef[]
+    ): void
+    onShareDownload(ip: string, reqId: number, shareId: string): void
+    onShareDownloadRsp(
+      ip: string,
+      reqId: number,
+      err: number,
+      fileId: number,
+      fileSize: number,
+      lastModify: string
     ): void
     onReady(ip: string, userId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
@@ -302,6 +313,34 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, value) ?? false
   }
 
+  sendGroupFile(
+    ip: string,
+    input: {
+      groupId: string
+      msgId: number
+      shareId: string
+      size: number
+      path: string
+      folder: boolean
+    }
+  ): boolean {
+    return this.sessions.get(ip)?.sendGroupFile(input) ?? false
+  }
+
+  sendShareDownload(ip: string, reqId: number, shareId: string): boolean {
+    return this.sessions.get(ip)?.sendShareDownload(reqId, shareId) ?? false
+  }
+
+  sendShareDownloadRsp(
+    ip: string,
+    reqId: number,
+    fileId: number,
+    fileSize: number,
+    lastModify: string
+  ): boolean {
+    return this.sessions.get(ip)?.sendShareDownloadRsp(reqId, fileId, fileSize, lastModify) ?? false
+  }
+
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
     for (const [ip, readyId] of this.peerUserIds) {
@@ -496,8 +535,12 @@ export class PrivateService {
       onFolderReverse: (taskId) => this.options.callbacks.onFolderReverse(ip, taskId),
       onGroupInfo: (info) => this.options.callbacks.onGroupInfo(ip, info),
       onGroupUsers: (info, members) => this.options.callbacks.onGroupUsers(ip, info, members),
-      onGroupMessage: (groupId, msgId, text, images) =>
-        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images),
+      onGroupMessage: (groupId, msgId, text, images, files) =>
+        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images, files),
+      onShareDownload: (reqId, shareId) =>
+        this.options.callbacks.onShareDownload(ip, reqId, shareId),
+      onShareDownloadRsp: (reqId, err, fileId, fileSize, lastModify) =>
+        this.options.callbacks.onShareDownloadRsp(ip, reqId, err, fileId, fileSize, lastModify),
       onReady: (userId) => {
         if (userId !== '') {
           this.peerUserIds.set(ip, userId)
