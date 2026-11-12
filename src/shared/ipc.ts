@@ -40,6 +40,7 @@ export const IPC = {
   fileOpenPath: 'files:open-path',
   fileCopyImage: 'files:copy-image',
   fileReveal: 'files:reveal',
+  fileRevealPath: 'files:reveal-path',
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
   filePaste: 'files:paste',
@@ -130,6 +131,8 @@ export type Api = {
     // 把图片本身复制到剪贴板，方便直接粘贴到别处
     copyImage(id: string): Promise<void>
     reveal(id: string): Promise<void>
+    // 在文件管理器里定位任意路径（文件夹消息用）
+    revealPath(path: string): Promise<void>
     saveAs(id: string): Promise<void>
     // 选中与粘贴都只进待发区，返回当前会话最新的待发列表
     pick(conversationId: string): Promise<StagedAttachment[]>

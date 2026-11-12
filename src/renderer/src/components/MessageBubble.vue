@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, CheckCheck, CircleAlert, FileText, Folder, LoaderCircle } from '@lucide/vue'
+import {
+  Check,
+  CheckCheck,
+  CircleAlert,
+  CircleCheck,
+  FileText,
+  Folder,
+  LoaderCircle
+} from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, formatSize, statusLabel } from '../utils/format'
 import { errorMessage } from '../utils/errors'
@@ -137,10 +145,36 @@ const folderPath = computed(() => {
   }
 })
 
+const folderMetaRaw = computed<Record<string, unknown>>(() => {
+  try {
+    return JSON.parse(props.message.meta) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+})
+
+// 收到的文件夹按真实客户端的写法显示成一条通知，而不是卡片
+const folderIncoming = computed(() => folderMetaRaw.value.incoming === true)
+const folderDone = computed(() => folderMetaRaw.value.done === true)
+const folderFailed = computed(() => typeof folderMetaRaw.value.error === 'string')
+const folderStatusText = computed(() => {
+  if (folderFailed.value) return '接收失败。'
+  return folderDone.value ? '接收成功。' : '接收中…'
+})
+
 async function openFolder(): Promise<void> {
   if (folderPath.value === '') return
   try {
     await window.api.files.openPath(folderPath.value)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
+
+async function revealFolder(): Promise<void> {
+  if (folderPath.value === '') return
+  try {
+    await window.api.files.revealPath(folderPath.value)
   } catch (reason) {
     store.reportError(errorMessage(reason))
   }
@@ -163,19 +197,43 @@ async function openFolder(): Promise<void> {
       <div class="content">
         <span v-if="senderLabel !== ''" class="sender">{{ senderLabel }}</span>
         <div v-if="message.kind === 'folder'" class="bubble folder-bubble">
-          <div class="folder-card">
-            <Folder :size="22" :stroke-width="1.6" />
-            <div class="folder-text">
-              <p class="folder-name">{{ message.text || '文件夹' }}</p>
-              <p class="folder-meta">{{ folderMeta }}</p>
+          <div v-if="folderIncoming" class="folder-notice" :class="{ failed: folderFailed }">
+            <CircleCheck
+              v-if="folderDone && !folderFailed"
+              class="notice-icon done"
+              :size="16"
+              :stroke-width="2"
+            />
+            <CircleAlert
+              v-else-if="folderFailed"
+              class="notice-icon failed"
+              :size="16"
+              :stroke-width="2"
+            />
+            <LoaderCircle v-else class="notice-icon spin" :size="16" :stroke-width="2" />
+            <div class="notice-body">
+              <span class="notice-text">文件【{{ folderPath }}】{{ folderStatusText }}</span>
+              <span v-if="folderDone" class="notice-actions">
+                <button class="notice-link" @click="openFolder">打开</button>
+                <button class="notice-link" @click="revealFolder">打开文件夹</button>
+              </span>
             </div>
-            <button v-if="folderPath !== ''" class="folder-open" @click="openFolder">
-              打开文件夹
-            </button>
           </div>
-          <p v-if="downloadedBy.length > 0" class="downloaded">
-            已下载：{{ downloadedBy.join('、') }}
-          </p>
+          <template v-else>
+            <div class="folder-card">
+              <Folder :size="22" :stroke-width="1.6" />
+              <div class="folder-text">
+                <p class="folder-name">{{ message.text || '文件夹' }}</p>
+                <p class="folder-meta">{{ folderMeta }}</p>
+              </div>
+              <button v-if="folderPath !== ''" class="folder-open" @click="openFolder">
+                打开文件夹
+              </button>
+            </div>
+            <p v-if="downloadedBy.length > 0" class="downloaded">
+              已下载：{{ downloadedBy.join('、') }}
+            </p>
+          </template>
         </div>
 
         <div v-else-if="message.kind === 'file'" class="bubble file-bubble">
@@ -459,6 +517,66 @@ async function openFolder(): Promise<void> {
 
 .spin {
   animation: spin 0.9s linear infinite;
+}
+
+/* 收到的文件夹：照真实客户端的样子做成一条带链接的通知 */
+.folder-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  max-width: 460px;
+  padding: 6px 10px;
+  border-radius: var(--radius-card);
+  background: var(--hover);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.notice-icon {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.notice-icon.done {
+  color: var(--accent);
+}
+
+.notice-icon.failed {
+  color: var(--danger);
+}
+
+.notice-icon.spin {
+  color: var(--text-muted);
+}
+
+.notice-body {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.notice-text {
+  word-break: break-all;
+}
+
+.notice-actions {
+  display: flex;
+  gap: 12px;
+}
+
+.notice-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1a73e8;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.notice-link:hover {
+  text-decoration: underline;
 }
 
 @keyframes spin {

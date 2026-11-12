@@ -2600,6 +2600,13 @@ export class AppService {
     shell.showItemInFolder(task.path)
   }
 
+  revealPath(path: string): void {
+    if (path === '' || !existsSync(path)) {
+      throw new Error('文件已被移动或删除')
+    }
+    shell.showItemInFolder(path)
+  }
+
   async saveFileAs(id: string): Promise<void> {
     const task = this.repos.files.get(id)
     if (task === null || task.state !== 'done' || task.path === '') {
