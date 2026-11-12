@@ -408,7 +408,7 @@ export class MessageRepository {
     this.db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, id)
   }
 
-  // 已读回执只发给私有通道收到的消息；meta 里的来源标记在写入时固定，IPMSG 的消息没有它。
+  // 已读回执只发给私有通道收到的消息；meta 里的来源标记在写入时固定，旧兼容消息没有它。
   listPrivateIncoming(conversationId: string): MessageInfo[] {
     const rows = this.db
       .prepare(

@@ -18,7 +18,7 @@ function makePeer(key: string, overrides: Partial<PeerInfo> = {}): PeerInfo {
   return {
     key,
     ip: '10.0.0.1',
-    port: 2425,
+    port: 0,
     user: key.split('|')[1] ?? key,
     host: 'lanpost-pc',
     name: '爱丽丝',
@@ -178,7 +178,7 @@ describe('MessageRepository', () => {
     const conversations = new ConversationRepository(db)
     const messages = new MessageRepository(db)
     const conversation = conversations.ensureDirect('127.0.0.1|abc', 'p')
-    messages.insertIncoming(conversation.id, 'ipmsg', 1)
+    messages.insertIncoming(conversation.id, 'private', 1)
     messages.insertIncoming(
       conversation.id,
       'private',

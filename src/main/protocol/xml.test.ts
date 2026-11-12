@@ -159,7 +159,7 @@ describe('private XML messages', () => {
         Status: 1,
         UserFace: { ID: 9, Data: 'face' }
       }),
-      Net: { ...EMPTY_PORTS, FileTranTCPPort: 2425, FileTranEnetPort: 2425 }
+      Net: { ...EMPTY_PORTS, FileTranTCPPort: 9013, FileTranEnetPort: 9013 }
     }
     const xml = encodeHandshake(handshake)
     expect(xml).toContain('<USER_FACE id="9">face</USER_FACE>')

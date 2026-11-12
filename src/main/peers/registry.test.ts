@@ -6,7 +6,7 @@ function seedPeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
   return {
     key: '10.0.0.1|alice',
     ip: '10.0.0.1',
-    port: 2425,
+    port: 0,
     user: 'alice',
     host: 'pc-a',
     name: 'Alice',

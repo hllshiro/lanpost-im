@@ -43,8 +43,7 @@ function clonePeer(peer: PeerInfo): PeerInfo {
 }
 
 /**
- * 私有协议唯一的联系人状态源。不再从 IPMSG 报文推断在线状态，
- * 只接收 PrivateService 的会话/资料回调。
+ * 私有协议唯一的联系人状态源，只接收 PrivateService 的会话/资料回调。
  */
 export class PeerRegistry {
   private readonly peers = new Map<string, PeerInfo>()
