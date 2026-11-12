@@ -1140,8 +1140,11 @@ export class AppService {
   // 「文件」按钮只把文件放进待发区，点发送时才开始传输
   async pickStaged(conversationId: string): Promise<StagedAttachment[]> {
     const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null || conversation.peerKey === null) {
+    if (conversation === null) {
       throw new Error('会话不存在')
+    }
+    if (conversation.kind === 'group') {
+      throw new Error('群聊暂时只支持粘贴图片')
     }
     const options: OpenDialogOptions = {
       title: '添加文件',
@@ -1161,9 +1164,10 @@ export class AppService {
   }
 
   // 剪贴板里的图片先落盘进待发区，按原图格式发送
+  // 剪贴板里的图片先落盘进待发区，按原图格式发送；群聊同样先存进待发区
   async pasteStaged(conversationId: string): Promise<StagedAttachment[]> {
     const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null || conversation.peerKey === null) {
+    if (conversation === null) {
       throw new Error('会话不存在')
     }
     const dir = join(app.getPath('userData'), 'clipboard')
@@ -1191,9 +1195,10 @@ export class AppService {
   // 拖进窗口的文件：有磁盘路径的直接引用原文件，拖进来的文件夹在这里拦下
   stagePaths(conversationId: string, paths: string[]): StagePathsResult {
     const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null || conversation.peerKey === null) {
+    if (conversation === null) {
       throw new Error('会话不存在')
     }
+    const groupOnlyImages = conversation.kind === 'group'
     const sources: StagedSource[] = []
     const skipped: string[] = []
     for (const path of paths) {
@@ -1202,6 +1207,10 @@ export class AppService {
         continue
       }
       const stats = statSync(path)
+      if (groupOnlyImages && (stats.isDirectory() || !isImagePath(path))) {
+        skipped.push(basename(path))
+        continue
+      }
       if (stats.isDirectory()) {
         const info = scanFolder(path)
         sources.push({
