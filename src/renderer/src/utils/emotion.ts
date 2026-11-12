@@ -46,6 +46,18 @@ export function emotionUrl(item: EmotionItem): string {
   return gifs[key] ?? images[key] ?? ''
 }
 
+// 从消息里已经渲染出来的表情图片反查回表情键，复制聊天记录时用
+const emotionKeyBySrc = new Map<string, string>()
+for (const item of emotions) {
+  const url = emotionUrl(item)
+  if (url === '') continue
+  emotionKeyBySrc.set(url, item.id !== null ? String(item.id) : item.image)
+}
+
+export function emotionKeyByUrl(url: string): string | null {
+  return emotionKeyBySrc.get(url) ?? null
+}
+
 export function emotionThumb(item: EmotionItem): string {
   const key = `../assets/emotion/${item.thumb}`
   return images[key] ?? gifs[key] ?? ''

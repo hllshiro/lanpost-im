@@ -75,6 +75,7 @@ export interface StagedAttachment {
   id: string
   conversationId: string
   name: string
+  path: string
   size: number
   kind: 'image' | 'file' | 'folder'
   createdAt: number

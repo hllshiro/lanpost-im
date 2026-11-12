@@ -32,6 +32,7 @@ export class StagedStore {
         id,
         conversationId,
         name: source.name ?? basename(source.path),
+        path: source.path,
         size: source.size,
         kind: source.kind,
         createdAt: Date.now(),

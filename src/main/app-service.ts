@@ -2235,7 +2235,7 @@ export class AppService {
   }
 
   // 拖进窗口的文件：有磁盘路径的直接引用原文件，拖进来的文件夹在这里拦下
-  stagePaths(conversationId: string, paths: string[]): StagePathsResult {
+  stagePaths(conversationId: string, paths: string[], sticker = false): StagePathsResult {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null) {
       throw new Error('会话不存在')
@@ -2263,7 +2263,7 @@ export class AppService {
         skipped.push(basename(path))
         continue
       }
-      sources.push(this.stagedSource(path, false))
+      sources.push(this.stagedSource(path, false, sticker))
     }
     return { attachments: this.addStaged(conversationId, sources), skipped }
   }
@@ -2633,13 +2633,14 @@ export class AppService {
     return attachments
   }
 
-  private stagedSource(path: string, temporary: boolean): StagedSource {
+  private stagedSource(path: string, temporary: boolean, sticker = false): StagedSource {
     const stats = statSync(path)
     return {
       path,
       size: stats.size,
       kind: isImagePath(path) ? 'image' : 'file',
-      temporary
+      temporary,
+      ...(sticker ? { sticker: true } : {})
     }
   }
 
@@ -2890,7 +2891,8 @@ export class AppService {
     if (task === null || task.path === '' || !existsSync(task.path)) {
       throw new Error('图片文件已被移动或删除')
     }
-    const type = imageMimeOf(task.name)
+    // 收到的图片会按文件头改成真实扩展名，任务里的显示名可能还是 image-<id>.png，按实际路径判断
+    const type = imageMimeOf(basename(task.path))
     if (type === '') {
       throw new Error('这张图片的格式不支持复制')
     }

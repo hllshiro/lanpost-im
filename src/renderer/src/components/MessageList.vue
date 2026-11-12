@@ -2,7 +2,9 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
+import { emotionKeyByUrl } from '../utils/emotion'
 import { formatDateDivider } from '../utils/format'
+import { walkRichCopy, writeRichCopy, type RichCopyPart } from '../utils/rich-copy'
 import ImageMenu from './ImageMenu.vue'
 import ImageViewer from './ImageViewer.vue'
 import MessageBubble from './MessageBubble.vue'
@@ -176,10 +178,44 @@ onMounted(async () => {
   await nextTick()
   scrollToBottom()
 })
+
+// 复制选中的聊天内容：文字与图片（含内置表情）按原顺序写入剪贴板
+function copyImagePart(image: HTMLImageElement): RichCopyPart | null {
+  const src = image.getAttribute('src') ?? ''
+  if (src.startsWith('lanpost-file:///')) {
+    const id = decodeURIComponent(src.slice('lanpost-file:///'.length))
+    const file = props.files.find((item) => item.id === id)
+    if (file === undefined || file.path === '') return null
+    return {
+      kind: 'image',
+      path: file.path,
+      name: file.name,
+      sticker: image.classList.contains('sticker-photo')
+    }
+  }
+  const key = emotionKeyByUrl(src)
+  return key === null ? null : { kind: 'emotion', key }
+}
+
+function onCopy(event: ClipboardEvent): void {
+  const selection = window.getSelection()
+  const root = scroller.value
+  if (selection === null || selection.isCollapsed || selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  if (root === null || !root.contains(range.commonAncestorContainer)) return
+  const holder = document.createElement('div')
+  holder.appendChild(range.cloneContents())
+  for (const junk of Array.from(
+    holder.querySelectorAll('.time, .sender, .meta, .avatar, .date, .unread')
+  )) {
+    junk.remove()
+  }
+  writeRichCopy(event, walkRichCopy(holder, copyImagePart))
+}
 </script>
 
 <template>
-  <div class="message-list">
+  <div class="message-list" @copy="onCopy">
     <div ref="scroller" class="scroller" @scroll="onScroll">
       <div class="stream">
         <template v-for="row in rows" :key="row.key">

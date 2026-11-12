@@ -12,6 +12,7 @@ describe('StagedStore', () => {
     store.add('c1', [image('/tmp/c.png')])
 
     expect(store.list('c1').map((item) => item.name)).toEqual(['a.png', 'b.png', 'c.png'])
+    expect(store.list('c1')[0]?.path).toBe('/tmp/a.png')
   })
 
   it('separates conversations', () => {

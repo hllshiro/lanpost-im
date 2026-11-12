@@ -56,8 +56,10 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.filePaste, (_event, conversationId: string) =>
     service.pasteStaged(conversationId)
   )
-  ipcMain.handle(IPC.fileStagePaths, (_event, conversationId: string, paths: string[]) =>
-    service.stagePaths(conversationId, paths)
+  ipcMain.handle(
+    IPC.fileStagePaths,
+    (_event, conversationId: string, paths: string[], sticker: boolean) =>
+      service.stagePaths(conversationId, paths, sticker)
   )
   ipcMain.handle(
     IPC.fileStageBytes,

@@ -153,7 +153,11 @@ export type Api = {
     pick(conversationId: string): Promise<StagedAttachment[]>
     paste(conversationId: string): Promise<StagedAttachment[]>
     // 拖进窗口的文件：有磁盘路径的直接引用，没有路径的按字节落盘
-    stagePaths(conversationId: string, paths: string[]): Promise<StagePathsResult>
+    stagePaths(
+      conversationId: string,
+      paths: string[],
+      sticker?: boolean
+    ): Promise<StagePathsResult>
     stageBytes(
       conversationId: string,
       name: string,

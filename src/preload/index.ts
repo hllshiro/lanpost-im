@@ -74,8 +74,8 @@ const api: Api = {
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pick: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
     paste: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
-    stagePaths: (conversationId, paths) =>
-      ipcRenderer.invoke(IPC.fileStagePaths, conversationId, paths),
+    stagePaths: (conversationId, paths, sticker) =>
+      ipcRenderer.invoke(IPC.fileStagePaths, conversationId, paths, sticker === true),
     stageBytes: (conversationId, name, data, sticker) =>
       ipcRenderer.invoke(IPC.fileStageBytes, conversationId, name, data, sticker === true),
     pathFor: (file) => webUtils.getPathForFile(file),

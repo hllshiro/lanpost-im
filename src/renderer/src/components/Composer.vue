@@ -8,12 +8,20 @@ import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
 import { useAppStore } from '../stores/app'
 import {
+  emotionByKey,
   emotionGroups,
   emotionThumb,
   emotionUrl,
   emotions,
   type EmotionItem
 } from '../utils/emotion'
+import {
+  parseRichCopy,
+  RICH_CLIPBOARD_TYPE,
+  walkRichCopy,
+  writeRichCopy,
+  type RichCopyPart
+} from '../utils/rich-copy'
 import {
   emotionUsageKey,
   loadEmotionUsage,
@@ -114,6 +122,28 @@ function insertImages(attachments: StagedAttachment[]): void {
   refreshContent()
 }
 
+// 一次插入多个节点（粘贴整段图文），光标停在插入内容之后
+function insertNodesAtCaret(nodes: Node[]): void {
+  const element = editor.value
+  if (element === null || nodes.length === 0) return
+  element.focus()
+  const fragment = document.createDocumentFragment()
+  for (const node of nodes) fragment.appendChild(node)
+  const last = fragment.lastChild
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount === 0 || !element.contains(selection.anchorNode)) {
+    element.appendChild(fragment)
+    return
+  }
+  const range = selection.getRangeAt(0)
+  range.deleteContents()
+  range.insertNode(fragment)
+  if (last !== null) range.setStartAfter(last)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
 // 等待主进程把附件放进待发区，再把新增的图片插到光标位置
 async function stageAndInsert(
   work: () => Promise<StagedAttachment[]>,
@@ -171,13 +201,27 @@ async function pickFile(): Promise<void> {
   }
 }
 
-// 粘贴图片直接插到光标处，和文字一起发
+// 粘贴：优先按本应用复制的富文本恢复文字与图片的顺序，其次接收外部图片
 async function onPaste(event: ClipboardEvent): Promise<void> {
   if (props.conversationId === '' || fileBusy.value) return
-  const items = event.clipboardData?.items
-  if (items === undefined) return
-  const hasImage = Array.from(items).some((item) => item.type.startsWith('image/'))
-  if (!hasImage) return
+  const rich = parseRichCopy(event.clipboardData?.getData(RICH_CLIPBOARD_TYPE) ?? '')
+  if (rich !== null) {
+    event.preventDefault()
+    await pasteRich(rich)
+    return
+  }
+  const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
+    file.type.startsWith('image/')
+  )
+  if (files.length > 0) {
+    event.preventDefault()
+    await pasteImages(files)
+    return
+  }
+  const hasImageType = Array.from(event.clipboardData?.items ?? []).some((item) =>
+    item.type.startsWith('image/')
+  )
+  if (!hasImageType) return
   event.preventDefault()
   fileBusy.value = true
   fileError.value = ''
@@ -189,6 +233,103 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
   } finally {
     fileBusy.value = false
   }
+}
+
+async function pasteRich(parts: RichCopyPart[]): Promise<void> {
+  fileBusy.value = true
+  fileError.value = ''
+  const seen = currentStagedIds()
+  try {
+    const nodes: Node[] = []
+    for (const part of parts) {
+      if (part.kind === 'text') {
+        if (part.text !== '') nodes.push(document.createTextNode(part.text))
+        continue
+      }
+      if (part.kind === 'image') {
+        const result = await window.api.files.stagePaths(
+          props.conversationId,
+          [part.path],
+          part.sticker
+        )
+        const added = result.attachments.find((item) => !seen.has(item.id))
+        for (const item of result.attachments) seen.add(item.id)
+        if (added !== undefined) nodes.push(imageNode(added))
+        continue
+      }
+      const item = emotionByKey(part.key)
+      if (item === null) continue
+      const url = emotionUrl(item)
+      if (url === '') continue
+      const data = await (await fetch(url)).arrayBuffer()
+      const name = item.image.split('/').pop() ?? 'sticker.gif'
+      const list = await window.api.files.stageBytes(props.conversationId, name, data, true)
+      const added = list.find((entry) => !seen.has(entry.id))
+      for (const entry of list) seen.add(entry.id)
+      if (added !== undefined) nodes.push(imageNode(added))
+    }
+    insertNodesAtCaret(nodes)
+    refreshContent()
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
+
+async function pasteImages(files: File[]): Promise<void> {
+  fileBusy.value = true
+  fileError.value = ''
+  const seen = currentStagedIds()
+  const stamp = Date.now()
+  try {
+    const nodes: Node[] = []
+    for (const [index, file] of files.entries()) {
+      const data = await file.arrayBuffer()
+      const name = `clip-${stamp}-${index}.${imageExtension(file.type)}`
+      const list = await window.api.files.stageBytes(props.conversationId, name, data, false)
+      const added = list.find((entry) => !seen.has(entry.id))
+      for (const entry of list) seen.add(entry.id)
+      if (added !== undefined) nodes.push(imageNode(added))
+    }
+    insertNodesAtCaret(nodes)
+    refreshContent()
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
+
+function imageExtension(type: string): string {
+  if (type === 'image/jpeg') return 'jpg'
+  const extension = type.split('/')[1] ?? 'png'
+  return extension === 'svg+xml' ? 'png' : extension
+}
+
+// 复制输入框里的图文：图片带上磁盘路径，粘回来时按原顺序重新进待发区
+function onCopy(event: ClipboardEvent): void {
+  const element = editor.value
+  const selection = window.getSelection()
+  if (element === null || selection === null || selection.isCollapsed) return
+  if (selection.rangeCount === 0) return
+  const range = selection.getRangeAt(0)
+  if (!element.contains(range.commonAncestorContainer)) return
+  const holder = document.createElement('div')
+  holder.appendChild(range.cloneContents())
+  const parts = walkRichCopy(holder, (image) => {
+    const id = image.dataset.staged
+    if (id === undefined) return null
+    const attachment = props.staged.find((item) => item.id === id)
+    if (attachment === undefined) return null
+    return {
+      kind: 'image',
+      path: attachment.path,
+      name: attachment.name,
+      sticker: attachment.sticker === true
+    }
+  })
+  writeRichCopy(event, parts)
 }
 
 function refreshContent(): void {
@@ -349,6 +490,7 @@ onMounted(async () => {
       @input="onInput"
       @keydown="onKeydown"
       @paste="onPaste"
+      @copy="onCopy"
     />
 
     <div class="toolbar">
