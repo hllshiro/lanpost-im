@@ -45,10 +45,10 @@ pnpm dev
 
 ```bash
 pnpm build:win     # Windows x64，NSIS 安装包与 zip
-pnpm build:linux   # Linux ARM64，deb 与 AppImage
+pnpm build:linux   # Linux x64/ARM64，deb、rpm 与 AppImage
 ```
 
-版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
+版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux x64/ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
 
 ### 数据目录
 

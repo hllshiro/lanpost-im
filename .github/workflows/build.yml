@@ -32,8 +32,17 @@ jobs:
             dist/*.exe
             dist/*.zip
 
-  linux-arm64:
-    runs-on: ubuntu-24.04-arm
+  linux:
+    name: linux-${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -46,19 +55,22 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm test
-      - run: pnpm build:linux
+      - name: Install rpm tooling
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
+      - run: pnpm build:linux:${{ matrix.arch }}
       - uses: actions/upload-artifact@v4
         with:
-          name: linux-arm64
+          name: linux-${{ matrix.arch }}
           path: |
             dist/*.deb
+            dist/*.rpm
             dist/*.AppImage
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs:
       - windows
-      - linux-arm64
+      - linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
