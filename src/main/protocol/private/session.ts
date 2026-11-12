@@ -643,7 +643,7 @@ export class PrivateSession {
         return
       default:
         this.callbacks.onLog(
-          `私有会话 ${this.remoteLabel} 忽略命令 ${incoming.cmd}：${xml.slice(0, 400)}`
+          `私有会话 ${this.remoteLabel} 忽略命令 ${incoming.cmd}：${xml.slice(0, 4000)}`
         )
     }
   }
