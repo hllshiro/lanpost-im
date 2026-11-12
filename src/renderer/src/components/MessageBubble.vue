@@ -418,10 +418,10 @@ async function revealFolder(): Promise<void> {
   object-fit: contain;
 }
 
-/* 表情按图片发送时统一成小方块，按原始比例缩放 */
+/* 表情按图片发送时不超过 48px，原图更小就按原尺寸显示，避免放大成马赛克 */
 .inline-image.sticker-photo {
-  width: 48px;
-  height: 48px;
+  width: auto;
+  height: auto;
   max-width: 48px;
   max-height: 48px;
   object-fit: contain;
