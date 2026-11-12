@@ -12,12 +12,12 @@ export interface EmotionItem {
 }
 
 // 表情图在打包时由 Vite 处理成静态资源地址
-const gifs = import.meta.glob('../assets/emotion/**/*.gif', {
+const gifs = import.meta.glob(['../assets/emotion/*.gif', '../assets/emotion/**/*.gif'], {
   eager: true,
   query: '?url',
   import: 'default'
 }) as Record<string, string>
-const images = import.meta.glob('../assets/emotion/**/*.png', {
+const images = import.meta.glob(['../assets/emotion/*.png', '../assets/emotion/**/*.png'], {
   eager: true,
   query: '?url',
   import: 'default'
