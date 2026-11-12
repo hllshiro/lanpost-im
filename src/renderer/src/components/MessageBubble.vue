@@ -418,10 +418,13 @@ async function revealFolder(): Promise<void> {
   object-fit: contain;
 }
 
-/* 表情按图片发送时固定上限，避免大图铺满聊天区 */
+/* 表情按图片发送时统一成小方块，按原始比例缩放 */
 .inline-image.sticker-photo {
-  max-width: 120px;
-  max-height: 120px;
+  width: 48px;
+  height: 48px;
+  max-width: 48px;
+  max-height: 48px;
+  object-fit: contain;
   border-radius: 0;
   cursor: default;
 }
