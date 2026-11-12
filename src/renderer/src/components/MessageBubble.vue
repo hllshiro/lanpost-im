@@ -34,6 +34,19 @@ const statusClass = computed(() => {
   return ''
 })
 
+const emit = defineEmits<{
+  preview: [file: FileTaskInfo]
+  menu: [file: FileTaskInfo, event: MouseEvent]
+}>()
+
+function previewImage(): void {
+  if (props.file !== null) emit('preview', props.file)
+}
+
+function openImageMenu(event: MouseEvent): void {
+  if (props.file !== null) emit('menu', props.file, event)
+}
+
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 
 const imageUrl = computed(() => {
@@ -100,6 +113,8 @@ const displayText = computed(() =>
             :src="imageUrl"
             :alt="file?.name ?? '图片'"
             loading="lazy"
+            @click="previewImage"
+            @contextmenu.prevent="openImageMenu"
             @error="imageBroken = true"
           />
           <span v-if="displayText !== ''" class="text-body">{{ displayText }}</span>
@@ -228,6 +243,7 @@ const displayText = computed(() =>
   max-width: 280px;
   max-height: 320px;
   border-radius: 10px;
+  cursor: zoom-in;
   object-fit: contain;
 }
 

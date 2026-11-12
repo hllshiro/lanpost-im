@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatDateDivider } from '../utils/format'
+import ImageMenu from './ImageMenu.vue'
+import ImageViewer from './ImageViewer.vue'
 import MessageBubble from './MessageBubble.vue'
 
 const props = defineProps<{
@@ -39,6 +41,19 @@ const scroller = ref<HTMLElement | null>(null)
 const atBottom = ref(true)
 const newBelow = ref(0)
 let prependHeight: number | null = null
+
+// 单击图片放大查看，右键出图片菜单
+const viewer = ref<FileTaskInfo | null>(null)
+const menu = ref<{ file: FileTaskInfo; x: number; y: number } | null>(null)
+
+function openViewer(file: FileTaskInfo): void {
+  menu.value = null
+  viewer.value = file
+}
+
+function openMenu(file: FileTaskInfo, event: MouseEvent): void {
+  menu.value = { file, x: event.clientX, y: event.clientY }
+}
 
 const filesByMessage = computed(() => {
   const map = new Map<number, FileTaskInfo>()
@@ -132,6 +147,8 @@ watch(
     newBelow.value = 0
     atBottom.value = true
     prependHeight = null
+    viewer.value = null
+    menu.value = null
     await nextTick()
     scrollToBottom()
   }
@@ -211,6 +228,8 @@ onMounted(async () => {
             :file="row.file"
             :own-initial="ownInitial"
             :other-initial="otherInitial"
+            @preview="openViewer"
+            @menu="openMenu"
           />
         </template>
 
@@ -226,6 +245,9 @@ onMounted(async () => {
       有新消息<span v-if="newBelow > 1"> {{ newBelow }}</span>
       <ChevronDown :size="13" :stroke-width="2" />
     </button>
+
+    <ImageViewer v-if="viewer" :file="viewer" @close="viewer = null" />
+    <ImageMenu v-if="menu" :file="menu.file" :x="menu.x" :y="menu.y" @close="menu = null" />
   </div>
 </template>
 

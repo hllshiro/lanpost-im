@@ -11,7 +11,15 @@ import {
 } from 'node:fs'
 import { isIPv4 } from 'node:net'
 import { networkInterfaces } from 'node:os'
-import { app, clipboard, dialog, shell, type BrowserWindow } from 'electron'
+import {
+  app,
+  clipboard,
+  dialog,
+  shell,
+  type BrowserWindow,
+  type OpenDialogOptions,
+  type SaveDialogOptions
+} from 'electron'
 import type { DatabaseSync } from 'node:sqlite'
 import type {
   AppEvent,
@@ -735,10 +743,14 @@ export class AppService {
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
-    const result = await dialog.showOpenDialog({
+    const options: OpenDialogOptions = {
       title: '添加文件',
       properties: ['openFile', 'multiSelections']
-    })
+    }
+    const result =
+      this.window === null
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(this.window, options)
     if (result.canceled || result.filePaths.length === 0) {
       return this.staged.list(conversationId)
     }
@@ -1021,10 +1033,14 @@ export class AppService {
     if (task === null || task.state !== 'done' || task.path === '') {
       throw new Error('文件尚未接收完成')
     }
-    const result = await dialog.showSaveDialog({
+    const options: SaveDialogOptions = {
       defaultPath: basename(task.path),
       title: '另存为'
-    })
+    }
+    const result =
+      this.window === null
+        ? await dialog.showSaveDialog(options)
+        : await dialog.showSaveDialog(this.window, options)
     if (result.canceled || result.filePath === undefined) {
       return
     }
