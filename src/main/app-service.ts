@@ -1363,7 +1363,8 @@ export class AppService {
         updatedAt: now
       }
       this.repos.files.upsert(task)
-      this.handleFileUpdate(task)
+      // 群任务没有 peerKey，handleFileUpdate 会直接返回，这里直接推给渲染进程
+      this.emit({ type: 'file', file: task })
       logStartup(`群图片已发卡片 ${name} 文件号=${fileId} 成员=${pushes.length}`)
     }
   }

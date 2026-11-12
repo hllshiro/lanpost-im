@@ -369,18 +369,12 @@ export function imageCardXml(msgId: number, value: string): string {
   return escapeMsgBody(xml)
 }
 
-// 群图片：dt 里同时带文本占位与 img 卡片，和真实客户端一致
+// 群图片：dt 里只放 img 卡片，纯图片的群消息不需要额外的文本占位
 export function groupImageXml(groupId: string, msgId: number, value: string): string {
   const body = [
     '{',
     '   "app" : "shiyeline",',
     '   "dt" : [',
-    '      {',
-    '         "txt" : {',
-    '            "t" : "normal",',
-    '            "v" : "[图片]"',
-    '         }',
-    '      },',
     '      {',
     '         "img" : {',
     '            "t" : "feihu",',
@@ -821,14 +815,16 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const groupId = tagText(xml, 'QGROUP_ID')
       const msgId = Number(tagText(xml, 'MSG_ID') ?? '0')
       const body = tagText(xml, 'MSG')
+      const images = body === null ? [] : imageRefsFromJson(body)
       const text = body === null ? null : textFromJson(body)
-      if (groupId === null || text === null) return unrecognized(cmd)
+      // 纯图片的群消息没有 txt 节点，用占位文字落库
+      if (groupId === null || (text === null && images.length === 0)) return unrecognized(cmd)
       return {
         kind: 'group-message',
         groupId,
         msgId,
-        text,
-        images: body === null ? [] : imageRefsFromJson(body)
+        text: text ?? '[图片]',
+        images
       }
     }
     case CMD.HEARTBEAT:
