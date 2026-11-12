@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, net, protocol } from 'electron'
+import { app, BrowserWindow, dialog, net, powerMonitor, protocol } from 'electron'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -120,6 +120,7 @@ if (!gotLock) {
 } else {
   let database: ReturnType<typeof openDatabase> | null = null
   let service: AppService | null = null
+  let idleTimer: ReturnType<typeof setInterval> | null = null
 
   app.on('second-instance', () => {
     showMainWindow()
@@ -280,6 +281,17 @@ if (!gotLock) {
         )
       }
 
+      const checkIdle = (): void => {
+        try {
+          appService.evaluateIdleStatus(powerMonitor.getSystemIdleTime())
+        } catch (error) {
+          logStartup('idle status check failed: ' + errorMessage(error))
+        }
+      }
+      checkIdle()
+      idleTimer = setInterval(checkIdle, 30_000)
+      idleTimer.unref()
+
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
           createMainWindow(settings)
@@ -303,6 +315,10 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    if (idleTimer !== null) {
+      clearInterval(idleTimer)
+      idleTimer = null
+    }
     unregisterGlobalShortcuts()
     void service?.stop()
     database?.close()

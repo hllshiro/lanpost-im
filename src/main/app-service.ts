@@ -88,6 +88,12 @@ import {
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
+import {
+  isPresenceStatus,
+  resolveIdlePresence,
+  type AutoPresence,
+  type PresenceStatus
+} from './presence'
 import { groupInfoNotices } from './groups/info-notice'
 import {
   memberChangeNotices,
@@ -272,6 +278,9 @@ export class AppService {
   private window: BrowserWindow | null = null
   private started = false
   private filesStarted = false
+  private autoPresence: AutoPresence | null = null
+  private lastStatus = 0
+  private lastPrivateProfile: PrivateProfile | null = null
   private privateService: PrivateService | null = null
   private privateFiles: PrivateFileTransfer | null = null
   private readonly privateFileTasks = new Map<
@@ -3030,6 +3039,9 @@ export class AppService {
   }
 
   applySettings(settings: Settings): void {
+    if (this.autoPresence !== null && settings.identity.status !== 2) {
+      this.autoPresence = null
+    }
     this.engine.updateProfile({
       name: settings.identity.displayName,
       account: settings.identity.account,
@@ -3044,7 +3056,38 @@ export class AppService {
       broadcastInterval: settings.network.broadcastInterval
     })
     this.engine.updateStatus(settings.identity.status)
-    this.privateService?.updateProfile(privateProfile(settings))
+    const profile = privateProfile(settings)
+    this.privateService?.updateProfile(profile)
+    if (
+      this.lastPrivateProfile !== null &&
+      JSON.stringify(this.lastPrivateProfile) !== JSON.stringify(profile)
+    ) {
+      this.privateService?.broadcastChangeInfo()
+    }
+    this.lastPrivateProfile = profile
+    if (settings.identity.status !== this.lastStatus) {
+      this.lastStatus = settings.identity.status
+      this.emit({ type: 'local-status', status: settings.identity.status })
+    }
+  }
+
+  evaluateIdleStatus(idleSeconds: number): void {
+    const current = this.settings.get().identity.status
+    if (!isPresenceStatus(current)) return
+    const decision = resolveIdlePresence(idleSeconds, current, this.autoPresence)
+    this.autoPresence = decision.auto
+    if (decision.status !== current) {
+      logStartup(
+        `presence: idle ${Math.floor(idleSeconds)}s, status ${current} -> ${decision.status}`
+      )
+      this.applyStatus(decision.status)
+    }
+  }
+
+  private applyStatus(status: PresenceStatus): void {
+    if (this.settings.get().identity.status === status) return
+    this.settings.update({ identity: { status } })
+    this.applySettings(this.settings.get())
   }
 
   avatarPath(md5: string): string | null {

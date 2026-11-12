@@ -136,6 +136,7 @@ export interface AppSnapshot {
 
 export type AppEvent =
   | { type: 'peers'; peers: PeerInfo[] }
+  | { type: 'local-status'; status: number }
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
   | { type: 'conversation-removed'; conversationId: string }

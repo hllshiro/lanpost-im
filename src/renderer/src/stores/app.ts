@@ -153,6 +153,9 @@ export const useAppStore = defineStore('app', () => {
       case 'peers':
         peers.value = event.peers
         break
+      case 'local-status':
+        if (local.value) local.value = { ...local.value, status: event.status }
+        break
       case 'conversation':
         upsertConversation(event.conversation)
         break
