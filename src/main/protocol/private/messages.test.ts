@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  changeInfoXml,
   fileTimeFromMs,
   groupDismissXml,
   groupKickXml,
@@ -108,7 +109,16 @@ describe('private messages', () => {
 describe('private messages round-trip', () => {
   it('falls back to a non-empty group because the sample rejects a blank one', () => {
     const xml = handshakeXml(
-      { name: '本机', group: '  ', corporation: '', department: '', sign: '', status: 0 },
+      {
+        name: '本机',
+        group: '  ',
+        corporation: '',
+        department: '',
+        sign: '',
+        status: 0,
+        avatarId: 0,
+        avatarMd5: ''
+      },
       '0123456789abcdef0123456789abcdef'
     )
     expect(xml).toContain('<GROUP>Default</GROUP>')
@@ -125,7 +135,9 @@ describe('private messages round-trip', () => {
       corporation: '示例公司',
       department: '一组',
       sign: '在线',
-      status: 1
+      status: 1,
+      avatarId: 0,
+      avatarMd5: ''
     }
     const userId = '0123456789abcdef0123456789abcdef'
     const xml = handshakeXml(profile, userId, 9013)
@@ -152,12 +164,41 @@ describe('private messages round-trip', () => {
       corporation: '',
       department: '',
       sign: '',
-      status: 0
+      status: 0,
+      avatarId: 0,
+      avatarMd5: ''
     }
     const xml = handshakeXml(profile, '0123456789abcdef0123456789abcdef', 9013, 9014)
     expect(xml).toContain('<FOLDER_TRAN_TCP_PORT>9014</FOLDER_TRAN_TCP_PORT>')
     expect(xml).toContain('<FOLDER_TRAN_TCP_REVERSE_PORT>9014</FOLDER_TRAN_TCP_REVERSE_PORT>')
     expect(parsePrivate(1000, xml)).toMatchObject({ folderPort: 9014, folderReversePort: 9014 })
+  })
+
+  it('publishes the avatar id and md5 in the handshake and change info', () => {
+    const profile: PrivateProfile = {
+      name: '本机',
+      group: '',
+      corporation: '',
+      department: '',
+      sign: '',
+      status: 0,
+      avatarId: 258857001,
+      avatarMd5: 'af9bd890f855361a071929fc9c504fc7'
+    }
+    const handshake = handshakeXml(profile, '0123456789abcdef0123456789abcdef')
+    expect(handshake).toContain(
+      '<USER_FACE id="258857001">af9bd890f855361a071929fc9c504fc7</USER_FACE>'
+    )
+    expect(parsePrivate(1000, handshake)).toMatchObject({
+      profile: { avatarId: 258857001, avatarMd5: 'af9bd890f855361a071929fc9c504fc7' }
+    })
+
+    const change = changeInfoXml(profile, '0123456789abcdef0123456789abcdef')
+    expect(change).toContain('<X_CHANGE_INFO docver="1">')
+    expect(parsePrivate(1003, change)).toMatchObject({
+      kind: 'change-info',
+      profile: { avatarId: 258857001, avatarMd5: 'af9bd890f855361a071929fc9c504fc7' }
+    })
   })
 
   it('parses a folder invite and the receive-side operation', () => {

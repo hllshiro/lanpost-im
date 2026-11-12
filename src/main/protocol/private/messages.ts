@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { DOCVER } from '../packet'
 import {
   decodeXml,
+  encodeChangeInfo,
   encodeChatMsg,
   encodeChatMsgAck,
   encodeChatReceipt,
@@ -21,6 +22,7 @@ import { encodeBeacon } from './beacon'
 
 const CMD = {
   HANDSHAKE: 1000,
+  CHANGE_INFO: 1003,
   SEND_MSG: 1004,
   SEND_MSG_ACK: 1005,
   SEND_RECEIPT: 1006,
@@ -67,6 +69,8 @@ export interface PrivateProfile {
   department: string
   sign: string
   status: number
+  avatarId: number
+  avatarMd5: string
 }
 
 export interface RemoteProfile extends PrivateProfile {
@@ -138,6 +142,7 @@ export type IncomingPrivate =
       folderReversePort: number
     }
   | { kind: 'ready'; userId: string }
+  | { kind: 'change-info'; profile: RemoteProfile }
   | { kind: 'file-offer'; offer: PrivateFileOffer }
   | { kind: 'file-operate'; cmd: number; taskId: string; op: number }
   | { kind: 'file-progress'; taskId: string; totalSize: number; recvdSize: number }
@@ -246,6 +251,9 @@ function userInfo(profile: PrivateProfile, userId: string): UserInfo {
     Email: '',
     Sign: profile.sign,
     SysFace: 0,
+    ...(profile.avatarMd5 === ''
+      ? {}
+      : { UserFace: { ID: Math.max(0, Math.floor(profile.avatarId)), Data: profile.avatarMd5 } }),
     Status: profile.status,
     ActiveSend: 1,
     OnlinePopup: 0,
@@ -272,6 +280,11 @@ export function handshakeXml(
 
 export function readyXml(userId: string): string {
   return encodeReady({ Docver: DOCVER, UserID: userId, Param: 0 })
+}
+
+// 改头像或资料后广播整份 X_CHANGE_INFO；对端靠 USER_FACE 的 id/md5 来取头像
+export function changeInfoXml(profile: PrivateProfile, userId: string): string {
+  return encodeChangeInfo({ Docver: DOCVER, ...userInfo(profile, userId) })
 }
 
 function textJsonBody(text: string): string {
@@ -908,14 +921,20 @@ function contentSegmentsFromJson(raw: string): PrivateContentSegment[] {
 }
 
 function remoteProfile(handshake: Handshake): RemoteProfile {
+  return profileFromInfo(handshake.Info, handshake.Info.CorpID)
+}
+
+function profileFromInfo(info: UserInfo, userId: string): RemoteProfile {
   return {
-    userId: handshake.Info.CorpID,
-    name: handshake.Info.Name,
-    group: handshake.Info.Group,
-    corporation: handshake.Info.Corporation,
-    department: handshake.Info.Department,
-    sign: handshake.Info.Sign,
-    status: handshake.Info.Status
+    userId,
+    name: info.Name,
+    group: info.Group,
+    corporation: info.Corporation,
+    department: info.Department,
+    sign: info.Sign,
+    status: info.Status,
+    avatarId: info.UserFace === undefined ? 0 : Number(info.UserFace.ID),
+    avatarMd5: info.UserFace === undefined ? '' : info.UserFace.Data
   }
 }
 
@@ -1009,6 +1028,12 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
             folderPort: handshake.Net.FolderTranTCPPort,
             folderReversePort: handshake.Net.FolderTranTCPReversePort
           }
+    }
+    case CMD.CHANGE_INFO: {
+      const info = decodePrivate('X_CHANGE_INFO', xml)
+      return info === null
+        ? unrecognized(cmd)
+        : { kind: 'change-info', profile: profileFromInfo(info, '') }
     }
     case CMD.SEND_MSG: {
       const msg = decodePrivate('X_SEND_MSG', xml)

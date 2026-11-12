@@ -21,6 +21,9 @@ export interface PeerInfo {
   alias: string
   // 私有通道的 32 位用户号，群成员按它识别；没握过手时为空
   privateUserId?: string
+  // 对端头像：md5 指向本地缓存文件，id 是对端取图用的文件号
+  avatarMd5?: string
+  avatarId?: number
 }
 
 export interface ConversationInfo {
@@ -99,6 +102,8 @@ export interface LocalInfo {
   version: string
   // 本机的私有通道用户号，用来在群成员里认出自己
   privateUserId: string
+  // 本机头像的 md5，空表示使用默认头像
+  avatarMd5: string
 }
 
 export interface GroupMemberInfo {

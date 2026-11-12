@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 3
+export const SCHEMA_VERSION = 4
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -105,5 +105,12 @@ CREATE TABLE IF NOT EXISTS image_cache (
   path TEXT NOT NULL,
   size INTEGER NOT NULL,
   created_at INTEGER NOT NULL
+);
+
+-- 对端头像：id 是对端公布的 USER_FACE 文件号，md5 指向本机缓存
+CREATE TABLE IF NOT EXISTS peer_avatars (
+  peer_key TEXT PRIMARY KEY,
+  avatar_id INTEGER NOT NULL DEFAULT 0,
+  avatar_md5 TEXT NOT NULL DEFAULT ''
 );
 `

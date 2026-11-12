@@ -1,5 +1,7 @@
 import { open, type FileHandle } from 'node:fs/promises'
+import { writeFileSync } from 'node:fs'
 import { createServer, connect, type Server, type Socket } from 'node:net'
+import { basename, dirname } from 'node:path'
 import {
   FILE_CHUNK_SIZE,
   FILE_DATA_HEADER_SIZE,
@@ -55,6 +57,8 @@ export interface PrivateTransferOptions {
   localIp: string
   localName: string
   callbacks: PrivateTransferCallbacks
+  // 对端来取头像时按文件号找本机头像文件
+  resolveAvatar?(fileId: number): { path: string; size: number } | null
   onLog(message: string): void
 }
 
@@ -429,9 +433,103 @@ export class PrivateFileTransfer {
     }
     const outgoing = this.outgoing.get(parsed.fileId)
     if (outgoing === undefined) {
+      // 头像走同一个文件端口：文件号就是本机公布的 USER_FACE id，内容不用解析
+      const avatar = this.options.resolveAvatar?.(parsed.fileId) ?? null
+      if (avatar !== null) {
+        await this.serveAvatar(socket, channel, parsed.fileId, avatar)
+        return
+      }
       throw new Error(`私有文件通道收到未知文件 ${parsed.fileId} 的握手`)
     }
     await this.sendOver(socket, channel, outgoing, true)
+  }
+
+  // 对端取头像：回大小，等它发来请求帧，然后把头像文件推过去
+  private async serveAvatar(
+    socket: Socket,
+    channel: FrameChannel,
+    fileId: number,
+    file: { path: string; size: number }
+  ): Promise<void> {
+    this.log(`对端请求头像 ${fileId}，发送 ${file.size} 字节`)
+    socket.write(
+      encodeFileFrame(
+        FILE_FRAME_ACK,
+        buildAck({ fileId, size: file.size, time: Math.floor(Date.now() / 1000) })
+      )
+    )
+    await this.requireFrame(channel)
+    await this.streamFile(socket, { fileId, path: file.path, size: file.size })
+    socket.end()
+  }
+
+  // 取对端头像：HELLO -> ACK -> PATH -> DATA，头像很小，整段收完再落盘
+  async fetchAvatar(input: {
+    ip: string
+    port: number
+    fileId: number
+    savePath: string
+    maxBytes: number
+  }): Promise<number> {
+    const socket = await this.dial(input.ip, input.port)
+    const channel = new FrameChannel(socket)
+    try {
+      socket.write(
+        encodeFileFrame(
+          FILE_FRAME_HELLO,
+          buildHello({
+            selfId: this.options.localUserId,
+            peerId: '',
+            fileId: input.fileId,
+            xml: peerCardXml({ name: this.options.localName, ip: this.options.localIp })
+          })
+        )
+      )
+      const ack = await this.requireFrame(channel)
+      if (ack.type !== FILE_FRAME_ACK) {
+        throw new Error(`取头像期望确认，收到类型 ${ack.type}`)
+      }
+      const confirmed = parseAck(ack.body)
+      if (confirmed.fileId !== input.fileId) {
+        throw new Error('取头像时对端确认了错误的文件')
+      }
+      if (confirmed.size <= 0 || confirmed.size > input.maxBytes) {
+        throw new Error(`头像大小异常 ${confirmed.size}`)
+      }
+      socket.write(
+        encodeFileFrame(
+          FILE_FRAME_PATH,
+          buildPath({
+            dir: dirname(input.savePath),
+            fileId: input.fileId,
+            name: basename(input.savePath)
+          })
+        )
+      )
+      const data = Buffer.alloc(confirmed.size)
+      let received = 0
+      for (;;) {
+        const frame = await this.requireFrame(channel)
+        if (frame.type !== FILE_FRAME_DATA) continue
+        const header = parseDataHeader(frame.body)
+        if (header.fileId !== input.fileId) {
+          throw new Error(`取头像时收到错误的文件 ${header.fileId}`)
+        }
+        const chunk = frame.body.subarray(
+          FILE_DATA_HEADER_SIZE,
+          FILE_DATA_HEADER_SIZE + header.chunkSize
+        )
+        chunk.copy(data, header.offset)
+        received = Math.max(received, header.offset + header.chunkSize)
+        if (received >= confirmed.size) break
+      }
+      writeFileSync(input.savePath, data.subarray(0, confirmed.size))
+      socket.end()
+      return confirmed.size
+    } finally {
+      socket.destroy()
+      this.active.delete(socket)
+    }
   }
 
   private pendingIncoming(): IncomingPrivateFile | undefined {

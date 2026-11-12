@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { MessageSquare, Pin, RefreshCw, Search, Users, X } from '@lucide/vue'
 import type { ConversationInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
+import { avatarUrl } from '../utils/avatar'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
 const props = defineProps<{
@@ -57,6 +58,10 @@ function presenceText(conversation: ConversationInfo): string {
   if (peer.status === 1) return '忙碌'
   if (peer.status === 2) return '离开'
   return '在线'
+}
+
+function avatarOf(conversation: ConversationInfo): string {
+  return avatarUrl(peerOf(conversation)?.avatarMd5)
 }
 
 const visible = computed(() => {
@@ -195,7 +200,10 @@ function badgeOf(count: number): string {
           @contextmenu.prevent="openMenu($event, conversation)"
         >
           <span class="avatar-wrap">
-            <span class="avatar">{{ initialOf(conversation.title) }}</span>
+            <span class="avatar">
+              <img v-if="avatarOf(conversation) !== ''" :src="avatarOf(conversation)" alt="" />
+              <template v-else>{{ initialOf(conversation.title) }}</template>
+            </span>
             <span
               v-if="peerOf(conversation)"
               class="presence-dot"
@@ -396,6 +404,13 @@ function badgeOf(count: number): string {
   color: #4c5a68;
   font-size: 15px;
   font-weight: 500;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .presence-dot {

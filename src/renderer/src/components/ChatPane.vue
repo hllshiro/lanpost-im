@@ -13,6 +13,8 @@ import type {
   StagedAttachment
 } from '../../../shared/domain'
 import type { RichPart } from '../../../shared/ipc'
+import { useAppStore } from '../stores/app'
+import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import Composer from './Composer.vue'
@@ -45,6 +47,16 @@ const emit = defineEmits<{
 const search = ref('')
 const infoOpen = ref(false)
 const infoAnchor = ref<HTMLElement | null>(null)
+const store = useAppStore()
+const senderAvatars = computed(() => {
+  const map: Record<string, string> = {}
+  for (const item of store.peers) {
+    if (item.privateUserId !== undefined && item.avatarMd5 !== undefined && item.avatarMd5 !== '') {
+      map[item.privateUserId] = item.avatarMd5
+    }
+  }
+  return map
+})
 const copied = ref(false)
 const copyError = ref('')
 const pending = ref<
@@ -224,6 +236,14 @@ onBeforeUnmount(() => {
                     <div class="member-list">
                       <div v-for="member in group.members" :key="member.userId" class="member-item">
                         <span class="member-name">
+                          <span class="member-avatar">
+                            <img
+                              v-if="avatarUrl(senderAvatars[member.userId]) !== ''"
+                              :src="avatarUrl(senderAvatars[member.userId])"
+                              alt=""
+                            />
+                            <template v-else>{{ initialOf(member.name) }}</template>
+                          </span>
                           {{ member.name }}
                           <em v-if="member.userId === group.master" class="tag">群主</em>
                           <em v-else-if="member.userId === selfId" class="tag">我</em>
@@ -308,6 +328,9 @@ onBeforeUnmount(() => {
           :conversation-id="conversation.id"
           :own-initial="ownInitial"
           :other-initial="otherInitial"
+          :own-avatar-md5="local?.avatarMd5 ?? ''"
+          :peer-avatar-md5="peer?.avatarMd5 ?? ''"
+          :sender-avatars="senderAvatars"
           :unread-after-id="keyword.length > 0 ? 0 : unreadAfterId"
           :loading="loadingMessages"
           :searching="keyword.length > 0"
@@ -616,6 +639,25 @@ h2 {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
+}
+
+.member-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: #d9e2ea;
+  color: #4c5a68;
+  font-size: 9px;
+  overflow: hidden;
+}
+
+.member-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .tag {

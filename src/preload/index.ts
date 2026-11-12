@@ -92,6 +92,10 @@ const api: Api = {
     get: () => ipcRenderer.invoke(IPC.settingsGet),
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
     defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
+  },
+  identity: {
+    pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),
+    clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar)
   }
 }
 

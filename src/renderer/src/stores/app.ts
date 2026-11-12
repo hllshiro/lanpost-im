@@ -205,6 +205,7 @@ export const useAppStore = defineStore('app', () => {
         break
       }
       case 'settings':
+        void loadSnapshot()
         break
     }
   }

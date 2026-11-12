@@ -29,7 +29,9 @@ const testProfile = {
   corporation: '',
   department: '',
   sign: '',
-  status: 0
+  status: 0,
+  avatarId: 0,
+  avatarMd5: ''
 }
 
 afterEach(() => {
@@ -106,6 +108,7 @@ function options(
       onGroupExit: () => {},
       onGroupKick: () => {},
       onReady: () => {},
+      onChangeInfo: () => {},
       onSendFailed: () => {},
       onState: () => {},
       onActivity: () => {},

@@ -52,6 +52,8 @@ interface PeerRow {
   alias: string
   last_seen: number
   conversation_unread: number | null
+  avatar_md5: string | null
+  avatar_id: number | null
 }
 
 interface FileRow {
@@ -128,7 +130,9 @@ function mapPeer(row: PeerRow): PeerInfo {
     legacy: toBoolean(row.legacy),
     lastSeen: row.last_seen,
     unread: row.conversation_unread ?? 0,
-    alias: row.alias
+    alias: row.alias,
+    avatarMd5: row.avatar_md5 ?? '',
+    avatarId: row.avatar_id ?? 0
   }
 }
 
@@ -463,8 +467,11 @@ export class MessageRepository {
 
 const PEER_SELECT = `
   SELECT peers.*,
-    (SELECT unread FROM conversations WHERE conversations.peer_key = peers.key) AS conversation_unread
+    (SELECT unread FROM conversations WHERE conversations.peer_key = peers.key) AS conversation_unread,
+    peer_avatars.avatar_md5 AS avatar_md5,
+    peer_avatars.avatar_id AS avatar_id
   FROM peers
+  LEFT JOIN peer_avatars ON peer_avatars.peer_key = peers.key
 `
 
 export class PeerRepository {
@@ -528,6 +535,15 @@ export class PeerRepository {
     this.db
       .prepare('UPDATE peers SET online = ?, last_seen = ? WHERE key = ?')
       .run(toInteger(online), lastSeen, key)
+  }
+
+  setAvatar(key: string, avatarId: number, avatarMd5: string): void {
+    this.db
+      .prepare(
+        'INSERT INTO peer_avatars (peer_key, avatar_id, avatar_md5) VALUES (?, ?, ?) ' +
+          'ON CONFLICT(peer_key) DO UPDATE SET avatar_id = excluded.avatar_id, avatar_md5 = excluded.avatar_md5'
+      )
+      .run(key, Math.floor(avatarId), avatarMd5)
   }
 
   get(key: string): PeerInfo | null {

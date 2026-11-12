@@ -32,6 +32,10 @@ protocol.registerSchemesAsPrivileged([
   {
     scheme: 'lanpost-emotion',
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
+  {
+    scheme: 'lanpost-avatar',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
   }
 ])
 
@@ -169,6 +173,16 @@ if (!gotLock) {
         const path = id === '' ? null : (service?.emotionPath(id) ?? null)
         if (path === null) {
           logStartup(`lanpost-emotion: 找不到收藏表情 ${id}`)
+          return new Response('not found', { status: 404 })
+        }
+        return net.fetch(pathToFileURL(path).toString())
+      })
+
+      // 本机与对端头像：按 md5 取缓存文件
+      protocol.handle('lanpost-avatar', (request) => {
+        const md5 = localId(request.url)
+        const path = md5 === '' ? null : (service?.avatarPath(md5) ?? null)
+        if (path === null) {
           return new Response('not found', { status: 404 })
         }
         return net.fetch(pathToFileURL(path).toString())

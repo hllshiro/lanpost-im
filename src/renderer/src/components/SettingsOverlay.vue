@@ -16,6 +16,7 @@ import {
 } from '@lucide/vue'
 import type { AppInfo } from '../../../shared/ipc'
 import { defaultSettings, type Settings, type SettingsPatch } from '../../../shared/settings'
+import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -73,6 +74,26 @@ function applySettings(next: Settings): void {
 async function loadSettings(): Promise<void> {
   try {
     applySettings(await window.api.settings.get())
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  }
+}
+
+async function pickAvatar(): Promise<void> {
+  try {
+    await window.api.identity.pickAvatar()
+    await loadSettings()
+    emit('saved', settings.value)
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  }
+}
+
+async function clearAvatar(): Promise<void> {
+  try {
+    await window.api.identity.clearAvatar()
+    await loadSettings()
+    emit('saved', settings.value)
   } catch (reason) {
     error.value = errorMessage(reason)
   }
@@ -209,6 +230,30 @@ onBeforeUnmount(() => {
       <div class="panel-body">
         <div v-show="current === 'identity'" class="group">
           <h2>个人资料</h2>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">头像</span>
+              <p class="hint">居中裁成正方形并缩到 96×96，修改后会同步给联系人</p>
+            </div>
+            <div class="control avatar-control">
+              <span class="avatar-preview">
+                <img
+                  v-if="avatarUrl(settings.identity.avatarMd5) !== ''"
+                  :src="avatarUrl(settings.identity.avatarMd5)"
+                  alt=""
+                />
+                <span v-else>无</span>
+              </span>
+              <button class="mini" @click="pickAvatar">更换头像</button>
+              <button
+                class="mini"
+                :disabled="settings.identity.avatarMd5 === ''"
+                @click="clearAvatar"
+              >
+                移除
+              </button>
+            </div>
+          </div>
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-display-name">显示名称</label>
@@ -984,6 +1029,48 @@ onBeforeUnmount(() => {
 
 .control-auto {
   flex: 0 0 auto;
+}
+
+.avatar-control {
+  gap: 10px;
+}
+
+.avatar-preview {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--avatar-radius);
+  background: #ececec;
+  color: var(--text-muted);
+  font-size: 11px;
+  overflow: hidden;
+}
+
+.avatar-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mini {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid #dcdcdc;
+  border-radius: var(--radius-button);
+  background: #ffffff;
+  color: var(--text);
+  font-size: 12px;
+}
+
+.mini:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.mini:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .input {

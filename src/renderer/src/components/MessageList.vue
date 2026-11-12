@@ -18,6 +18,9 @@ const props = defineProps<{
   unreadAfterId: number
   searching: boolean
   loading: boolean
+  ownAvatarMd5: string
+  peerAvatarMd5: string
+  senderAvatars: Record<string, string>
 }>()
 
 const emit = defineEmits<{
@@ -51,6 +54,21 @@ function openViewer(file: FileTaskInfo): void {
 
 function openMenu(file: FileTaskInfo, event: MouseEvent): void {
   menu.value = { file, x: event.clientX, y: event.clientY }
+}
+
+// 群消息按 meta.senderId 找发送者头像；私聊统一用对端头像
+function bubbleAvatar(row: { own: boolean; message: MessageInfo }): string {
+  if (row.own) return props.ownAvatarMd5
+  try {
+    const meta = JSON.parse(row.message.meta) as Record<string, unknown>
+    if (typeof meta.senderId === 'string') {
+      const avatar = props.senderAvatars[meta.senderId]
+      if (avatar !== undefined) return avatar
+    }
+  } catch {
+    // meta 解析失败时退回对端头像
+  }
+  return props.peerAvatarMd5
 }
 
 const filesByMessage = computed(() => {
@@ -233,6 +251,7 @@ function onCopy(event: ClipboardEvent): void {
             :files="row.files"
             :own-initial="ownInitial"
             :other-initial="otherInitial"
+            :avatar-md5="bubbleAvatar(row)"
             @preview="openViewer"
             @menu="openMenu"
           />

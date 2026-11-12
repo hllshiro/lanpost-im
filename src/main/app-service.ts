@@ -20,6 +20,7 @@ import {
   clipboard,
   ClipboardItem,
   dialog,
+  nativeImage,
   shell,
   type BrowserWindow,
   type OpenDialogOptions,
@@ -94,6 +95,7 @@ import {
   memberKickNotice
 } from './groups/member-notice'
 import { FavoriteStore } from './emotion/favorites'
+import { AvatarStore } from './avatar/store'
 import { logStartup } from './startup-log'
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
@@ -121,7 +123,9 @@ function privateProfile(settings: Settings): PrivateProfile {
     corporation: settings.identity.corporation,
     department: settings.identity.department,
     sign: settings.identity.sign,
-    status: settings.identity.status
+    status: settings.identity.status,
+    avatarId: settings.identity.avatarId,
+    avatarMd5: settings.identity.avatarMd5
   }
 }
 
@@ -256,6 +260,9 @@ interface PrivateIncomingFile {
 export class AppService {
   private readonly repos: Repositories
   private readonly favorites: FavoriteStore
+  private readonly avatars: AvatarStore
+  // 正在取或已经取过的头像 md5，避免同一个头像重复连对端
+  private readonly avatarFetches = new Set<string>()
   private readonly engine: ProtocolEngine
   private readonly fileManager: FileManager
   private readonly notifications: NotificationManager
@@ -349,6 +356,7 @@ export class AppService {
   ) {
     this.repos = createRepositories(db)
     this.favorites = new FavoriteStore(join(app.getPath('userData'), 'emotion-favorites'))
+    this.avatars = new AvatarStore(join(app.getPath('userData'), 'avatars'))
     let receiveDir = settings.get().files.receiveDir
     if (receiveDir === '') {
       const downloads = join(app.getPath('downloads'), '内网传书')
@@ -448,6 +456,13 @@ export class AppService {
         localUserId: userId,
         localIp: localIpv4(),
         localName: profile.name,
+        resolveAvatar: (fileId) => {
+          const identity = this.settings.get().identity
+          if (identity.avatarMd5 === '' || identity.avatarId !== fileId) return null
+          const path = this.avatars.path(identity.avatarMd5)
+          if (!existsSync(path)) return null
+          return { path, size: statSync(path).size }
+        },
         callbacks: {
           onProgress: (fileId, received) => this.handlePrivateFileProgress(fileId, received),
           onDone: (fileId, path) => this.handlePrivateFileDone(fileId, path),
@@ -527,6 +542,7 @@ export class AppService {
           onGroupKick: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '被移出'),
           onGroupExit: (ip, groupId) => this.handleGroupMemberExit(ip, groupId),
           onReady: (ip, userId) => this.reconcileGroups(ip, userId),
+          onChangeInfo: (ip, profile) => this.upsertPrivatePeer(ip, profile),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -1470,7 +1486,8 @@ export class AppService {
         status: settings.identity.status,
         online: this.started,
         version: this.appInfo.version,
-        privateUserId: privateUserId(settings)
+        privateUserId: privateUserId(settings),
+        avatarMd5: settings.identity.avatarMd5
       },
       peers: this.repos.peers.list().map((peer) => ({
         ...peer,
@@ -3007,6 +3024,107 @@ export class AppService {
     this.privateService?.updateProfile(privateProfile(settings))
   }
 
+  avatarPath(md5: string): string | null {
+    return this.avatars.has(md5) ? this.avatars.path(md5) : null
+  }
+
+  // 选一张图作为头像：居中裁成正方形再缩到 96×96，和真实客户端的头像尺寸一致
+  async pickAvatar(): Promise<void> {
+    const options: OpenDialogOptions = {
+      title: '选择头像',
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
+    }
+    const result =
+      this.window === null
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(this.window, options)
+    const path = result.filePaths[0]
+    if (result.canceled || path === undefined) return
+    const image = nativeImage.createFromPath(path)
+    const size = image.getSize()
+    if (size.width <= 0 || size.height <= 0) {
+      throw new Error('无法读取这张图片')
+    }
+    const edge = Math.min(size.width, size.height)
+    const square = image.crop({
+      x: Math.floor((size.width - edge) / 2),
+      y: Math.floor((size.height - edge) / 2),
+      width: edge,
+      height: edge
+    })
+    const png = square.resize({ width: 96, height: 96, quality: 'best' }).toPNG()
+    const md5 = AvatarStore.md5(png)
+    this.avatars.put(md5, png)
+    const identity = this.settings.get().identity
+    // 图片没变就沿用旧的 USER_FACE id，对端不用重新取图
+    const avatarId =
+      identity.avatarMd5 === md5 && identity.avatarId > 0
+        ? identity.avatarId
+        : Math.max(1, randomBytes(4).readUInt32BE(0) & 0x7fffffff)
+    const settings = this.settings.update({ identity: { avatarMd5: md5, avatarId } })
+    this.applySettings(settings)
+    this.privateService?.broadcastChangeInfo()
+    this.emit({ type: 'settings', settings })
+    logStartup(`头像已更新 md5=${md5} id=${avatarId}`)
+  }
+
+  clearAvatar(): void {
+    const settings = this.settings.update({ identity: { avatarMd5: '', avatarId: 0 } })
+    this.applySettings(settings)
+    this.privateService?.broadcastChangeInfo()
+    this.emit({ type: 'settings', settings })
+    logStartup('头像已移除')
+  }
+
+  // 对端换了头像：本地没缓存就去它的文件端口取，取到后按 md5 存进头像目录
+  private fetchPeerAvatar(ip: string, avatarId: number, md5: string): void {
+    if (md5 === '' || this.avatars.has(md5)) return
+    if (avatarId <= 0) return
+    const key = `${ip}|${md5}`
+    if (this.avatarFetches.has(key)) return
+    const transfer = this.privateFiles
+    if (transfer === null) return
+    this.avatarFetches.add(key)
+    void (async () => {
+      try {
+        const savePath = this.avatars.path(md5)
+        // 真实客户端的头像服务固定在 9013；文件端口改了也先试默认端口
+        const ports = [9013]
+        const advertised = this.privateService?.peerFilePort(ip) ?? 0
+        if (advertised > 0 && !ports.includes(advertised)) ports.push(advertised)
+        let lastError: Error | null = null
+        for (const port of ports) {
+          try {
+            await transfer.fetchAvatar({
+              ip,
+              port,
+              fileId: avatarId,
+              savePath,
+              maxBytes: 4 * 1024 * 1024
+            })
+            lastError = null
+            break
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error))
+          }
+        }
+        if (lastError !== null) throw lastError
+        const saved = this.avatars.read(md5)
+        if (saved === null || AvatarStore.md5(saved) !== md5) {
+          rmSync(savePath, { force: true })
+          throw new Error('取到的头像与公布的 md5 不一致')
+        }
+        logStartup(`对端头像已缓存 ${md5}`)
+        this.emit({ type: 'peers', peers: this.repos.peers.list() })
+      } catch (error) {
+        logStartup(`取对端头像失败 ${ip} md5=${md5}: ${(error as Error).message}`)
+      } finally {
+        this.avatarFetches.delete(key)
+      }
+    })()
+  }
+
   private handleFileOffer(
     peer: ProtocolPeer,
     packetId: number,
@@ -3375,6 +3493,8 @@ export class AppService {
   private handlePrivateState(ip: string, state: SessionState, profile: RemoteProfile | null): void {
     if (state === 'ready' && profile !== null) {
       this.upsertPrivatePeer(ip, profile)
+      // 对端可能只在收到 X_CHANGE_INFO 时才来取头像，会话就绪后主动广播一次
+      this.privateService?.broadcastChangeInfo()
       return
     }
     if (state === 'closed') {
@@ -3401,6 +3521,14 @@ export class AppService {
       status: profile.status,
       online: true
     })
+    const key = this.engine.peerKeyForIp(ip)
+    if (key === null || profile.avatarMd5 === '') return
+    const previous = this.repos.peers.get(key)
+    this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
+    if (previous?.avatarMd5 !== profile.avatarMd5) {
+      this.emit({ type: 'peers', peers: this.repos.peers.list() })
+    }
+    this.fetchPeerAvatar(ip, profile.avatarId, profile.avatarMd5)
   }
 
   private peerForIp(ip: string): { key: string; name: string } {

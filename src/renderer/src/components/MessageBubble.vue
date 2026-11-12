@@ -6,6 +6,7 @@ import { formatClock, formatSize, statusLabel } from '../utils/format'
 import { errorMessage } from '../utils/errors'
 import { emotionByKey, emotionUrl } from '../utils/emotion'
 import { useAppStore } from '../stores/app'
+import { avatarUrl } from '../utils/avatar'
 import FileCard from './FileCard.vue'
 
 const props = defineProps<{
@@ -15,6 +16,7 @@ const props = defineProps<{
   files: FileTaskInfo[]
   ownInitial: string
   otherInitial: string
+  avatarMd5?: string
 }>()
 
 const store = useAppStore()
@@ -258,7 +260,8 @@ async function revealFolder(): Promise<void> {
 
     <div v-else class="row" :class="{ own }">
       <span class="avatar" :class="own ? 'own' : 'other'">
-        {{ own ? ownInitial : otherInitial }}
+        <img v-if="avatarUrl(avatarMd5) !== ''" :src="avatarUrl(avatarMd5)" alt="" />
+        <template v-else>{{ own ? ownInitial : otherInitial }}</template>
       </span>
 
       <div class="content">
@@ -411,6 +414,13 @@ async function revealFolder(): Promise<void> {
 
 .avatar.other {
   background: #7f8f9f;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .content {

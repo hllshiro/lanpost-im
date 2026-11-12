@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { FolderOpen, MessageSquare, Settings, UserRound, Users } from '@lucide/vue'
 import type { LocalInfo } from '../../../shared/domain'
+import { avatarUrl } from '../utils/avatar'
 import { initialOf } from '../utils/format'
 
 const props = withDefaults(
@@ -42,6 +43,11 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
     <button class="profile" :title="profileTitle" aria-label="账号与设置" @click="emit('settings')">
       <span class="avatar">
         <UserRound v-if="!local" :size="20" :stroke-width="1.7" />
+        <img
+          v-else-if="avatarUrl(local.avatarMd5) !== ''"
+          :src="avatarUrl(local.avatarMd5)"
+          alt=""
+        />
         <template v-else>{{ initial }}</template>
       </span>
       <span class="status" :class="statusClass" />
@@ -124,6 +130,13 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
 
 .profile:hover .avatar {
   background: #575757;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .status {

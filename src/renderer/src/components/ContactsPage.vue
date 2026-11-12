@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { ChevronRight, Search, Users, X } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
 import { useAppStore } from '../stores/app'
+import { avatarUrl } from '../utils/avatar'
 import { initialOf } from '../utils/format'
 import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
 
@@ -163,7 +164,14 @@ function openPeer(peer: PeerInfo): void {
               @click="openPeer(peer)"
             >
               <span class="avatar-wrap">
-                <span class="avatar">{{ initialOf(displayName(peer)) }}</span>
+                <span class="avatar">
+                  <img
+                    v-if="avatarUrl(peer.avatarMd5) !== ''"
+                    :src="avatarUrl(peer.avatarMd5)"
+                    alt=""
+                  />
+                  <template v-else>{{ initialOf(displayName(peer)) }}</template>
+                </span>
                 <span class="dot" :class="statusClass(peer)" />
               </span>
 
@@ -364,6 +372,13 @@ function openPeer(peer: PeerInfo): void {
   color: #4c5a68;
   font-size: 16px;
   font-weight: 500;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
 }
 
 .dot {

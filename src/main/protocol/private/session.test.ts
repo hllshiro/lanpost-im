@@ -25,7 +25,9 @@ const profile: PrivateProfile = {
   corporation: '',
   department: '',
   sign: '',
-  status: 0
+  status: 0,
+  avatarId: 0,
+  avatarMd5: ''
 }
 
 function makeSession(
@@ -53,6 +55,7 @@ function makeSession(
       onAck: (id) => events.push(`ack:${id}`),
       onReceipt: (id) => events.push(`receipt:${id}`),
       onProfile: (profile) => events.push(`profile:${profile.userId}`),
+      onChangeInfo: (profile) => events.push(`change-info:${profile.userId}`),
       onFileOffer: (offer) => events.push(`file-offer:${offer.fileId}`),
       onFileOperate: (cmd, taskId, op) => events.push(`file-op:${cmd}:${taskId}:${op}`),
       onFileProgress: (taskId, total, recvd) =>

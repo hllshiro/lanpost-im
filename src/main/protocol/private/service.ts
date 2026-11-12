@@ -89,6 +89,8 @@ export interface PrivateServiceOptions {
     ): void
     onRemindFile(ip: string, groupId: string, name: string, size: number, folder: boolean): void
     onReady(ip: string, userId: string): void
+    // 对端改了资料或头像
+    onChangeInfo(ip: string, profile: RemoteProfile): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
@@ -464,6 +466,13 @@ export class PrivateService {
     this.profile = profile
   }
 
+  // 改头像或资料后广播给所有已就绪的对端
+  broadcastChangeInfo(): void {
+    for (const session of this.sessions.values()) {
+      session.sendChangeInfo(this.profile)
+    }
+  }
+
   private pump(): void {
     for (const session of Array.from(this.sessions.values())) {
       session.pump()
@@ -622,6 +631,11 @@ export class PrivateService {
           this.peerUserIds.set(ip, userId)
         }
         this.options.callbacks.onReady(ip, userId)
+      },
+      onChangeInfo: (profile) => {
+        const merged = { ...profile, userId: this.peerUserIds.get(ip) ?? profile.userId }
+        this.peerProfiles.set(ip, merged)
+        this.options.callbacks.onChangeInfo(ip, merged)
       },
       onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),

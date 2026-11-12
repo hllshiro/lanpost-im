@@ -296,6 +296,24 @@ describe('PeerRepository', () => {
 
     db.close()
   })
+
+  it('stores the avatar id and md5 for a peer', () => {
+    const db = openMemory()
+    const peers = new PeerRepository(db)
+    peers.upsert(makePeer('1|alice'))
+    expect(peers.get('1|alice')).toMatchObject({ avatarMd5: '', avatarId: 0 })
+
+    peers.setAvatar('1|alice', 13059, '0487b245837023b1e83050076254759a')
+    expect(peers.get('1|alice')).toMatchObject({
+      avatarId: 13059,
+      avatarMd5: '0487b245837023b1e83050076254759a'
+    })
+    expect(peers.list()[0]).toMatchObject({
+      avatarMd5: '0487b245837023b1e83050076254759a'
+    })
+
+    db.close()
+  })
 })
 
 describe('FileRepository', () => {

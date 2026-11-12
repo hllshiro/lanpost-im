@@ -15,6 +15,8 @@ export const IPC = {
   settingsGet: 'settings:get',
   settingsUpdate: 'settings:update',
   settingsDefaults: 'settings:defaults',
+  identityPickAvatar: 'identity:pick-avatar',
+  identityClearAvatar: 'identity:clear-avatar',
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
@@ -106,6 +108,10 @@ export type Api = {
     get(): Promise<Settings>
     update(patch: SettingsPatch): Promise<Settings>
     defaults(): Promise<Settings>
+  }
+  identity: {
+    pickAvatar(): Promise<void>
+    clearAvatar(): Promise<void>
   }
   ui: {
     onOpenSettings(listener: () => void): () => void

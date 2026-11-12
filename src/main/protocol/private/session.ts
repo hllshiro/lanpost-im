@@ -17,6 +17,7 @@ import {
 } from './enet'
 import { decodeFrame, encodeFrame } from './frame'
 import {
+  changeInfoXml,
   handshakeXml,
   heartbeatXml,
   helloFrame,
@@ -69,6 +70,7 @@ import type {
 
 const CMD_HELLO = 4
 const CMD_HANDSHAKE = 1000
+const CMD_CHANGE_INFO = 1003
 const CMD_SEND_MSG = 1004
 const CMD_SEND_MSG_ACK = 1005
 const CMD_SEND_RECEIPT = 1006
@@ -170,6 +172,8 @@ export interface SessionCallbacks {
   onRemindFile(groupId: string, name: string, size: number, folder: boolean): void
   // 对端在 X_READY 里公布的 32 位用户号，群消息靠它识别发送者
   onReady(userId: string): void
+  // 对端改了资料或头像：整份 X_CHANGE_INFO
+  onChangeInfo(profile: RemoteProfile): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
   onSendFailed(msgId: number): void
   onState(state: SessionState): void
@@ -322,6 +326,12 @@ export class PrivateSession {
     for (const seq of seqs) {
       this.messageSeqs.set(seq, msgId)
     }
+    return true
+  }
+
+  sendChangeInfo(profile: PrivateProfile): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_CHANGE_INFO, changeInfoXml(profile, this.identity.userId)))
     return true
   }
 
@@ -774,6 +784,9 @@ export class PrivateSession {
         return
       case 'receipt':
         this.callbacks.onReceipt(incoming.msgId)
+        return
+      case 'change-info':
+        this.callbacks.onChangeInfo(incoming.profile)
         return
       case 'handshake':
         this.callbacks.onProfile(

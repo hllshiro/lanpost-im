@@ -11,7 +11,10 @@ const identitySchema = z.object({
   department: z.string().default(''),
   sign: z.string().default(''),
   status: z.number().int().min(0).max(2).default(0),
-  privateId: z.string().default('')
+  privateId: z.string().default(''),
+  // 本机头像：文件按 md5 存在数据目录，id 是对端取图时用的文件号
+  avatarMd5: z.string().default(''),
+  avatarId: z.number().int().min(0).default(0)
 })
 
 const networkSchema = z.object({
