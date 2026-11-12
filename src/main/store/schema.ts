@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 2
+export const SCHEMA_VERSION = 3
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -97,5 +97,13 @@ CREATE TABLE IF NOT EXISTS group_members (
   role TEXT NOT NULL DEFAULT 'member',
   joined_at INTEGER NOT NULL,
   PRIMARY KEY (conversation_id, peer_key)
+);
+
+-- 图片按 md5 缓存：同一张图再次收到时直接用本地文件，不再走文件通道
+CREATE TABLE IF NOT EXISTS image_cache (
+  md5 TEXT PRIMARY KEY,
+  path TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at INTEGER NOT NULL
 );
 `

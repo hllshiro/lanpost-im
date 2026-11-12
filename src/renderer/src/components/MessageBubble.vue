@@ -101,6 +101,34 @@ const renderParts = computed<RenderPart[]>(() => {
 
 const hasSegments = computed(() => renderParts.value.length > 0)
 
+// 一条消息里的图片要么一起出现，要么先显示加载提示，避免一张一张往外蹦
+const pendingImages = computed(() => {
+  let meta: Record<string, unknown>
+  try {
+    meta = JSON.parse(props.message.meta) as Record<string, unknown>
+  } catch {
+    return 0
+  }
+  const segments = Array.isArray(meta.segments) ? meta.segments : []
+  let pending = 0
+  for (const item of segments) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    if (record.kind !== 'image' || typeof record.value !== 'string') continue
+    const fileId = record.value.split('|')[0]
+    const file = props.files.find((task) => task.fileId === fileId)
+    if (
+      file !== undefined &&
+      (file.direction === 'out' || file.state === 'done' || file.state === 'failed')
+    ) {
+      continue
+    }
+    if (emotionByKey(record.value) !== null) continue
+    pending += 1
+  }
+  return pending
+})
+
 const textBody = computed(() => {
   if (hasSegments.value) return ''
   if (stickerUrl.value !== '') return ''
@@ -275,7 +303,8 @@ async function revealFolder(): Promise<void> {
             'sticker-bubble': stickerUrl !== '' && !hasSegments
           }"
         >
-          <div v-if="hasSegments" class="segment-row">
+          <div v-if="hasSegments && pendingImages > 0" class="segment-loading">图片加载中…</div>
+          <div v-else-if="hasSegments" class="segment-row">
             <template v-for="(part, index) in renderParts" :key="index">
               <span v-if="part.kind === 'text'" class="segment-text">{{ part.text }}</span>
               <img
@@ -456,6 +485,11 @@ async function revealFolder(): Promise<void> {
 .segment-sticker {
   width: 40px;
   height: 40px;
+}
+
+.segment-loading {
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 /* 表情不套气泡底色，按原始尺寸显示 */

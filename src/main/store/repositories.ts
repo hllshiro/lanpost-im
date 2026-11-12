@@ -615,12 +615,32 @@ export class FileRepository {
   }
 }
 
+export class ImageCacheRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  get(md5: string): { path: string; size: number } | null {
+    const row = this.db.prepare('SELECT path, size FROM image_cache WHERE md5 = ?').get(md5) as
+      { path: string; size: number } | undefined
+    return row === undefined ? null : row
+  }
+
+  put(md5: string, path: string, size: number): void {
+    this.db
+      .prepare(
+        'INSERT INTO image_cache (md5, path, size, created_at) VALUES (?, ?, ?, ?) ' +
+          'ON CONFLICT(md5) DO UPDATE SET path = excluded.path, size = excluded.size'
+      )
+      .run(md5, path, size, Date.now())
+  }
+}
+
 export interface Repositories {
   conversations: ConversationRepository
   messages: MessageRepository
   peers: PeerRepository
   files: FileRepository
   groups: QGroupRepository
+  images: ImageCacheRepository
 }
 
 export function createRepositories(db: DatabaseSync): Repositories {
@@ -629,6 +649,7 @@ export function createRepositories(db: DatabaseSync): Repositories {
     messages: new MessageRepository(db),
     peers: new PeerRepository(db),
     files: new FileRepository(db),
-    groups: new QGroupRepository(db)
+    groups: new QGroupRepository(db),
+    images: new ImageCacheRepository(db)
   }
 }

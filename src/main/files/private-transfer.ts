@@ -406,12 +406,14 @@ export class PrivateFileTransfer {
     const channel = new FrameChannel(socket)
     const first = await this.requireFrame(channel)
     if (first.type === FILE_FRAME_WINDOW) {
-      // 反向接收：对端是发送方，本端是接收方，按接收流程发 HELLO 并收数据
-      const task = this.pendingIncoming()
+      // 反向接收：对端是发送方，本端是接收方，按接收流程发 HELLO 并收数据。
+      // 窗口帧在偏移 44 写着这一路要推的文件号，必须按它找任务，不能随便取一个待接收任务
+      const pushedId = first.body.length >= 48 ? first.body.readUInt32BE(44) : 0
+      const task = this.incoming.get(pushedId) ?? this.pendingIncoming()
       if (task === undefined) {
         throw new Error('私有文件通道收到窗口消息但没有待接收任务')
       }
-      this.log(`收到反向图片推送 ${task.fileId}，开始接收`)
+      this.log(`收到反向图片推送 ${pushedId}，按任务 ${task.fileId} 接收`)
       await this.receiveOver(socket, channel, task, task.fileId, '', false)
       return
     }

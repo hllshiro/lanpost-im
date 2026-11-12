@@ -6,7 +6,8 @@ import {
   ConversationRepository,
   FileRepository,
   MessageRepository,
-  PeerRepository
+  PeerRepository,
+  createRepositories
 } from './repositories'
 
 function openMemory(): DatabaseSync {
@@ -348,6 +349,17 @@ describe('FileRepository', () => {
       path: 'C:/recv/报告.pdf'
     })
 
+    db.close()
+  })
+
+  it('stores and updates cached images by md5', () => {
+    const db = openDatabase(':memory:')
+    const { images } = createRepositories(db)
+    expect(images.get('abc')).toBeNull()
+    images.put('abc', 'C:/recv/a.png', 10)
+    expect(images.get('abc')).toEqual({ path: 'C:/recv/a.png', size: 10 })
+    images.put('abc', 'C:/recv/b.png', 20)
+    expect(images.get('abc')).toEqual({ path: 'C:/recv/b.png', size: 20 })
     db.close()
   })
 })

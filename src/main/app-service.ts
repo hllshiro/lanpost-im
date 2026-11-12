@@ -319,6 +319,8 @@ export class AppService {
   private groupRequestSeq = 0
   // 已发出群资料请求的群，收到应答前不动本地数据
   private readonly groupInfoProbes = new Set<string>()
+  // 收到的图片：文件号 → 卡片里的 md5，用来写图片缓存
+  private readonly privateImageMd5 = new Map<number, string>()
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<string>()
@@ -3169,6 +3171,15 @@ export class AppService {
     const pending: PrivateImageRef[] = []
     for (const ref of images) {
       if (this.privateFileTasks.has(ref.id)) continue
+      const md5 = ref.value.split('|')[1] ?? ''
+      if (md5 !== '') this.privateImageMd5.set(ref.id, md5)
+      if (md5 !== '') {
+        const cached = this.repos.images.get(md5)
+        if (cached !== null && existsSync(cached.path)) {
+          this.useCachedImage(ip, messageId, ref, cached.path, cached.size, conversationId)
+          continue
+        }
+      }
       this.privateImageMessages.set(ref.id, messageId)
       pending.push(ref)
     }
@@ -3177,32 +3188,66 @@ export class AppService {
     for (const ref of pending) {
       this.registerImageTask(ip, messageId, ref, conversationId)
     }
-    // 对方收到卡片后等的是 1019，越早发越早开始推送；retrieve 只用来告诉它要哪张
-    const msgId = nextPrivateSeq(Date.now(), (this.privateSeq = (this.privateSeq + 1) >>> 0))
-    service.sendRetrieveImages(ip, msgId, pending)
+    // 一条 retrieve 列出全部图片，再逐张发 1019；对面会并行推送
+    const listMsgId = nextPrivateSeq(Date.now(), (this.privateSeq = (this.privateSeq + 1) >>> 0))
+    service.sendRetrieveImages(ip, listMsgId, pending)
     for (const ref of pending) {
       service.sendReverseFileReq(ip, String(ref.id))
     }
-    // 没等到推送就再要两次
-    for (const delay of [3000, 8000]) {
-      setTimeout(() => {
-        for (const ref of pending) {
-          if (this.imagePending(ref.id)) {
-            logStartup(`私有图片 ${ref.id} 再次请求 ${delay}ms`)
-            service.sendReverseFileReq(ip, String(ref.id))
-          }
+    // 2 秒后还没开始收的再单独要一次
+    setTimeout(() => {
+      for (const ref of pending) {
+        const task = this.repos.files.get(`pf${ref.id}`)
+        if (task !== null && task.state === 'waiting' && task.received === 0) {
+          logStartup(`私有图片 ${ref.id} 2 秒仍未开始，重新请求`)
+          const msgId = nextPrivateSeq(Date.now(), (this.privateSeq = (this.privateSeq + 1) >>> 0))
+          service.sendRetrieveImages(ip, msgId, [ref])
+          service.sendReverseFileReq(ip, String(ref.id))
         }
-      }, delay)
-    }
+      }
+    }, 2000)
   }
 
   // 图片还没开始收、也没收完时继续探测
-  private imagePending(fileId: number): boolean {
-    const incoming = this.privateIncomingFiles.get(`pf${fileId}`)
-    if (incoming !== undefined && incoming.started) return false
-    const task = this.repos.files.get(`pf${fileId}`)
-    if (task === null) return true
-    return task.received === 0 && task.state !== 'done' && task.state !== 'failed'
+  // 同一张图之前收过，直接用本地文件，不再向对端要
+  private useCachedImage(
+    ip: string,
+    messageId: number,
+    ref: PrivateImageRef,
+    path: string,
+    size: number,
+    conversationId?: string
+  ): void {
+    const peer = this.peerForIp(ip)
+    const conversation =
+      conversationId === undefined
+        ? this.repos.conversations.ensureDirect(peer.key, peer.name)
+        : (this.repos.conversations.get(conversationId) ??
+          this.repos.conversations.ensureDirect(peer.key, peer.name))
+    const fileTaskId = `pf${ref.id}`
+    const now = Date.now()
+    this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId })
+    const task: FileTaskInfo = {
+      id: fileTaskId,
+      messageId,
+      conversationId: conversation.id,
+      peerKey: peer.key,
+      direction: 'in',
+      name: basename(path),
+      size,
+      mtime: 0,
+      fileId: String(ref.id),
+      packetId: 0,
+      path,
+      state: 'done',
+      received: size,
+      error: '',
+      createdAt: now,
+      updatedAt: now
+    }
+    this.repos.files.upsert(task)
+    this.handleFileUpdate(task)
+    logStartup(`图片 ${ref.id} 命中缓存 ${basename(path)}`)
   }
 
   // 图片没有 X_SEND_FILE 邀请，先登记一条待接收任务，对端连过来才接得住
@@ -3540,6 +3585,17 @@ export class AppService {
     const task = this.repos.files.get(entry.fileTaskId)
     if (task === null) return
     const saved = entry.direction === 'in' ? this.normalizeReceivedImage(path) : path
+    if (entry.direction === 'in') {
+      const md5 = this.privateImageMd5.get(fileId)
+      if (md5 !== undefined) {
+        try {
+          this.repos.images.put(md5, saved, statSync(saved).size)
+        } catch (error) {
+          logStartup(`图片缓存写入失败：${(error as Error).message}`)
+        }
+        this.privateImageMd5.delete(fileId)
+      }
+    }
     const total = Math.max(task.size, task.received)
     if (entry.direction === 'in') {
       this.privateService?.sendOperateRecvFile(entry.ip, entry.taskId, 2)
