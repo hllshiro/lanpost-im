@@ -837,7 +837,7 @@ export class AppService {
     )
   }
 
-  // 对端公布的端口与它实际监听的端口不一定一致，9013 作为兜底
+  // 真实客户端拉离线文件连的是对端的 9013，公布的文件端口反而可能是关的；先试 9013
   private async receiveGroupFileFrom(
     transfer: PrivateFileTransfer,
     ip: string,
@@ -846,11 +846,11 @@ export class AppService {
     peerUserId: string
   ): Promise<void> {
     try {
-      await transfer.receive(ip, port, fileId, peerUserId)
-    } catch (error) {
-      if (port === 9013) throw error
-      logStartup(`群文件接收 ${port} 失败，改用 9013 重试`)
       await transfer.receive(ip, 9013, fileId, peerUserId)
+    } catch (error) {
+      if (port === 9013 || port <= 0) throw error
+      logStartup(`群文件接收 9013 失败，改用对端公布的 ${port} 重试`)
+      await transfer.receive(ip, port, fileId, peerUserId)
     }
   }
 
