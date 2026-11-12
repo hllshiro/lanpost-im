@@ -65,6 +65,7 @@ function makeSession(
       onGroupUsers: (info, members) => events.push(`group-users:${info.id}:${members.length}`),
       onGroupMessage: (groupId, msgId, text) =>
         events.push(`group-msg:${groupId}:${msgId}:${text}`),
+      onReady: (userId) => events.push(`ready-user:${userId}`),
       onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),
       onLog: () => {}

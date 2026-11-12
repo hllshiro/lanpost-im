@@ -222,7 +222,8 @@ export class AppService {
   // 图片消息里的文件号 → 消息 id，图片收到后挂到这条消息上
   private readonly privateImageMessages = new Map<number, number>()
   // 只发了卡片的图片：等对端发 1019 来要，再用窗口通道推过去
-  private readonly privateImagePushes = new Map<number, { ip: string; taskId: string }>()
+  // 图片卡片：文件号 → 还没来要这张图的对端（群发时会有多个）
+  private readonly privateImagePushes = new Map<number, Array<{ ip: string; taskId: string }>>()
   // 文件夹通道的研究探针：只记录收到的帧结构
   private privateFolders: PrivateFolderTransfer | null = null
   private readonly folderOutgoing = new Map<string, OutgoingFolder>()
@@ -230,7 +231,7 @@ export class AppService {
   private readonly folderLinks = new Map<string, { conversationId: string; messageId: number }>()
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
-  private readonly privateReverseStarted = new Set<number>()
+  private readonly privateReverseStarted = new Set<string>()
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -407,8 +408,9 @@ export class AppService {
           onFolderReverse: (ip, taskId) => this.handlePrivateFolderReverse(ip, taskId),
           onGroupInfo: (ip, info) => this.handleGroupInfo(ip, info),
           onGroupUsers: (ip, info, members) => this.handleGroupUsers(ip, info, members),
-          onGroupMessage: (ip, groupId, msgId, text) =>
-            this.handleGroupMessage(ip, groupId, msgId, text),
+          onGroupMessage: (ip, groupId, msgId, text, images) =>
+            this.handleGroupMessage(ip, groupId, msgId, text, images),
+          onReady: (ip, userId) => logStartup(`私有会话 ${ip} 用户号 ${userId}`),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -619,8 +621,14 @@ export class AppService {
     }
   }
 
-  // 群消息：没有 ACK，按 MSG_ID 去重后落库
-  private handleGroupMessage(ip: string, groupId: string, msgId: number, text: string): void {
+  // 群消息：没有 ACK，按 MSG_ID 去重后落库；图片按卡片里的文件号各自拉取
+  private handleGroupMessage(
+    ip: string,
+    groupId: string,
+    msgId: number,
+    text: string,
+    images: PrivateImageRef[]
+  ): void {
     try {
       const group = this.repos.groups.get(groupId)
       const title = group?.name || '群聊'
@@ -639,6 +647,9 @@ export class AppService {
       this.repos.conversations.touch(conversation.id, message.createdAt, 1)
       this.emit({ type: 'message', message })
       this.emitConversation(conversation.id)
+      if (images.length > 0) {
+        this.requestImages(ip, message.id, images, conversation.id)
+      }
       logStartup(`私有群消息 ${title} MSG_ID=${msgId} 来自 ${senderName ?? ip}`)
     } catch (error) {
       logStartup(`私有群消息处理失败：${(error as Error).message}`)
@@ -1233,6 +1244,7 @@ export class AppService {
 
   // 依次发出待发附件，成功一张就移除一张，中途失败时剩下的留在待发区
   async sendStaged(conversationId: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
     for (;;) {
       const entry = this.staged.list(conversationId)[0]
       if (entry === undefined) break
@@ -1242,7 +1254,13 @@ export class AppService {
         this.emitStaged(conversationId)
         continue
       }
-      if (entry.kind === 'folder') {
+      if (conversation !== null && conversation.kind === 'group') {
+        // 群里只支持图片：走群消息里的 img 卡片，各成员自己来拉原图
+        if (entry.kind !== 'image') {
+          throw new Error('群聊暂时只支持发送图片')
+        }
+        this.sendGroupImages(conversation, [file.path])
+      } else if (entry.kind === 'folder') {
         await this.sendFolder(conversationId, file.path)
       } else {
         this.sendFiles(conversationId, [file.path])
@@ -1250,6 +1268,82 @@ export class AppService {
       this.staged.take(conversationId, entry.id)
       logStartup(`待发区发出 ${entry.name}，剩余 ${this.staged.list(conversationId).length} 个`)
       this.emitStaged(conversationId)
+    }
+  }
+
+  // 群图片：一条群消息里的 img 卡片，按成员逐个投递，谁发 1019 就把原图推给谁
+  private sendGroupImages(conversation: ConversationInfo, paths: string[]): void {
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const service = this.privateService
+    const transfer = this.privateFiles
+    if (groupId === '' || service === null || transfer === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const selfId = privateUserId(this.settings.get())
+    const targets: Array<{ ip: string }> = []
+    for (const member of this.repos.groups.members(groupId)) {
+      if (member.userId === selfId) continue
+      const ip = service.peerIpByUserId(member.userId)
+      if (ip !== null && service.isReady(ip)) targets.push({ ip })
+    }
+    if (targets.length === 0) {
+      throw new Error('群成员都不在线')
+    }
+    for (const path of paths) {
+      const stats = statSync(path)
+      if (!stats.isFile()) continue
+      const fileId = this.nextFileId()
+      const name = basename(path)
+      const value = `${fileId}|${fileMd5(path)}`
+      transfer.registerOutgoing({ fileId, path, size: stats.size, window: value })
+      const fileTaskId = `pf${fileId}`
+      const message = this.repos.messages.insertOutgoing(
+        conversation.id,
+        '[图片]',
+        this.nextPrivateMessageId(),
+        'text',
+        JSON.stringify({ source: 'private-image', fileId: fileTaskId, groupId })
+      )
+      this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId: message.id })
+      this.repos.messages.setStatus(message.id, 'sent')
+      this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+      this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+      this.emitConversation(conversation.id)
+      const pushes = targets.map((target) => ({
+        ip: target.ip,
+        taskId: this.nextPrivateTaskId(target.ip)
+      }))
+      for (const push of pushes) {
+        service.sendImageCard(push.ip, message.id, value)
+      }
+      this.privateImagePushes.set(fileId, pushes)
+      this.privateFileTasks.set(fileId, {
+        fileTaskId,
+        direction: 'out',
+        taskId: pushes[0]?.taskId ?? '',
+        ip: pushes[0]?.ip ?? ''
+      })
+      const now = Date.now()
+      const task: FileTaskInfo = {
+        id: fileTaskId,
+        messageId: message.id,
+        conversationId: conversation.id,
+        direction: 'out',
+        name,
+        size: stats.size,
+        mtime: Math.floor(stats.mtimeMs / 1000),
+        fileId: String(fileId),
+        packetId: 0,
+        path,
+        state: 'transferring',
+        received: 0,
+        error: '',
+        createdAt: now,
+        updatedAt: now
+      }
+      this.repos.files.upsert(task)
+      this.handleFileUpdate(task)
+      logStartup(`群图片已发卡片 ${name} 文件号=${fileId} 成员=${pushes.length}`)
     }
   }
 
@@ -1415,7 +1509,7 @@ export class AppService {
         this.repos.conversations.touch(conversationId, message.createdAt, 0)
         this.emitConversation(conversationId)
         service.sendImageCard(peer.ip, message.id, value)
-        this.privateImagePushes.set(fileId, { ip: peer.ip, taskId })
+        this.privateImagePushes.set(fileId, [{ ip: peer.ip, taskId }])
         // 卡片已经交给可靠通道，状态先置为已发送；回执来了再更新
         this.repos.messages.setStatus(message.id, 'sent')
         this.emit({ type: 'message', message: { ...message, status: 'sent' } })
@@ -1702,7 +1796,12 @@ export class AppService {
 
   // 图片消息只带发送方缓存里的编号，先回 retrieve 消息请对方推原图，
   // 再按几种可能的操作指令依次探测，哪种能触发 1009 一看抓包就知道
-  private requestImages(ip: string, messageId: number, images: PrivateImageRef[]): void {
+  private requestImages(
+    ip: string,
+    messageId: number,
+    images: PrivateImageRef[],
+    conversationId?: string
+  ): void {
     const service = this.privateService
     if (service === null) return
     const pending: PrivateImageRef[] = []
@@ -1714,7 +1813,7 @@ export class AppService {
     if (pending.length === 0) return
     logStartup(`私有图片消息 ${messageId} 请求 ${pending.map((ref) => ref.id).join(',')}`)
     for (const ref of pending) {
-      this.registerImageTask(ip, messageId, ref)
+      this.registerImageTask(ip, messageId, ref, conversationId)
     }
     // 对方收到卡片后等的是 1019，越早发越早开始推送；retrieve 只用来告诉它要哪张
     const msgId = nextPrivateSeq(Date.now(), (this.privateSeq = (this.privateSeq + 1) >>> 0))
@@ -1745,7 +1844,12 @@ export class AppService {
   }
 
   // 图片没有 X_SEND_FILE 邀请，先登记一条待接收任务，对端连过来才接得住
-  private registerImageTask(ip: string, messageId: number, ref: PrivateImageRef): void {
+  private registerImageTask(
+    ip: string,
+    messageId: number,
+    ref: PrivateImageRef,
+    conversationId?: string
+  ): void {
     const transfer = this.privateFiles
     if (transfer === null) return
     const fileTaskId = `pf${ref.id}`
@@ -1754,7 +1858,11 @@ export class AppService {
     const saveDir = join(this.receiveDir, sanitizeFileName(peer.name) || '内网通')
     mkdirSync(saveDir, { recursive: true })
     const savePath = join(saveDir, `image-${ref.id}.png`)
-    const conversation = this.repos.conversations.ensureDirect(peer.key, peer.name)
+    const conversation =
+      conversationId === undefined
+        ? this.repos.conversations.ensureDirect(peer.key, peer.name)
+        : (this.repos.conversations.get(conversationId) ??
+          this.repos.conversations.ensureDirect(peer.key, peer.name))
     const now = Date.now()
     this.privateFileTasks.set(ref.id, {
       fileTaskId,
@@ -1992,16 +2100,24 @@ export class AppService {
       fileTaskId = entry.fileTaskId
       fileId = Number(fileTask.fileId)
     } else {
-      // 图片的 1019 用对端自己的任务号，按“最近一张待推的图片”匹配
-      const pending = Array.from(this.privateImagePushes.entries()).find(
-        ([, push]) => push.ip === ip
-      )
-      if (pending === undefined) return
-      fileId = pending[0]
+      // 图片的 1019 用对端自己的任务号，按“这个对端待推的图片”匹配
+      let matched: number | null = null
+      for (const [candidate, pushes] of this.privateImagePushes) {
+        if (pushes.some((push) => push.ip === ip)) {
+          matched = candidate
+          break
+        }
+      }
+      if (matched === null) return
+      fileId = matched
       fileTaskId = `pf${fileId}`
-      this.privateImagePushes.delete(fileId)
+      const pushes = this.privateImagePushes.get(fileId) ?? []
+      const remaining = pushes.filter((push) => push.ip !== ip)
+      if (remaining.length === 0) this.privateImagePushes.delete(fileId)
+      else this.privateImagePushes.set(fileId, remaining)
     }
-    if (this.privateReverseStarted.has(fileId)) return
+    const reverseKey = `${fileId}:${ip}`
+    if (this.privateReverseStarted.has(reverseKey)) return
     const transfer = this.privateFiles
     const service = this.privateService
     if (transfer === null || service === null) return
@@ -2010,7 +2126,7 @@ export class AppService {
       this.updatePrivateFileTask(fileTaskId, 'failed', 0, '对端没有公布反向文件端口')
       return
     }
-    this.privateReverseStarted.add(fileId)
+    this.privateReverseStarted.add(reverseKey)
     logStartup(`私有文件通道改用反向连接 ${ip}:${reversePort}（文件 ${fileId}）`)
     void this.sendReverseImage(transfer, ip, reversePort, fileId).catch((error: unknown) => {
       logStartup(

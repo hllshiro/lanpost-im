@@ -121,7 +121,13 @@ export type IncomingPrivate =
   | { kind: 'folder-reverse'; taskId: string }
   | { kind: 'group-info'; info: PrivateGroupInfo }
   | { kind: 'group-user'; info: PrivateGroupInfo; members: PrivateGroupMember[] }
-  | { kind: 'group-message'; groupId: string; msgId: number; text: string }
+  | {
+      kind: 'group-message'
+      groupId: string
+      msgId: number
+      text: string
+      images: PrivateImageRef[]
+    }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -776,7 +782,13 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const body = tagText(xml, 'MSG')
       const text = body === null ? null : textFromJson(body)
       if (groupId === null || text === null) return unrecognized(cmd)
-      return { kind: 'group-message', groupId, msgId, text }
+      return {
+        kind: 'group-message',
+        groupId,
+        msgId,
+        text,
+        images: body === null ? [] : imageRefsFromJson(body)
+      }
     }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }

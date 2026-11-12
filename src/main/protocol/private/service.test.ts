@@ -95,6 +95,7 @@ function options(
       onGroupInfo: () => {},
       onGroupUsers: () => {},
       onGroupMessage: () => {},
+      onReady: () => {},
       onSendFailed: () => {},
       onState: () => {},
       onActivity: () => {},

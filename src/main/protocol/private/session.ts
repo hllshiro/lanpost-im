@@ -111,7 +111,9 @@ export interface SessionCallbacks {
   onFolderReverse(taskId: string): void
   onGroupInfo(info: PrivateGroupInfo): void
   onGroupUsers(info: PrivateGroupInfo, members: PrivateGroupMember[]): void
-  onGroupMessage(groupId: string, msgId: number, text: string): void
+  onGroupMessage(groupId: string, msgId: number, text: string, images: PrivateImageRef[]): void
+  // 对端在 X_READY 里公布的 32 位用户号，群消息靠它识别发送者
+  onReady(userId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
   onSendFailed(msgId: number): void
   onState(state: SessionState): void
@@ -660,9 +662,15 @@ export class PrivateSession {
         this.callbacks.onGroupUsers(incoming.info, incoming.members)
         return
       case 'group-message':
-        this.callbacks.onGroupMessage(incoming.groupId, incoming.msgId, incoming.text)
+        this.callbacks.onGroupMessage(
+          incoming.groupId,
+          incoming.msgId,
+          incoming.text,
+          incoming.images
+        )
         return
       case 'ready':
+        this.callbacks.onReady(incoming.userId)
         if (this.currentState === 'handshaking') {
           this.enterReady()
         }

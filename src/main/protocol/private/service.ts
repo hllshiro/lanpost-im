@@ -53,7 +53,14 @@ export interface PrivateServiceOptions {
     onFolderReverse(ip: string, taskId: string): void
     onGroupInfo(ip: string, info: PrivateGroupInfo): void
     onGroupUsers(ip: string, info: PrivateGroupInfo, members: PrivateGroupMember[]): void
-    onGroupMessage(ip: string, groupId: string, msgId: number, text: string): void
+    onGroupMessage(
+      ip: string,
+      groupId: string,
+      msgId: number,
+      text: string,
+      images: PrivateImageRef[]
+    ): void
+    onReady(ip: string, userId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
@@ -130,6 +137,8 @@ export class PrivateService {
   private readonly sessions = new Map<string, PrivateSession>()
   private readonly peerPorts = new Map<string, number>()
   private readonly peerProfiles = new Map<string, RemoteProfile>()
+  // 对端在 X_READY 里公布的 32 位用户号；群成员靠它对上号
+  private readonly peerUserIds = new Map<string, string>()
   // 对端 X_HANDSHARK 里公布的私有文件通道 TCP 端口
   private readonly peerFilePorts = new Map<string, number>()
   private readonly peerReversePorts = new Map<string, number>()
@@ -291,6 +300,9 @@ export class PrivateService {
 
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
+    for (const [ip, readyId] of this.peerUserIds) {
+      if (readyId === userId) return ip
+    }
     for (const [ip, profile] of this.peerProfiles) {
       if (profile.userId === userId) return ip
     }
@@ -333,6 +345,8 @@ export class PrivateService {
   }
 
   peerUserId(ip: string): string {
+    const readyId = this.peerUserIds.get(ip)
+    if (readyId !== undefined) return readyId
     return this.peerProfiles.get(ip)?.userId ?? ''
   }
 
@@ -478,8 +492,14 @@ export class PrivateService {
       onFolderReverse: (taskId) => this.options.callbacks.onFolderReverse(ip, taskId),
       onGroupInfo: (info) => this.options.callbacks.onGroupInfo(ip, info),
       onGroupUsers: (info, members) => this.options.callbacks.onGroupUsers(ip, info, members),
-      onGroupMessage: (groupId, msgId, text) =>
-        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text),
+      onGroupMessage: (groupId, msgId, text, images) =>
+        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text, images),
+      onReady: (userId) => {
+        if (userId !== '') {
+          this.peerUserIds.set(ip, userId)
+        }
+        this.options.callbacks.onReady(ip, userId)
+      },
       onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)
