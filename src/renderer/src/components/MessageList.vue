@@ -126,6 +126,10 @@ function onScroll(): void {
   if (bottom && !atBottom.value) emit('read')
   atBottom.value = bottom
   if (bottom) newBelow.value = 0
+  // 翻到顶部附近就动态向前补一页，旧消息不会一次性全读出来
+  if (element.scrollTop < 120 && props.hasMore && !props.loadingMore && props.messages.length > 0) {
+    requestOlder()
+  }
 }
 
 function jumpToBottom(): void {
@@ -133,13 +137,23 @@ function jumpToBottom(): void {
   emit('read')
 }
 
+const requestedOlder = ref(false)
+
 function requestOlder(): void {
   const element = scroller.value
   const first = props.messages[0]
-  if (!element || !first || props.loadingMore) return
+  if (!element || !first || props.loadingMore || requestedOlder.value) return
+  requestedOlder.value = true
   prependHeight = element.scrollHeight
   emit('loadMore', first.id)
 }
+
+watch(
+  () => props.loadingMore,
+  (loading) => {
+    if (!loading) requestedOlder.value = false
+  }
+)
 
 watch(
   () => props.conversationId,
@@ -207,10 +221,11 @@ onMounted(async () => {
   <div class="message-list">
     <div ref="scroller" class="scroller" @scroll="onScroll">
       <div class="stream">
-        <div v-if="hasMore" class="older">
-          <button :disabled="loadingMore" @click="requestOlder">
-            {{ loadingMore ? '加载中…' : '查看更早的消息' }}
+        <div v-if="hasMore || loadingMore" class="older">
+          <button v-if="!loadingMore" :disabled="loadingMore" @click="requestOlder">
+            查看更早的消息
           </button>
+          <span v-else class="older-loading">正在加载更早的消息…</span>
         </div>
 
         <template v-for="row in rows" :key="row.key">
@@ -287,6 +302,11 @@ onMounted(async () => {
 }
 
 .older button:disabled {
+  color: var(--text-muted);
+}
+
+.older-loading {
+  font-size: 11px;
   color: var(--text-muted);
 }
 
