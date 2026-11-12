@@ -2059,7 +2059,7 @@ export class AppService {
     if (usedStaged.length > 0) this.emitStaged(conversationId)
     logStartup(`富文本消息已发：${imageCount} 张图片，文字 ${textParts.join('').length} 字`)
   }
-  // 收藏的表情加进待发区，和图片一起发送
+  // 收藏的图片按原图发送，气泡里按普通图片的尺寸显示，不套表情的小尺寸限制
   stageFavorite(conversationId: string, id: string): StagedAttachment[] {
     const path = this.favorites.filePath(id)
     if (path === null) throw new Error('收藏的表情已被删除')
@@ -2069,8 +2069,7 @@ export class AppService {
         name: basename(path),
         size: statSync(path).size,
         kind: 'image',
-        temporary: false,
-        sticker: true
+        temporary: false
       }
     ])
   }
