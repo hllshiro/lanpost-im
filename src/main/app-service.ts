@@ -14,6 +14,7 @@ import { networkInterfaces } from 'node:os'
 import {
   app,
   clipboard,
+  ClipboardItem,
   dialog,
   shell,
   type BrowserWindow,
@@ -156,6 +157,17 @@ function imageExtension(mime: string): string {
     default:
       return 'png'
   }
+}
+
+// 复制到剪贴板时要按扩展名给出 MIME，Electron 44 的 clipboard 只认 Blob 的 MIME
+function imageMimeOf(name: string): string {
+  const lower = name.toLowerCase()
+  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg'
+  if (lower.endsWith('.gif')) return 'image/gif'
+  if (lower.endsWith('.bmp')) return 'image/bmp'
+  if (lower.endsWith('.webp')) return 'image/webp'
+  if (lower.endsWith('.png')) return 'image/png'
+  return ''
 }
 
 function isImagePath(path: string): boolean {
@@ -1547,6 +1559,20 @@ export class AppService {
     if (error !== '') {
       throw new Error(error)
     }
+  }
+
+  // 把图片本身放进剪贴板，方便直接粘到别的程序里
+  async copyImage(id: string): Promise<void> {
+    const task = this.repos.files.get(id)
+    if (task === null || task.path === '' || !existsSync(task.path)) {
+      throw new Error('图片文件已被移动或删除')
+    }
+    const type = imageMimeOf(task.name)
+    if (type === '') {
+      throw new Error('这张图片的格式不支持复制')
+    }
+    const data = readFileSync(task.path)
+    await clipboard.write([new ClipboardItem({ [type]: new Blob([data], { type }) })])
   }
 
   // 文件夹消息里的“打开文件夹”：只接受真实存在的目录
