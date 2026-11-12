@@ -1,6 +1,6 @@
 import { createSocket, type Socket } from 'node:dgram'
 import { afterEach, describe, expect, it } from 'vitest'
-import { encodeBeacon } from './beacon'
+import { decodeBeacon, encodeBeacon } from './beacon'
 import {
   ENET_CMD_ACK,
   ENET_CMD_CONNECT,
@@ -277,10 +277,27 @@ describe('private service', () => {
       beaconPort,
       '127.0.0.1'
     )
-    const first = await waitFor(() => (peer.received.length > 0 ? peer.received[0] : null))
+    const first = await waitFor(
+      () =>
+        peer.received.find((data) => {
+          try {
+            return decodeDatagram(data).commands.some(
+              (command) => (command.command & 0x7f) === ENET_CMD_CONNECT
+            )
+          } catch {
+            return false
+          }
+        }) ?? null
+    )
     const d = decodeDatagram(first)
     expect(d.commands[0].command).toBe(ENET_CMD_CONNECT | ENET_FLAG_ACK)
     expect(service.isReady('127.0.0.1')).toBe(false)
+
+    const reply = peer.received
+      .map((data) => decodeBeacon(data))
+      .find((beacon) => beacon?.type === 2)
+    expect(reply?.enetPort).toBe(service.localEnetPort)
+    expect(reply?.userId).toBe('0123456789abcdef0123456789abcdef')
   })
 
   it('resolves simultaneous connects by port when both share an address', async () => {

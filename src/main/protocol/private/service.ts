@@ -1,6 +1,6 @@
 import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
-import { decodeBeacon } from './beacon'
+import { decodeBeacon, encodeBeacon } from './beacon'
 import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type {
   PrivateCardNode,
@@ -33,6 +33,8 @@ export interface PrivateServiceOptions {
   filePort?: number
   // 本机私有文件夹通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
   folderPort?: number
+  // 9011 通告间隔；0 或未设置时使用 30 秒
+  broadcastIntervalMs?: number
   callbacks: {
     onText(
       ip: string,
@@ -134,6 +136,30 @@ function ipToNumber(ip: string): number {
   return ip.split('.').reduce((value, part) => value * 256 + Number(part), 0)
 }
 
+function subnetBroadcastOf(ip: string, netmask?: string): string {
+  const parts = ip.split('.').map(Number)
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+    return '255.255.255.255'
+  }
+  if (netmask === undefined) {
+    return `${parts[0]}.${parts[1]}.${parts[2]}.255`
+  }
+  const mask = netmask.split('.').map(Number)
+  if (mask.length !== 4) return `${parts[0]}.${parts[1]}.${parts[2]}.255`
+  return parts.map((part, index) => part | (~mask[index]! & 0xff)).join('.')
+}
+
+function announceTargets(): string[] {
+  const targets = new Set<string>(['255.255.255.255'])
+  for (const entries of Object.values(networkInterfaces())) {
+    for (const entry of entries ?? []) {
+      if (entry.family !== 'IPv4' || entry.internal) continue
+      targets.add(subnetBroadcastOf(entry.address, entry.netmask))
+    }
+  }
+  return [...targets]
+}
+
 function bindSocket(socket: Socket, port: number, address: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const onError = (error: Error): void => {
@@ -161,6 +187,7 @@ export class PrivateService {
   private enet: Socket | null = null
   private discovery: Socket | null = null
   private pumpTimer: ReturnType<typeof setInterval> | null = null
+  private announceTimer: ReturnType<typeof setInterval> | null = null
   private boundEnetPort = 0
   private running = false
   // 键是远端 IP；同一 IP 只保留一个会话，对端 ENet 端口记录在 peerPorts 里供建立会话与同时发起比较使用
@@ -184,6 +211,56 @@ export class PrivateService {
     return this.boundEnetPort
   }
 
+  // 向局域网广播 9011 通告；真实内网通客户端用 type 1 ANNOUNCE 发现彼此
+  announce(): void {
+    const socket = this.discovery
+    if (socket === null || this.boundEnetPort <= 0 || this.options.beaconPort <= 0) return
+    const beacon = encodeBeacon({
+      type: 1,
+      ip: '0.0.0.0',
+      broadcast: subnetBroadcastOf(this.localIp),
+      userId: this.options.identity.userId,
+      peerId: this.options.identity.peerId,
+      enetPort: this.boundEnetPort,
+      beaconPort: this.options.beaconPort
+    })
+    socket.setBroadcast(true)
+    for (const target of announceTargets()) {
+      socket.send(beacon, this.options.beaconPort, target, (error) => {
+        if (error !== null) this.log(`发送发现通告到 ${target} 失败: ${error.message}`)
+      })
+    }
+  }
+
+  // 手动刷新：重新广播通告，并重拨还没建立会话的种子
+  refresh(): void {
+    this.announce()
+    for (const seed of this.options.seeds) {
+      if (this.sessions.has(seed.ip)) continue
+      const port = seed.port ?? DEFAULT_ENET_PORT
+      this.createSession('client', seed.ip, port)?.start()
+    }
+  }
+
+  private replyAnnounce(rinfo: RemoteInfo): void {
+    const socket = this.discovery
+    if (socket === null || this.boundEnetPort <= 0) return
+    const beacon = encodeBeacon({
+      type: 2,
+      ip: '0.0.0.0',
+      broadcast: subnetBroadcastOf(this.localIp),
+      userId: this.options.identity.userId,
+      peerId: this.options.identity.peerId,
+      enetPort: this.boundEnetPort,
+      beaconPort: this.options.beaconPort
+    })
+    socket.send(beacon, rinfo.port, rinfo.address, (error) => {
+      if (error !== null) {
+        this.log(`回复发现通告到 ${rinfo.address}:${rinfo.port} 失败: ${error.message}`)
+      }
+    })
+  }
+
   async start(): Promise<void> {
     if (this.running) {
       throw new Error('私有通道服务已经启动')
@@ -193,12 +270,17 @@ export class PrivateService {
       throw new Error(`本机地址格式错误: ${this.localIp}`)
     }
 
-    const enet = createSocket('udp4')
+    let enet = createSocket('udp4')
     try {
       await bindSocket(enet, this.options.enetPort, this.options.bindAddr)
     } catch (error) {
       enet.close()
-      throw error
+      if (this.options.enetPort === 0) throw error
+      this.log(
+        `ENet 端口 ${this.options.enetPort} 绑定失败，改用临时端口: ${describeError(error)}`
+      )
+      enet = createSocket('udp4')
+      await bindSocket(enet, 0, this.options.bindAddr)
     }
     this.boundEnetPort = enet.address().port
     enet.on('message', (data, rinfo) => this.handleEnetMessage(data, rinfo))
@@ -233,12 +315,22 @@ export class PrivateService {
 
     this.pumpTimer = setInterval(() => this.pump(), PUMP_INTERVAL_MS)
     this.running = true
+    this.announce()
+    const interval = this.options.broadcastIntervalMs ?? 30_000
+    if (interval > 0) {
+      this.announceTimer = setInterval(() => this.announce(), interval)
+      this.announceTimer.unref()
+    }
   }
 
   async stop(): Promise<void> {
     if (this.pumpTimer !== null) {
       clearInterval(this.pumpTimer)
       this.pumpTimer = null
+    }
+    if (this.announceTimer !== null) {
+      clearInterval(this.announceTimer)
+      this.announceTimer = null
     }
     const closing: Array<Promise<void>> = []
     const sessions = Array.from(this.sessions.values())
@@ -556,9 +648,21 @@ export class PrivateService {
       return
     }
     if (!DISCOVERY_BEACON_TYPES.includes(beacon.type) || beacon.enetPort <= 0) return
+    // 自己发出的通告会回到本机；按用户号与源端口识别，避免把本机当成对端
+    if (
+      beacon.userId === this.options.identity.userId &&
+      rinfo.port === this.options.beaconPort
+    ) {
+      return
+    }
     const ip = rinfo.address
-    if (this.sessions.has(ip)) return
-    this.createSession('client', ip, beacon.enetPort)?.start()
+    if (!this.sessions.has(ip)) {
+      this.peerPorts.set(ip, beacon.enetPort)
+      this.createSession('client', ip, beacon.enetPort)?.start()
+    }
+    if (beacon.type === 1) {
+      this.replyAnnounce(rinfo)
+    }
   }
 
   private createSession(

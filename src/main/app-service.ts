@@ -494,9 +494,10 @@ export class AppService {
         profile,
         bindAddr: settings.network.bindAddr,
         beaconPort: settings.network.privatePort,
-        enetPort: 0,
+        enetPort: settings.network.privateEnetPort,
         filePort,
         folderPort,
+        broadcastIntervalMs: settings.network.broadcastInterval * 1000,
         seeds: privateSeeds(settings),
         callbacks: {
           onText: (ip, msgId, text, images, segments) =>
@@ -1725,9 +1726,7 @@ export class AppService {
   }
 
   refreshPeers(): void {
-    if (this.settings.get().network.ipmsg) {
-      this.engine.refresh()
-    }
+    this.privateService?.refresh()
     this.handlePeers(this.engine.getPeers())
   }
 
