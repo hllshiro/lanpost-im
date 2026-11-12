@@ -68,13 +68,13 @@ export interface FileTaskInfo {
   updatedAt: number
 }
 
-// 待发区里的附件：粘贴的图片和选中的文件都先进这里，点发送才真正发出去
+// 待发区里的附件：粘贴的图片、选中的文件和拖进来的文件夹都先进这里，点发送才真正发出去
 export interface StagedAttachment {
   id: string
   conversationId: string
   name: string
   size: number
-  kind: 'image' | 'file'
+  kind: 'image' | 'file' | 'folder'
   createdAt: number
 }
 

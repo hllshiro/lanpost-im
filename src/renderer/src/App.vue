@@ -124,7 +124,7 @@ async function handleDrop(event: DragEvent): Promise<void> {
     if (paths.length > 0) {
       const result = await window.api.files.stagePaths(conversationId, paths)
       if (result.skipped.length > 0) {
-        store.reportError(`暂不支持文件夹：${result.skipped.join('、')}`)
+        store.reportError(`已跳过：${result.skipped.join('、')}`)
       }
     }
     for (const file of detached) {

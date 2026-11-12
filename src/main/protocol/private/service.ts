@@ -249,6 +249,13 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendFileOffer(input) ?? false
   }
 
+  sendFolderOffer(
+    ip: string,
+    input: { taskId: string; name: string; size: number; maxItemPath: number; maxItemSize: number }
+  ): boolean {
+    return this.sessions.get(ip)?.sendFolderOffer(input) ?? false
+  }
+
   sendOperateSendFile(ip: string, taskId: string, op: number): void {
     this.sessions.get(ip)?.sendOperateSendFile(taskId, op)
   }
@@ -263,6 +270,10 @@ export class PrivateService {
 
   sendOperateRecvFolder(ip: string, taskId: string, op: number): void {
     this.sessions.get(ip)?.sendOperateRecvFolder(taskId, op)
+  }
+
+  sendReverseFolderReq(ip: string, taskId: string): void {
+    this.sessions.get(ip)?.sendReverseFolderReq(taskId)
   }
 
   sendProgressRecvFile(ip: string, taskId: string, totalSize: number, recvdSize: number): void {

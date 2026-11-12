@@ -87,7 +87,7 @@ headerSize:name:size:attr[:ext=val...]:
 - 接收目录由 `files.receiveDir` 决定；留空时使用 `Downloads\内网传书`，不可写时回退到 `<userData>\recv`。
 - 修改接收目录后需要重启文件服务。
 - 拒绝不会回传发送方，发送方任务不会自动变成 `rejected`。
-- 文件夹传输未实现：私有通道的协议已还原（`docs/nwt-file-channel.md`），IPMSG 的目录流格式见上一节。
+- 文件夹传输：拖进待发区后随发送一起发出，接收端落盘到 `收件目录/对端/文件夹名`；与真实内网通双向联调通过。
 
 ## 调试入口
 

@@ -64,7 +64,9 @@ const api: Api = {
     pathFor: (file) => webUtils.getPathForFile(file),
     removeStaged: (conversationId, id) =>
       ipcRenderer.invoke(IPC.fileStagedRemove, conversationId, id),
-    sendStaged: (conversationId) => ipcRenderer.invoke(IPC.fileStagedSend, conversationId)
+    sendStaged: (conversationId) => ipcRenderer.invoke(IPC.fileStagedSend, conversationId),
+    sendFolder: (conversationId, path) =>
+      ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

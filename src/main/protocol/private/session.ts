@@ -29,9 +29,11 @@ import {
   quitXml,
   readyXml,
   reverseFileReqXml,
+  reverseFolderReqXml,
   retrieveImagesXml,
   imageCardXml,
   sendFileXml,
+  sendFolderXml,
   sendMsgAckXml,
   sendMsgXml,
   sendReceiptXml
@@ -53,12 +55,14 @@ const CMD_SEND_FILE = 1009
 const CMD_OPERATE_SEND_FILE = 1010
 const CMD_OPERATE_RECV_FILE = 1011
 const CMD_PROGRESS_RECV_FILE = 1012
+const CMD_SEND_FOLDER = 1013
 const CMD_OPERATE_SEND_FOLDER = 1014
 const CMD_OPERATE_RECV_FOLDER = 1015
 const CMD_HEARTBEAT = 1016
 const CMD_QUIT = 1017
 const CMD_READY = 1018
 const CMD_REVERSE_FILE_REQ = 1019
+const CMD_REVERSE_FOLDER_REQ = 1020
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
@@ -285,6 +289,18 @@ export class PrivateSession {
     this.sendFrame(CMD_OPERATE_RECV_FILE, operateRecvFileXml(taskId, op))
   }
 
+  sendFolderOffer(input: {
+    taskId: string
+    name: string
+    size: number
+    maxItemPath: number
+    maxItemSize: number
+  }): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_SEND_FOLDER, sendFolderXml(input)))
+    return true
+  }
+
   sendOperateSendFolder(taskId: string, op: number): void {
     if (this.currentState !== 'ready') return
     this.sendFrame(CMD_OPERATE_SEND_FOLDER, operateSendFolderXml(taskId, op))
@@ -293,6 +309,11 @@ export class PrivateSession {
   sendOperateRecvFolder(taskId: string, op: number): void {
     if (this.currentState !== 'ready') return
     this.sendFrame(CMD_OPERATE_RECV_FOLDER, operateRecvFolderXml(taskId, op))
+  }
+
+  sendReverseFolderReq(taskId: string): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_REVERSE_FOLDER_REQ, reverseFolderReqXml(taskId))
   }
 
   // 取图请求：把收到的 img 节点原样回给发送方，请它把原图推过来

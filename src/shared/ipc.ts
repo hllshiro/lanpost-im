@@ -36,7 +36,8 @@ export const IPC = {
   fileStagePaths: 'files:stage-paths',
   fileStageBytes: 'files:stage-bytes',
   fileStagedRemove: 'files:staged-remove',
-  fileStagedSend: 'files:staged-send'
+  fileStagedSend: 'files:staged-send',
+  fileSendFolder: 'files:send-folder'
 } as const
 
 export interface AppInfo {
@@ -118,5 +119,7 @@ export type Api = {
     pathFor(file: File): string
     removeStaged(conversationId: string, id: string): Promise<void>
     sendStaged(conversationId: string): Promise<void>
+    // 发送文件夹：先发 1013 邀请，对端接受后由文件夹通道推送
+    sendFolder(conversationId: string, path: string): Promise<void>
   }
 }

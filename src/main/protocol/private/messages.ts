@@ -12,7 +12,9 @@ import {
   encodeOperateSendFolder,
   encodeProgressRecvFile,
   encodeReady,
-  encodeSendFile
+  encodeReverseFolderReq,
+  encodeSendFile,
+  encodeSendFolder
 } from '../xml'
 import type { Feature, Handshake, NetPorts, UserInfo, XmlTag, XmlTypes } from '../xml'
 import { encodeBeacon } from './beacon'
@@ -394,6 +396,28 @@ export function operateRecvFolderXml(taskId: string, op: number): string {
 
 export function operateSendFolderXml(taskId: string, op: number): string {
   return encodeOperateSendFolder({ Docver: DOCVER, TaskID: taskId, Op: op })
+}
+
+export function reverseFolderReqXml(taskId: string): string {
+  return encodeReverseFolderReq({ Docver: DOCVER, TaskID: taskId })
+}
+
+export function sendFolderXml(input: {
+  taskId: string
+  name: string
+  size: number
+  maxItemPath: number
+  maxItemSize: number
+}): string {
+  return encodeSendFolder({
+    Docver: DOCVER,
+    TaskID: input.taskId,
+    FolderName: input.name,
+    FolderSize: input.size,
+    MaxItemPath: input.maxItemPath,
+    MaxItemSize: input.maxItemSize,
+    Offline: 0
+  })
 }
 
 // Windows FILETIME：100 纳秒为单位，起点 1601-01-01；超过 2^53，必须用字符串

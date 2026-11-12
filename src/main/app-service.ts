@@ -52,7 +52,8 @@ import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
 import { FileManager } from './files/manager'
-import { FolderProbe } from './files/folder-probe'
+import { PrivateFolderTransfer, type OutgoingFolder } from './files/folder-transfer'
+import { scanFolder } from './files/folder-info'
 import { PrivateFileTransfer } from './files/private-transfer'
 import { StagedStore, type StagedSource } from './files/staged'
 import { sanitizeFileName, uniqueName } from './files/names'
@@ -212,7 +213,8 @@ export class AppService {
   // 只发了卡片的图片：等对端发 1019 来要，再用窗口通道推过去
   private readonly privateImagePushes = new Map<number, { ip: string; taskId: string }>()
   // 文件夹通道的研究探针：只记录收到的帧结构
-  private privateFolders: FolderProbe | null = null
+  private privateFolders: PrivateFolderTransfer | null = null
+  private readonly folderOutgoing = new Map<string, OutgoingFolder>()
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<number>()
@@ -342,7 +344,7 @@ export class AppService {
       })
       await transfer.start()
       this.privateFiles = transfer
-      const folderPort = await this.startFolderProbe(
+      const folderPort = await this.startPrivateFolders(
         settings.network.privateFolderPort,
         settings.network.bindAddr
       )
@@ -376,12 +378,20 @@ export class AppService {
               logStartup(
                 `私有会话 ${ip} 对端文件夹端口 ${folderPort}，反向端口 ${folderReversePort}`
               )
+              // 对端反向连接时按它自己的端口号连过来，本机要把这个号也监听起来
+              if (folderPort > 0) {
+                void this.privateFolders?.listenExtra(folderPort)
+              }
             }
           },
           onFolderOffer: (ip, offer) => this.handlePrivateFolderOffer(ip, offer),
-          onFolderOperate: (ip, cmd, taskId, op) =>
-            logStartup(`私有文件夹操作 ${ip} 命令 ${cmd} 任务 ${taskId} OP=${op}`),
-          onFolderReverse: (ip, taskId) => logStartup(`私有文件夹反向请求 ${ip} 任务 ${taskId}`),
+          onFolderOperate: (ip, cmd, taskId, op) => {
+            logStartup(`私有文件夹操作 ${ip} 命令 ${cmd} 任务 ${taskId} OP=${op}`)
+            if (cmd === 1015 && op === 2) {
+              this.startFolderSend(ip, taskId)
+            }
+          },
+          onFolderReverse: (ip, taskId) => this.handlePrivateFolderReverse(ip, taskId),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -403,19 +413,26 @@ export class AppService {
   }
 
   // 文件夹通道失败只影响文件夹，私有文字与文件照旧
-  private async startFolderProbe(port: number, bindAddr: string): Promise<number> {
+  private async startPrivateFolders(port: number, bindAddr: string): Promise<number> {
     if (port <= 0) {
       logStartup('私有文件夹通道未启用（端口为 0）')
       return 0
     }
-    const probe = new FolderProbe({
+    const transfer = new PrivateFolderTransfer({
       bindAddr,
       port,
-      log: (message) => logStartup('folder probe: ' + message)
+      callbacks: {
+        onProgress: (taskId, received, total) =>
+          logStartup(`私有文件夹进度 任务=${taskId} ${received}/${total}`),
+        onDone: (taskId, dir) => logStartup(`私有文件夹接收完成 任务=${taskId} 目录=${dir}`),
+        onError: (taskId, error) =>
+          logStartup(`私有文件夹接收失败 任务=${taskId}：${error.message}`)
+      },
+      onLog: (message) => logStartup('private folders: ' + message)
     })
     try {
-      await probe.start()
-      this.privateFolders = probe
+      await transfer.start()
+      this.privateFolders = transfer
       return port
     } catch (error) {
       logStartup('私有文件夹通道监听失败: ' + (error as Error).message)
@@ -423,8 +440,7 @@ export class AppService {
     }
   }
 
-  // 对端发来文件夹邀请：先记录结构，再按接收方身份回 1015，
-  // 等 3 秒还没收到反向连接就主动拨对方的文件夹端口，两种方向都留日志
+  // 对端发来文件夹邀请：登记任务、回 1015，接着由对端连我们的文件夹端口
   private handlePrivateFolderOffer(
     ip: string,
     offer: { taskId: string; name: string; size: number; maxItemPath: number; maxItemSize: number }
@@ -434,19 +450,97 @@ export class AppService {
         `最长路径=${offer.maxItemPath} 最大文件=${offer.maxItemSize}`
     )
     const service = this.privateService
-    const probe = this.privateFolders
-    if (service === null || probe === null) return
+    const transfer = this.privateFolders
+    if (service === null || transfer === null) return
+    const peer = this.repos.peers.get(`private:${ip}`) ?? null
+    const peerDir = sanitizeFileName(peer?.name ?? '') || ip
+    const name = sanitizeFileName(basename(offer.name)) || '收到的文件夹'
+    const saveDir = join(this.receiveDir, peerDir, name)
+    mkdirSync(saveDir, { recursive: true })
+    transfer.registerIncoming({
+      taskId: offer.taskId,
+      name,
+      saveDir,
+      size: offer.size
+    })
     service.sendOperateRecvFolder(ip, offer.taskId, 2)
-    const before = probe.inboundCount
-    setTimeout(() => {
-      if (probe.inboundCount > before) return
-      const port = service.peerFolderPort(ip)
-      if (port <= 0) {
-        logStartup('私有文件夹邀请：对端没有公布文件夹端口')
+    logStartup(`私有文件夹邀请：已回 1015 OP=2（任务 ${offer.taskId}），保存到 ${saveDir}`)
+  }
+
+  // 对端接受文件夹后，连接它的文件夹端口开始推送
+  private startFolderSend(ip: string, taskId: string): void {
+    const folder = this.folderOutgoing.get(taskId)
+    const transfer = this.privateFolders
+    const service = this.privateService
+    if (folder === undefined || transfer === null || service === null) {
+      return
+    }
+    this.folderOutgoing.delete(taskId)
+    const advertised = service.peerFolderPort(ip)
+    const port = advertised > 0 ? advertised : 9014
+    logStartup(`私有文件夹发送：对端已接受，连接 ${ip}:${port}（任务 ${taskId}）`)
+    void transfer.send(ip, folder, port).catch(async (error: unknown) => {
+      // 对端公布的口径可能不是它实际监听的端口，9014 再试一次
+      if (port === 9014) {
+        logStartup(`私有文件夹发送失败：${(error as Error).message}`)
         return
       }
-      probe.dial(ip, port)
-    }, 3000)
+      logStartup(`私有文件夹发送：${port} 失败，改用 9014 重试`)
+      try {
+        await transfer.send(ip, folder, 9014)
+      } catch (retry: unknown) {
+        logStartup(`私有文件夹发送失败：${(retry as Error).message}`)
+      }
+    })
+  }
+
+  // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
+  private handlePrivateFolderReverse(ip: string, taskId: string): void {
+    logStartup(`私有文件夹反向请求 ${ip} 任务 ${taskId}`)
+  }
+
+  // 研究用：主动向对端发一个文件夹邀请，让真实客户端扮演接收方，
+  // 它连上我们的文件夹端口后发的第一帧就是接收方开始帧的样本
+  // 发文件夹：先发 1013 邀请，对端回 1015 后再由 folder transfer 连过去推数据
+  async sendFolder(conversationId: string, path: string): Promise<void> {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.peerKey === null) {
+      throw new Error('会话不存在')
+    }
+    const peer = this.repos.peers.get(conversation.peerKey)
+    const service = this.privateService
+    const transfer = this.privateFolders
+    if (peer === null || service === null || transfer === null) {
+      throw new Error('联系人不在线')
+    }
+    if (!service.isReady(peer.ip)) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const info = scanFolder(path)
+    const taskId = randomBytes(16).toString('hex')
+    const sent = service.sendFolderOffer(peer.ip, {
+      taskId,
+      name: path,
+      size: info.totalSize,
+      maxItemPath: info.maxPath,
+      maxItemSize: info.maxSize
+    })
+    this.folderOutgoing.set(taskId, {
+      taskId,
+      name: path,
+      root: path,
+      size: info.totalSize,
+      items: info.items.map((item) => ({
+        name: item.name,
+        dir: item.dir,
+        size: item.size,
+        time: item.time
+      }))
+    })
+    logStartup(
+      `私有文件夹发送：邀请 ${peer.ip} 任务=${taskId} 名称=${path} 大小=${info.totalSize} ` +
+        `项数=${info.items.length} 已交给 ENet=${sent}`
+    )
   }
 
   private importLegacyHistory(): void {
@@ -868,7 +962,23 @@ export class AppService {
     const sources: StagedSource[] = []
     const skipped: string[] = []
     for (const path of paths) {
-      if (!existsSync(path) || !statSync(path).isFile()) {
+      if (!existsSync(path)) {
+        skipped.push(basename(path))
+        continue
+      }
+      const stats = statSync(path)
+      if (stats.isDirectory()) {
+        const info = scanFolder(path)
+        sources.push({
+          path,
+          name: basename(path),
+          size: info.totalSize,
+          kind: 'folder',
+          temporary: false
+        })
+        continue
+      }
+      if (!stats.isFile()) {
         skipped.push(basename(path))
         continue
       }
@@ -910,7 +1020,7 @@ export class AppService {
   }
 
   // 依次发出待发附件，成功一张就移除一张，中途失败时剩下的留在待发区
-  sendStaged(conversationId: string): void {
+  async sendStaged(conversationId: string): Promise<void> {
     for (;;) {
       const entry = this.staged.list(conversationId)[0]
       if (entry === undefined) break
@@ -920,7 +1030,11 @@ export class AppService {
         this.emitStaged(conversationId)
         continue
       }
-      this.sendFiles(conversationId, [file.path])
+      if (entry.kind === 'folder') {
+        await this.sendFolder(conversationId, file.path)
+      } else {
+        this.sendFiles(conversationId, [file.path])
+      }
       this.staged.take(conversationId, entry.id)
       logStartup(`待发区发出 ${entry.name}，剩余 ${this.staged.list(conversationId).length} 个`)
       this.emitStaged(conversationId)

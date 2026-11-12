@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { FileText, Paperclip, Send, X } from '@lucide/vue'
+import { FileText, Folder, Paperclip, Send, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
@@ -125,7 +125,8 @@ onMounted(async () => {
           :alt="item.name"
         />
         <div v-else class="staged-file">
-          <FileText :size="16" :stroke-width="1.6" />
+          <Folder v-if="item.kind === 'folder'" :size="16" :stroke-width="1.6" />
+          <FileText v-else :size="16" :stroke-width="1.6" />
           <span class="staged-name">{{ item.name }}</span>
           <span class="staged-size">{{ formatSize(item.size) }}</span>
         </div>

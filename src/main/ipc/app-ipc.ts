@@ -47,6 +47,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileStagedSend, (_event, conversationId: string) =>
     service.sendStaged(conversationId)
   )
+  ipcMain.handle(IPC.fileSendFolder, (_event, conversationId: string, path: string) =>
+    service.sendFolder(conversationId, path)
+  )
   ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
     service.setActiveConversation(conversationId)
   )
