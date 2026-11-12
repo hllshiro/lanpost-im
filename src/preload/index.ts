@@ -72,8 +72,8 @@ const api: Api = {
     paste: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
     stagePaths: (conversationId, paths) =>
       ipcRenderer.invoke(IPC.fileStagePaths, conversationId, paths),
-    stageBytes: (conversationId, name, data) =>
-      ipcRenderer.invoke(IPC.fileStageBytes, conversationId, name, data),
+    stageBytes: (conversationId, name, data, sticker) =>
+      ipcRenderer.invoke(IPC.fileStageBytes, conversationId, name, data, sticker === true),
     pathFor: (file) => webUtils.getPathForFile(file),
     removeStaged: (conversationId, id) =>
       ipcRenderer.invoke(IPC.fileStagedRemove, conversationId, id),

@@ -59,7 +59,7 @@ async function runImageSticker(item: EmotionItem): Promise<void> {
     if (!response.ok) throw new Error('表情资源不可用')
     const data = await response.arrayBuffer()
     const name = item.image.split('/').pop() ?? 'sticker.gif'
-    await window.api.files.stageBytes(props.conversationId, name, data)
+    await window.api.files.stageBytes(props.conversationId, name, data, true)
     await window.api.files.sendStaged(props.conversationId)
   } catch (reason) {
     fileError.value = errorMessage(reason)

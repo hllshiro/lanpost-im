@@ -90,6 +90,16 @@ const stickerKey = computed(() => {
 const sticker = computed(() => (stickerKey.value === '' ? null : emotionByKey(stickerKey.value)))
 const stickerUrl = computed(() => (sticker.value === null ? '' : emotionUrl(sticker.value)))
 
+// 微信/QQ 表情是按图片发的，气泡里固定小尺寸显示
+const imageSticker = computed(() => {
+  try {
+    const meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return meta.sticker === true
+  } catch {
+    return false
+  }
+})
+
 // 图片和表情已经显示出来时，去掉占位文字
 const displayText = computed(() => {
   if (stickerUrl.value !== '') return ''
@@ -247,6 +257,7 @@ async function revealFolder(): Promise<void> {
           <img
             v-if="showImage"
             class="inline-image"
+            :class="{ 'sticker-photo': imageSticker }"
             :src="imageUrl"
             :alt="file?.name ?? '图片'"
             loading="lazy"
@@ -405,6 +416,14 @@ async function revealFolder(): Promise<void> {
   width: 84px;
   height: 84px;
   object-fit: contain;
+}
+
+/* 表情按图片发送时固定上限，避免大图铺满聊天区 */
+.inline-image.sticker-photo {
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: 0;
+  cursor: default;
 }
 
 .text-body {

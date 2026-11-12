@@ -58,8 +58,8 @@ export function registerAppIpc(service: AppService): void {
   )
   ipcMain.handle(
     IPC.fileStageBytes,
-    (_event, conversationId: string, name: string, data: ArrayBuffer) =>
-      service.stageBytes(conversationId, name, data)
+    (_event, conversationId: string, name: string, data: ArrayBuffer, sticker: boolean) =>
+      service.stageBytes(conversationId, name, data, sticker)
   )
   ipcMain.handle(IPC.fileStagedRemove, (_event, conversationId: string, id: string) =>
     service.removeStaged(conversationId, id)

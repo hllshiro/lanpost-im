@@ -8,11 +8,14 @@ export interface StagedSource {
   temporary: boolean
   // 落盘时改过名的内容保留原来的显示名
   name?: string
+  // 表情按图片发送，气泡里固定小尺寸显示
+  sticker?: boolean
 }
 
 export interface StagedFile {
   path: string
   temporary: boolean
+  sticker?: boolean
 }
 
 // 待发区：按会话保存还没发出去的附件，发送时按加入顺序逐个取出
@@ -33,7 +36,11 @@ export class StagedStore {
         kind: source.kind,
         createdAt: Date.now()
       })
-      this.files.set(id, { path: source.path, temporary: source.temporary })
+      this.files.set(id, {
+        path: source.path,
+        temporary: source.temporary,
+        ...(source.sticker === true ? { sticker: true } : {})
+      })
     }
     this.lists.set(conversationId, list)
     return [...list]

@@ -2132,7 +2132,12 @@ export class AppService {
   }
 
   // 拖进来但拿不到磁盘路径的内容（网页里直接拖出的图）先落盘再进待发区
-  stageBytes(conversationId: string, name: string, data: ArrayBuffer): StagedAttachment[] {
+  stageBytes(
+    conversationId: string,
+    name: string,
+    data: ArrayBuffer,
+    sticker = false
+  ): StagedAttachment[] {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null) {
       throw new Error('会话不存在')
@@ -2148,7 +2153,8 @@ export class AppService {
         name: label,
         size: data.byteLength,
         kind: isImagePath(label) ? 'image' : 'file',
-        temporary: true
+        temporary: true,
+        ...(sticker ? { sticker: true } : {})
       }
     ])
   }
@@ -2178,7 +2184,7 @@ export class AppService {
       if (conversation !== null && conversation.kind === 'group') {
         // 群里的文件走离线文件：发送前把文件登记成可被成员拉取的 share
         if (entry.kind === 'image') {
-          this.sendGroupImages(conversation, [file.path])
+          this.sendGroupImages(conversation, [file.path], file.sticker === true)
         } else if (entry.kind === 'folder') {
           this.sendGroupFolder(conversation, file.path)
         } else {
@@ -2187,7 +2193,7 @@ export class AppService {
       } else if (entry.kind === 'folder') {
         await this.sendFolder(conversationId, file.path)
       } else {
-        this.sendFiles(conversationId, [file.path])
+        this.sendFiles(conversationId, [file.path], '', file.sticker === true)
       }
       this.staged.take(conversationId, entry.id)
       logStartup(`待发区发出 ${entry.name}，剩余 ${this.staged.list(conversationId).length} 个`)
@@ -2354,7 +2360,7 @@ export class AppService {
     logStartup(`群文件夹已发 ${name} share=${shareId} 成员=${targets.length}`)
   }
 
-  private sendGroupImages(conversation: ConversationInfo, paths: string[]): void {
+  private sendGroupImages(conversation: ConversationInfo, paths: string[], sticker = false): void {
     const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
     const service = this.privateService
     const transfer = this.privateFiles
@@ -2384,7 +2390,12 @@ export class AppService {
         '[图片]',
         this.nextPrivateMessageId(),
         'text',
-        JSON.stringify({ source: 'private-image', fileId: fileTaskId, groupId })
+        JSON.stringify({
+          source: 'private-image',
+          fileId: fileTaskId,
+          groupId,
+          ...(sticker ? { sticker: true } : {})
+        })
       )
       this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId: message.id })
       this.repos.messages.setStatus(message.id, 'sent')
@@ -2463,13 +2474,13 @@ export class AppService {
     })
   }
 
-  sendFiles(conversationId: string, paths: string[], text = ''): void {
+  sendFiles(conversationId: string, paths: string[], text = '', sticker = false): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
     if (!this.settings.get().network.ipmsg) {
-      this.sendFilesPrivate(conversationId, paths)
+      this.sendFilesPrivate(conversationId, paths, sticker)
       return
     }
     if (!this.filesStarted) {
@@ -2516,7 +2527,7 @@ export class AppService {
 
   // 私有模式下的发送：先发 X_SEND_FILE 邀请，再发 X_OPERATE_SEND_FILE 开始，
   // 对端连到本机文件端口后由 PrivateFileTransfer 推数据
-  private sendFilesPrivate(conversationId: string, paths: string[]): void {
+  private sendFilesPrivate(conversationId: string, paths: string[], sticker = false): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null || conversation.peerKey === null) {
       throw new Error('会话不存在')
@@ -2585,7 +2596,11 @@ export class AppService {
           '[图片]',
           this.nextPrivateMessageId(),
           'text',
-          JSON.stringify({ source: 'private-image', fileId: fileTaskId })
+          JSON.stringify({
+            source: 'private-image',
+            fileId: fileTaskId,
+            ...(sticker ? { sticker: true } : {})
+          })
         )
         this.fileLinks.set(fileTaskId, { conversationId, messageId: message.id })
         task.messageId = message.id
