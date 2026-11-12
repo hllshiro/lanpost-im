@@ -89,6 +89,21 @@
 - `SHARE_ID` 就是群消息 `file2.i`；`REQ_ID` 由接收方自增，应答里原样带回。
 - 拿到 `FILE_ID` 之后，接收方连发送方的 **9013**（实测公布的文件端口 13603 是关的），用文件通道的 HELLO/ACK/PATH/DATA 把数据收下来。
 
+### 2.7 群管理命令（`3004` / `3005` / `3008` / `3009` / `3010`）
+
+```xml
+<X_QGROUP_REQ_INFO docver="1"><QGROUP_ID>7ad4b2b4f0213b4a832fc807632bc23b</QGROUP_ID></X_QGROUP_REQ_INFO>
+
+<X_QGROUP_REQ_INFO_RSP docver="1"><RET>20</RET><QGROUP_ID>7ad4b2b4…</QGROUP_ID><INFO>…完整群资料…</INFO></X_QGROUP_REQ_INFO_RSP>
+
+<X_QGROUP_DISMISS docver="1"><QGROUP_ID>0294121576ef584b821ef3f3cd0ecc04</QGROUP_ID></X_QGROUP_DISMISS>
+<X_QGROUP_EXIT docver="1"><QGROUP_ID>7f414658e80421479d52419569b50e28</QGROUP_ID></X_QGROUP_EXIT>
+<X_QGROUP_KICK docver="1"><QGROUP_ID>2ac5a2e8617ce84983597dda5ae7cee0</QGROUP_ID></X_QGROUP_KICK>
+```
+
+- 解散、退群、踢人都只带群号：解散发给全体成员，踢人发给被踢的人，退群发给其余成员。
+- 成员进群/重连时会发 `3004` 拉群资料，应答 `3005` 的 `RET` 实测固定为 `20`，`INFO` 与推送里的结构一致（群名里的空格会写成 `&nbsp;`）。
+
 ## 3. 时序（实测）
 
 ```
