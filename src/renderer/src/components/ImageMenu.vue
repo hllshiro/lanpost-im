@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted } from 'vue'
-import { Copy, FolderOpen, Link2, Save } from '@lucide/vue'
+import { Copy, FolderOpen, Link2, Save, Star } from '@lucide/vue'
 import type { FileTaskInfo } from '../../../shared/domain'
 import { useAppStore } from '../stores/app'
 import { errorMessage } from '../utils/errors'
@@ -18,7 +18,7 @@ const emit = defineEmits<{
 const store = useAppStore()
 
 const MENU_WIDTH = 176
-const MENU_HEIGHT = 146
+const MENU_HEIGHT = 182
 
 const position = computed(() => ({
   left: `${Math.max(8, Math.min(props.x, window.innerWidth - MENU_WIDTH - 8))}px`,
@@ -51,6 +51,12 @@ function copyPath(): void {
   void run(() => navigator.clipboard.writeText(props.file.path))
 }
 
+function favorite(): void {
+  void run(async () => {
+    await store.addFavorite(props.file.id)
+  })
+}
+
 function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') emit('close')
 }
@@ -67,6 +73,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     @wheel="emit('close')"
   >
     <div class="menu" role="menu" :style="position" @click.stop>
+      <button class="menu-item" role="menuitem" @click="favorite">
+        <Star :size="14" :stroke-width="1.8" />
+        <span>收藏到表情</span>
+      </button>
       <button class="menu-item" role="menuitem" @click="copyImage">
         <Copy :size="14" :stroke-width="1.8" />
         <span>复制图片</span>

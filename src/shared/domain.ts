@@ -80,6 +80,13 @@ export interface StagedAttachment {
   createdAt: number
 }
 
+// 收藏的表情：文件复制在数据目录里，渲染进程只拿编号和名字
+export interface FavoriteSticker {
+  id: string
+  name: string
+  addedAt: number
+}
+
 export interface LocalInfo {
   name: string
   account: string

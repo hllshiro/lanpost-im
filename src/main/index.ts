@@ -28,6 +28,10 @@ protocol.registerSchemesAsPrivileged([
   {
     scheme: 'lanpost-staged',
     privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
+  {
+    scheme: 'lanpost-emotion',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
   }
 ])
 
@@ -154,6 +158,17 @@ if (!gotLock) {
         const path = id === '' ? null : (service?.stagedImagePath(id) ?? null)
         if (path === null) {
           logStartup(`lanpost-staged: 找不到待发图片 ${id}`)
+          return new Response('not found', { status: 404 })
+        }
+        return net.fetch(pathToFileURL(path).toString())
+      })
+
+      // 收藏的表情
+      protocol.handle('lanpost-emotion', (request) => {
+        const id = localId(request.url)
+        const path = id === '' ? null : (service?.emotionPath(id) ?? null)
+        if (path === null) {
+          logStartup(`lanpost-emotion: 找不到收藏表情 ${id}`)
           return new Response('not found', { status: 404 })
         }
         return net.fetch(pathToFileURL(path).toString())

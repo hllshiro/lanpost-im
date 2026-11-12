@@ -59,6 +59,12 @@ const api: Api = {
     leave: (groupId) => ipcRenderer.invoke(IPC.groupLeave, groupId),
     dismiss: (groupId) => ipcRenderer.invoke(IPC.groupDismiss, groupId)
   },
+  emotions: {
+    list: () => ipcRenderer.invoke(IPC.emotionList),
+    add: (fileId) => ipcRenderer.invoke(IPC.emotionAdd, fileId),
+    remove: (id) => ipcRenderer.invoke(IPC.emotionRemove, id),
+    send: (conversationId, id) => ipcRenderer.invoke(IPC.emotionSend, conversationId, id)
+  },
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),

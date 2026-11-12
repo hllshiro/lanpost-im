@@ -5,6 +5,7 @@ import { FileText, Folder, Paperclip, Send, Smile, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
+import { useAppStore } from '../stores/app'
 import {
   emotionGroups,
   emotionThumb,
@@ -36,9 +37,12 @@ const emit = defineEmits<{
 
 const fileBusy = ref(false)
 const fileError = ref('')
+const store = useAppStore()
 
 const stickersOpen = ref(false)
 const stickerAnchor = ref<HTMLElement | null>(null)
+const FAVORITES_TAB = '收藏'
+const tabs = computed(() => [...emotionGroups, FAVORITES_TAB])
 const activeGroup = ref(emotionGroups[0] ?? '')
 const usage = ref<Record<string, number>>(loadEmotionUsage())
 const groupItems = computed(() =>
@@ -52,6 +56,16 @@ function rememberUsage(item: EmotionItem): void {
   const key = emotionUsageKey(item)
   usage.value = { ...usage.value, [key]: (usage.value[key] ?? 0) + 1 }
   saveEmotionUsage(usage.value)
+}
+
+function favoriteUrl(id: string): string {
+  return `lanpost-emotion:///${encodeURIComponent(id)}`
+}
+
+function sendFavorite(id: string): void {
+  if (props.sending) return
+  stickersOpen.value = false
+  void store.sendFavorite(props.conversationId, id)
 }
 
 onClickOutside(stickerAnchor, () => {
@@ -232,7 +246,7 @@ onMounted(async () => {
         <div v-if="stickersOpen" class="sticker-panel" role="dialog" aria-label="表情">
           <div class="sticker-tabs">
             <button
-              v-for="group in emotionGroups"
+              v-for="group in tabs"
               :key="group"
               class="sticker-tab"
               :class="{ active: group === activeGroup }"
@@ -241,7 +255,29 @@ onMounted(async () => {
               {{ group }}
             </button>
           </div>
-          <div class="sticker-grid">
+          <div v-if="activeGroup === FAVORITES_TAB" class="sticker-grid favorite-grid">
+            <div v-if="store.favorites.length === 0" class="favorite-empty">
+              在图片上右键，选「收藏到表情」
+            </div>
+            <div v-for="favorite in store.favorites" :key="favorite.id" class="favorite-item">
+              <button
+                class="sticker-item"
+                :title="favorite.name"
+                @click="sendFavorite(favorite.id)"
+              >
+                <img :src="favoriteUrl(favorite.id)" :alt="favorite.name" />
+              </button>
+              <button
+                class="favorite-remove"
+                title="取消收藏"
+                aria-label="取消收藏"
+                @click.stop="store.removeFavorite(favorite.id)"
+              >
+                <X :size="9" :stroke-width="2.6" />
+              </button>
+            </div>
+          </div>
+          <div v-else class="sticker-grid">
             <button
               v-for="item in groupItems"
               :key="item.image"
@@ -443,6 +479,41 @@ onMounted(async () => {
   width: 28px;
   height: 28px;
   object-fit: contain;
+}
+
+.favorite-grid {
+  position: relative;
+}
+
+.favorite-item {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+.favorite-remove {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  display: none;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #ffffff;
+}
+
+.favorite-item:hover .favorite-remove {
+  display: grid;
+}
+
+.favorite-empty {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .tool {

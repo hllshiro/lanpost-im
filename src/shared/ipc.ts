@@ -1,6 +1,7 @@
 import type {
   AppEvent,
   AppSnapshot,
+  FavoriteSticker,
   GroupInfo,
   MessageInfo,
   MessagesPage,
@@ -34,6 +35,10 @@ export const IPC = {
   groupKick: 'groups:kick',
   groupLeave: 'groups:leave',
   groupDismiss: 'groups:dismiss',
+  emotionList: 'emotions:list',
+  emotionAdd: 'emotions:add',
+  emotionRemove: 'emotions:remove',
+  emotionSend: 'emotions:send',
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
@@ -124,6 +129,12 @@ export type Api = {
     kick(groupId: string, userId: string): Promise<void>
     leave(groupId: string): Promise<void>
     dismiss(groupId: string): Promise<void>
+  }
+  emotions: {
+    list(): Promise<FavoriteSticker[]>
+    add(fileId: string): Promise<FavoriteSticker>
+    remove(id: string): Promise<void>
+    send(conversationId: string, id: string): Promise<void>
   }
   files: {
     accept(id: string): Promise<void>

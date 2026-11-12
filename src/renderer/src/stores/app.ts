@@ -4,6 +4,7 @@ import type {
   AppEvent,
   AppSnapshot,
   ConversationInfo,
+  FavoriteSticker,
   FileTaskInfo,
   GroupInfo,
   LocalInfo,
@@ -21,6 +22,7 @@ export const useAppStore = defineStore('app', () => {
   const peers = ref<PeerInfo[]>([])
   const conversations = ref<ConversationInfo[]>([])
   const groups = ref<GroupInfo[]>([])
+  const favorites = ref<FavoriteSticker[]>([])
   const files = ref<FileTaskInfo[]>([])
   const staged = ref<StagedAttachment[]>([])
   const currentConversationId = ref<string | null>(null)
@@ -264,6 +266,41 @@ export const useAppStore = defineStore('app', () => {
       reportError(reason)
     }
     await loadSnapshot()
+    await loadFavorites()
+  }
+
+  async function loadFavorites(): Promise<void> {
+    try {
+      favorites.value = await window.api.emotions.list()
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
+  async function addFavorite(fileId: string): Promise<void> {
+    try {
+      await window.api.emotions.add(fileId)
+      await loadFavorites()
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
+  async function removeFavorite(id: string): Promise<void> {
+    try {
+      await window.api.emotions.remove(id)
+      await loadFavorites()
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
+  async function sendFavorite(conversationId: string, id: string): Promise<void> {
+    try {
+      await window.api.emotions.send(conversationId, id)
+    } catch (reason) {
+      reportError(reason)
+    }
   }
 
   // 打开会话时一次性读全历史；数据在本地 SQLite，直接一条查询拿完
@@ -499,6 +536,7 @@ export const useAppStore = defineStore('app', () => {
     peers,
     conversations,
     groups,
+    favorites,
     files,
     currentConversationId,
     messages,
@@ -530,6 +568,10 @@ export const useAppStore = defineStore('app', () => {
     setPinned,
     setAlias,
     sendSticker,
+    loadFavorites,
+    addFavorite,
+    removeFavorite,
+    sendFavorite,
     createGroup,
     inviteMembers,
     kickMember,

@@ -36,6 +36,12 @@ export function registerAppIpc(service: AppService): void {
   )
   ipcMain.handle(IPC.groupLeave, (_event, groupId: string) => service.leaveGroup(groupId))
   ipcMain.handle(IPC.groupDismiss, (_event, groupId: string) => service.dismissGroup(groupId))
+  ipcMain.handle(IPC.emotionList, () => service.listFavorites())
+  ipcMain.handle(IPC.emotionAdd, (_event, fileId: string) => service.addFavorite(fileId))
+  ipcMain.handle(IPC.emotionRemove, (_event, id: string) => service.removeFavorite(id))
+  ipcMain.handle(IPC.emotionSend, (_event, conversationId: string, id: string) =>
+    service.sendFavorite(conversationId, id)
+  )
   ipcMain.handle(IPC.filesList, (_event, conversationId?: string) =>
     service.listFiles(conversationId)
   )

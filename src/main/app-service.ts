@@ -30,6 +30,7 @@ import type {
   AppEvent,
   AppSnapshot,
   ConversationInfo,
+  FavoriteSticker,
   FileTaskInfo,
   GroupInfo,
   GroupMemberInfo,
@@ -83,6 +84,7 @@ import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
 import { groupInfoNotices } from './groups/info-notice'
+import { FavoriteStore } from './emotion/favorites'
 import { logStartup } from './startup-log'
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
@@ -244,6 +246,7 @@ interface PrivateIncomingFile {
 
 export class AppService {
   private readonly repos: Repositories
+  private readonly favorites: FavoriteStore
   private readonly engine: ProtocolEngine
   private readonly fileManager: FileManager
   private readonly notifications: NotificationManager
@@ -334,6 +337,7 @@ export class AppService {
     private readonly appInfo: AppInfo
   ) {
     this.repos = createRepositories(db)
+    this.favorites = new FavoriteStore(join(app.getPath('userData'), 'emotion-favorites'))
     let receiveDir = settings.get().files.receiveDir
     if (receiveDir === '') {
       const downloads = join(app.getPath('downloads'), '内网传书')
@@ -1939,6 +1943,39 @@ export class AppService {
 
   listFiles(conversationId?: string): AppSnapshot['files'] {
     return this.repos.files.list(conversationId)
+  }
+
+  listFavorites(): FavoriteSticker[] {
+    return this.favorites.list()
+  }
+
+  addFavorite(fileId: string): FavoriteSticker {
+    const task = this.repos.files.get(fileId)
+    if (task === null || task.path === '') {
+      throw new Error('图片尚未接收完成')
+    }
+    return this.favorites.add(task.path)
+  }
+
+  removeFavorite(id: string): void {
+    this.favorites.remove(id)
+  }
+
+  // 收藏的表情按图片发给当前会话，对端同样按表情尺寸显示
+  sendFavorite(conversationId: string, id: string): void {
+    const path = this.favorites.filePath(id)
+    if (path === null) throw new Error('收藏的表情已被删除')
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null) throw new Error('会话不存在')
+    if (conversation.kind === 'group') {
+      this.sendGroupImages(conversation, [path], true)
+    } else {
+      this.sendFiles(conversationId, [path], '', true)
+    }
+  }
+
+  emotionPath(id: string): string | null {
+    return this.favorites.filePath(id)
   }
 
   // 渲染进程读图片用：只暴露已经落盘的文件
