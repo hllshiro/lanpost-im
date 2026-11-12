@@ -825,15 +825,33 @@ export class AppService {
       saveDir: ctx.saveDir
     })
     this.updateGroupFileTask(ctx.fileTaskId, 'transferring', 0, '')
-    void transfer
-      .receive(ip, port, fileId, service.peerUserId(ip))
+    void this.receiveGroupFileFrom(transfer, ip, port, fileId, service.peerUserId(ip))
       .then(() => this.handlePrivateFileDone(fileId, ctx.savePath))
       .catch((error: unknown) => {
-        this.updateGroupFileTask(ctx.fileTaskId, 'failed', 0, (error as Error).message)
+        const message = (error as Error).message
+        logStartup(`群文件接收失败 ${ctx.name} 文件号=${fileId}：${message}`)
+        this.updateGroupFileTask(ctx.fileTaskId, 'failed', 0, message)
       })
     logStartup(
       `群文件开始接收 ${ctx.name} 文件号=${fileId} 大小=${fileSize} 修改时间=${lastModify}`
     )
+  }
+
+  // 对端公布的端口与它实际监听的端口不一定一致，9013 作为兜底
+  private async receiveGroupFileFrom(
+    transfer: PrivateFileTransfer,
+    ip: string,
+    port: number,
+    fileId: number,
+    peerUserId: string
+  ): Promise<void> {
+    try {
+      await transfer.receive(ip, port, fileId, peerUserId)
+    } catch (error) {
+      if (port === 9013) throw error
+      logStartup(`群文件接收 ${port} 失败，改用 9013 重试`)
+      await transfer.receive(ip, 9013, fileId, peerUserId)
+    }
   }
 
   private updateGroupFileTask(
@@ -1379,7 +1397,8 @@ export class AppService {
     if (conversation === null) {
       throw new Error('会话不存在')
     }
-    const groupOnlyImages = conversation.kind === 'group'
+    // 群聊里文件夹暂时不支持，其它文件照常进待发区
+    const groupConversation = conversation.kind === 'group'
     const sources: StagedSource[] = []
     const skipped: string[] = []
     for (const path of paths) {
@@ -1388,7 +1407,7 @@ export class AppService {
         continue
       }
       const stats = statSync(path)
-      if (groupOnlyImages && (stats.isDirectory() || !isImagePath(path))) {
+      if (groupConversation && stats.isDirectory()) {
         skipped.push(basename(path))
         continue
       }
