@@ -4,18 +4,14 @@
 
 ## 项目状态
 
-第一版核心功能已实现：文字、文件与图片都能与真实内网通走私有通道收发。进展和待办见：
+第一版功能已经完成：文字、文件、图片、文件夹、群聊与头像都能与真实内网通走私有通道收发；IPMSG 兼容层保留基础文字与文件能力。
 
 - 开发交接与环境切换：`docs/handoff.md`
-- 文件发送兼容 TODO：`docs/TODO-file-send-compat.md`
-- 设计文档：`docs/superpowers/specs/2026-10-23-electron-client-design.md`
-
-其他文档：
-
 - 文件传输状态机：`docs/file-transfer.md`
 - NWT/飞秋兼容矩阵：`docs/nwt-compatibility.md`
-- 内网通私有协议（文字、文件、图片）：`docs/nwt-private-protocol.md`
+- 内网通私有协议（文字、文件、图片、头像）：`docs/nwt-private-protocol.md`
 - 内网通私有文件与文件夹数据通道：`docs/nwt-file-channel.md`
+- 内网通私有群协议：`docs/nwt-group-protocol.md`
 - 内网通私有命令号与 XML 模板：`docs/nwt-command-map.md`
 - 内网通真机抓包结论：`docs/nwt-live-findings.md`
 - 内网通功能清单（对端静态盘点）：`docs/nwt-feature-inventory.md`
@@ -26,15 +22,13 @@
 
 - 局域网自动发现、在线状态、分组、签名。
 - 一对一文字消息、送达/已读回执、手动刷新联系人。
-- TCP 文件收发、进度、同名去重、接收目录配置。
-- 输入框待发区：粘贴的图片和选中的文件先预览、可逐张移除，点发送才发出。
-- 聊天里的图片单击放大查看，右键可另存为、在文件夹中显示、复制图片路径。
-- 文件与文件夹拖进窗口即可加入待发区，图片带缩略图预览，文件夹显示图标与总大小。
-- SQLite 消息历史、旧历史导入。
-- 微信布局桌面界面、联系人页、文件页、设置覆盖层。
-- 托盘常驻、系统通知、应用内提示、声音和免打扰。
-- 与 NWT 的文字和接收文件兼容；主动发送文件仍在修复。
-- 与飞秋的接收文件兼容；主动发送文件仍在修复。
+- 私有通道文件、图片与文件夹收发；图片内联显示、点击放大、右键另存/复制；文件与文件夹卡片。
+- 图文混排：文字、图片与表情按输入顺序合成一条消息，待发区可逐项移除。
+- 群聊：建群、拉人、踢人、退群、解散，群资料与成员、成员变动公告、群文字、群图片、群文件与群文件夹。
+- 头像：个人头像可设置并同步给联系人；群头像由群主设置，成员自动取图。
+- 表情：QQ、微信、内网通三组表情与收藏，按使用频率排序。
+- SQLite 消息历史、旧历史导入、会话搜索、托盘常驻、系统通知、免打扰。
+- 与真实内网通私有通道互通；IPMSG 兼容层支持基础文字与文件收发。
 
 ## 开发
 
@@ -53,6 +47,8 @@ pnpm dev
 pnpm build:win     # Windows x64，NSIS 安装包与 zip
 pnpm build:linux   # Linux ARM64，deb 与 AppImage
 ```
+
+版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
 
 ### 数据目录
 
