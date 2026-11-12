@@ -66,9 +66,14 @@ function makeSession(
       onGroupMessage: (groupId, msgId, text, images, files) =>
         events.push(`group-msg:${groupId}:${msgId}:${text}:${images.length}:${files.length}`),
       onShareDownload: (reqId, shareId) => events.push(`share-dl:${reqId}:${shareId}`),
+      onShareDownloadFolder: (reqId, shareId, channelId) =>
+        events.push(`share-dl-folder:${reqId}:${shareId}:${channelId}`),
+      onShareDownloadFolderRsp: (reqId, err, channelId) =>
+        events.push(`share-folder-rsp:${reqId}:${err}:${channelId}`),
       onShareDownloadRsp: (reqId, err, fileId, size) =>
         events.push(`share-rsp:${reqId}:${err}:${fileId}:${size}`),
-      onRemindFile: (groupId, name, size) => events.push(`remind:${groupId}:${name}:${size}`),
+      onRemindFile: (groupId, name, size, folder) =>
+        events.push(`remind:${groupId}:${name}:${size}:${folder}`),
       onGroupReqInfo: (groupId) => events.push(`group-req:${groupId}`),
       onGroupInfoRsp: (ret, groupId, info) =>
         events.push(`group-info-rsp:${ret}:${groupId}:${info === null ? 'none' : 'full'}`),

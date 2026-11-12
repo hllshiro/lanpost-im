@@ -38,7 +38,7 @@ function walk(root: string, dir: string, items: FolderItemInfo[]): void {
     const full = join(dir, entry.name)
     const name = relative(root, full).replaceAll('/', '\\')
     if (entry.isDirectory()) {
-      items.push({ name, dir: true, size: 0, time: Math.floor(statSync(full).mtimeMs / 1000) })
+      // 真实客户端的清单里只有文件，目录靠文件路径隐式创建
       walk(root, full, items)
       continue
     }

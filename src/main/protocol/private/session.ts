@@ -41,6 +41,8 @@ import {
   groupKickXml,
   shareDownloadXml,
   shareDownloadRspXml,
+  shareDownloadFolderXml,
+  shareDownloadFolderRspXml,
   remindFileXml,
   retrieveImagesXml,
   imageCardXml,
@@ -87,6 +89,8 @@ const CMD_QGROUP_EXIT = 3009
 const CMD_QGROUP_KICK = 3010
 const CMD_SHARE_DOWNLOAD = 5004
 const CMD_SHARE_DOWNLOAD_RSP = 5005
+const CMD_SHARE_DOWNLOAD_FOLDER = 5006
+const CMD_SHARE_DOWNLOAD_FOLDER_RSP = 5007
 const CMD_REMIND_FILE = 1025
 
 const COMMAND_MASK = 0x7f
@@ -143,6 +147,8 @@ export interface SessionCallbacks {
   onGroupExit(groupId: string): void
   onGroupKick(groupId: string): void
   onShareDownload(reqId: number, shareId: string): void
+  onShareDownloadFolder(reqId: number, shareId: string, channelId: string): void
+  onShareDownloadFolderRsp(reqId: number, err: number, channelId: string): void
   onShareDownloadRsp(
     reqId: number,
     err: number,
@@ -150,8 +156,8 @@ export interface SessionCallbacks {
     fileSize: number,
     lastModify: string
   ): void
-  // 群成员下载完某个群文件后的回执
-  onRemindFile(groupId: string, name: string, size: number): void
+  // 群成员下载完某个群文件后的回执；文件夹的 FILE 为 0
+  onRemindFile(groupId: string, name: string, size: number, folder: boolean): void
   // 对端在 X_READY 里公布的 32 位用户号，群消息靠它识别发送者
   onReady(userId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
@@ -418,9 +424,25 @@ export class PrivateSession {
     return true
   }
 
-  sendRemindFile(groupId: string, size: number, name: string): boolean {
+  sendShareDownloadFolder(reqId: number, shareId: string, channelId: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_REMIND_FILE, remindFileXml(groupId, size, name)))
+    this.reliable.send(
+      encodeFrame(CMD_SHARE_DOWNLOAD_FOLDER, shareDownloadFolderXml(reqId, shareId, channelId))
+    )
+    return true
+  }
+
+  sendShareDownloadFolderRsp(reqId: number, channelId: string, err: number): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(
+      encodeFrame(CMD_SHARE_DOWNLOAD_FOLDER_RSP, shareDownloadFolderRspXml(reqId, channelId, err))
+    )
+    return true
+  }
+
+  sendRemindFile(groupId: string, size: number, name: string, folder: boolean): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_REMIND_FILE, remindFileXml(groupId, size, name, folder)))
     return true
   }
 
@@ -806,6 +828,12 @@ export class PrivateSession {
       case 'share-download':
         this.callbacks.onShareDownload(incoming.reqId, incoming.shareId)
         return
+      case 'share-download-folder':
+        this.callbacks.onShareDownloadFolder(incoming.reqId, incoming.shareId, incoming.channelId)
+        return
+      case 'share-download-folder-rsp':
+        this.callbacks.onShareDownloadFolderRsp(incoming.reqId, incoming.err, incoming.channelId)
+        return
       case 'share-download-rsp':
         this.callbacks.onShareDownloadRsp(
           incoming.reqId,
@@ -816,7 +844,7 @@ export class PrivateSession {
         )
         return
       case 'remind-file':
-        this.callbacks.onRemindFile(incoming.groupId, incoming.name, incoming.size)
+        this.callbacks.onRemindFile(incoming.groupId, incoming.name, incoming.size, incoming.folder)
         return
       case 'ready':
         // 先切到 ready，回调里才能直接下发命令（例如核对群资料）

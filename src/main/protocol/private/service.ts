@@ -68,6 +68,8 @@ export interface PrivateServiceOptions {
     onGroupExit(ip: string, groupId: string): void
     onGroupKick(ip: string, groupId: string): void
     onShareDownload(ip: string, reqId: number, shareId: string): void
+    onShareDownloadFolder(ip: string, reqId: number, shareId: string, channelId: string): void
+    onShareDownloadFolderRsp(ip: string, reqId: number, err: number, channelId: string): void
     onShareDownloadRsp(
       ip: string,
       reqId: number,
@@ -76,7 +78,7 @@ export interface PrivateServiceOptions {
       fileSize: number,
       lastModify: string
     ): void
-    onRemindFile(ip: string, groupId: string, name: string, size: number): void
+    onRemindFile(ip: string, groupId: string, name: string, size: number, folder: boolean): void
     onReady(ip: string, userId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
@@ -347,8 +349,22 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendShareDownloadRsp(reqId, fileId, fileSize, lastModify) ?? false
   }
 
-  sendRemindFile(ip: string, groupId: string, size: number, name: string): boolean {
-    return this.sessions.get(ip)?.sendRemindFile(groupId, size, name) ?? false
+  sendShareDownloadFolder(ip: string, reqId: number, shareId: string, channelId: string): boolean {
+    return this.sessions.get(ip)?.sendShareDownloadFolder(reqId, shareId, channelId) ?? false
+  }
+
+  sendShareDownloadFolderRsp(ip: string, reqId: number, channelId: string, err: number): boolean {
+    return this.sessions.get(ip)?.sendShareDownloadFolderRsp(reqId, channelId, err) ?? false
+  }
+
+  sendRemindFile(
+    ip: string,
+    groupId: string,
+    size: number,
+    name: string,
+    folder: boolean
+  ): boolean {
+    return this.sessions.get(ip)?.sendRemindFile(groupId, size, name, folder) ?? false
   }
 
   sendGroupInfoRsp(ip: string, info: PrivateGroupInfo): boolean {
@@ -575,10 +591,14 @@ export class PrivateService {
       onGroupKick: (groupId) => this.options.callbacks.onGroupKick(ip, groupId),
       onShareDownload: (reqId, shareId) =>
         this.options.callbacks.onShareDownload(ip, reqId, shareId),
+      onShareDownloadFolder: (reqId, shareId, channelId) =>
+        this.options.callbacks.onShareDownloadFolder(ip, reqId, shareId, channelId),
+      onShareDownloadFolderRsp: (reqId, err, channelId) =>
+        this.options.callbacks.onShareDownloadFolderRsp(ip, reqId, err, channelId),
       onShareDownloadRsp: (reqId, err, fileId, fileSize, lastModify) =>
         this.options.callbacks.onShareDownloadRsp(ip, reqId, err, fileId, fileSize, lastModify),
-      onRemindFile: (groupId, name, size) =>
-        this.options.callbacks.onRemindFile(ip, groupId, name, size),
+      onRemindFile: (groupId, name, size, folder) =>
+        this.options.callbacks.onRemindFile(ip, groupId, name, size, folder),
       onReady: (userId) => {
         if (userId !== '') {
           this.peerUserIds.set(ip, userId)

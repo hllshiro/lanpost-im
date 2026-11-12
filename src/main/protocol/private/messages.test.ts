@@ -20,7 +20,10 @@ import {
   sendFileXml,
   sendMsgAckXml,
   sendMsgXml,
-  sendReceiptXml
+  sendReceiptXml,
+  shareDownloadFolderXml,
+  shareDownloadFolderRspXml,
+  remindFileXml
 } from './messages'
 import type { PrivateProfile } from './messages'
 import { decodeBeacon } from './beacon'
@@ -420,6 +423,34 @@ describe('private group messages', () => {
     expect(parsePrivate(3010, groupKickXml('g2'))).toEqual({
       kind: 'group-kick',
       groupId: 'g2'
+    })
+  })
+
+  it('parses the group folder request and response', () => {
+    expect(parsePrivate(5006, shareDownloadFolderXml(1, 'share1', 'chan1'))).toEqual({
+      kind: 'share-download-folder',
+      reqId: 1,
+      shareId: 'share1',
+      channelId: 'chan1'
+    })
+    expect(parsePrivate(5007, shareDownloadFolderRspXml(1, 'chan1'))).toEqual({
+      kind: 'share-download-folder-rsp',
+      reqId: 1,
+      err: 0,
+      channelId: 'chan1'
+    })
+  })
+
+  it('marks the remind frame as a folder when FILE is 0', () => {
+    expect(parsePrivate(1025, remindFileXml('g1', 120, 'C:\\ces', true))).toEqual({
+      kind: 'remind-file',
+      groupId: 'g1',
+      name: 'C:\\ces',
+      size: 120,
+      folder: true
+    })
+    expect(parsePrivate(1025, remindFileXml('g1', 120, 'C:\\a.txt', false))).toMatchObject({
+      folder: false
     })
   })
 })

@@ -246,10 +246,29 @@ export class AppService {
   private readonly folderOutgoing = new Map<string, OutgoingFolder>()
   // 文件夹任务 → 聊天消息，用于把收发状态写回气泡
   private readonly folderLinks = new Map<string, { conversationId: string; messageId: number }>()
-  // 群文件：本机作为发送方时按 share id 记住要提供哪个文件
+  // 群文件：本机作为发送方时按 share id 记住要提供哪个文件或文件夹
   private readonly groupShares = new Map<
     string,
-    { fileId: number; size: number; modified: number }
+    { fileId: number; size: number; modified: number; folder?: OutgoingFolder }
+  >()
+  // 群文件夹：本机作为接收方时按 CHANNEL_ID 记住这一路下载
+  private readonly groupFolderDownloads = new Map<
+    string,
+    {
+      ip: string
+      groupId: string
+      conversationId: string
+      messageId: number
+      name: string
+      saveDir: string
+      sourcePath: string
+      size: number
+    }
+  >()
+  // 群文件夹：本机作为发送方时按 share id 统计各成员的推送结果
+  private readonly groupFolderStates = new Map<
+    string,
+    { messageId: number; total: number; ok: number; failed: number }
   >()
   // 群文件：本机作为接收方时按 REQ_ID 记住正在要哪个文件
   private readonly groupDownloads = new Map<
@@ -455,10 +474,14 @@ export class AppService {
             this.handleGroupMessage(ip, groupId, msgId, text, images, files),
           onShareDownload: (ip, reqId, shareId) =>
             this.handleGroupShareDownload(ip, reqId, shareId),
+          onShareDownloadFolder: (ip, reqId, shareId, channelId) =>
+            this.handleGroupFolderDownload(ip, reqId, shareId, channelId),
+          onShareDownloadFolderRsp: (ip, reqId, err, channelId) =>
+            this.handleGroupFolderResponse(ip, reqId, err, channelId),
           onShareDownloadRsp: (ip, reqId, err, fileId, fileSize, lastModify) =>
             this.handleGroupShareResponse(ip, reqId, err, fileId, fileSize, lastModify),
-          onRemindFile: (ip, groupId, name, size) =>
-            this.handleGroupFileRemind(ip, groupId, name, size),
+          onRemindFile: (ip, groupId, name, size, folder) =>
+            this.handleGroupFileRemind(ip, groupId, name, size, folder),
           onGroupReqInfo: (ip, groupId) => this.handleGroupReqInfo(ip, groupId),
           onGroupInfoRsp: (ip, ret, groupId, info) =>
             this.handleGroupInfoRsp(ip, ret, groupId, info),
@@ -496,8 +519,11 @@ export class AppService {
       bindAddr,
       port,
       callbacks: {
-        onProgress: (taskId, received, total) =>
-          logStartup(`私有文件夹进度 任务=${taskId} ${received}/${total}`),
+        onProgress: (taskId, received, total) => {
+          const group = this.groupFolderDownloads.get(taskId)
+          if (group !== undefined) group.size = total
+          logStartup(`私有文件夹进度 任务=${taskId} ${received}/${total}`)
+        },
         onDone: (taskId, dir) => {
           logStartup(`私有文件夹接收完成 任务=${taskId} 目录=${dir}`)
           this.handleFolderDone(taskId, dir)
@@ -605,6 +631,32 @@ export class AppService {
 
   // 文件夹任务结束：写回气泡（接收方记录目录，发送方把状态推到已送达）
   private handleFolderDone(taskId: string, dir: string): void {
+    const group = this.groupFolderDownloads.get(taskId)
+    if (group !== undefined) {
+      this.groupFolderDownloads.delete(taskId)
+      this.privateFolders?.forget(taskId)
+      const message = this.repos.messages.getMessage(group.messageId)
+      if (message !== null) {
+        let meta: Record<string, unknown>
+        try {
+          meta = JSON.parse(message.meta) as Record<string, unknown>
+        } catch {
+          meta = {}
+        }
+        const nextMeta = JSON.stringify({ ...meta, dir, size: group.size, done: true })
+        this.repos.messages.setMeta(message.id, nextMeta)
+        this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
+      }
+      this.privateService?.sendRemindFile(
+        group.ip,
+        group.groupId,
+        group.size,
+        group.sourcePath,
+        true
+      )
+      logStartup(`群文件夹接收完成 ${group.name} 大小=${group.size}`)
+      return
+    }
     const link = this.folderLinks.get(taskId)
     this.folderLinks.delete(taskId)
     if (link === undefined) return
@@ -626,6 +678,13 @@ export class AppService {
   }
 
   private handleFolderError(taskId: string): void {
+    const group = this.groupFolderDownloads.get(taskId)
+    if (group !== undefined) {
+      this.groupFolderDownloads.delete(taskId)
+      this.privateFolders?.forget(taskId)
+      this.markGroupFolderFailed(group.messageId, '文件夹接收失败')
+      return
+    }
     const link = this.folderLinks.get(taskId)
     this.folderLinks.delete(taskId)
     if (link === undefined) return
@@ -637,14 +696,12 @@ export class AppService {
 
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
   // 群资料推送：更新群信息并刷新会话标题
-  // 会话就绪后核对本地群：向该群成员所在节点问一次群资料。
+  // 会话就绪后核对本地群：只向群主所在的节点问一次群资料，群主才是这个群的权威。
   // 群已解散、或我们已被踢掉时拿不到 INFO，据此清掉本地残留
   private reconcileGroups(ip: string, userId: string): void {
     logStartup(`私有会话 ${ip} 用户号 ${userId}`)
     for (const group of this.repos.groups.list()) {
-      const members = this.repos.groups.members(group.id)
-      const involved = group.master === userId || members.some((member) => member.userId === userId)
-      if (!involved) continue
+      if (group.master === '' || group.master !== userId) continue
       if (this.privateService?.sendGroupReqInfo(ip, group.id) !== true) continue
       this.groupInfoProbes.add(`${ip}|${group.id}`)
       logStartup(`私有群资料核对 ${ip} 群=${group.name} 群号=${group.id}`)
@@ -746,7 +803,11 @@ export class AppService {
         .find((member) => member.userId === senderId)?.name
       if (files.length > 0) {
         for (const file of files) {
-          this.receiveGroupFile(ip, conversation, groupId, msgId, text, file)
+          if (file.folder) {
+            this.receiveGroupFolder(ip, conversation, groupId, msgId, file)
+          } else {
+            this.receiveGroupFile(ip, conversation, groupId, msgId, text, file)
+          }
         }
         return
       }
@@ -767,6 +828,73 @@ export class AppService {
     } catch (error) {
       logStartup(`私有群消息处理失败：${(error as Error).message}`)
     }
+  }
+
+  // 群文件夹：消息里只有 share id，发 5006 带上本机生成的通道号，发送方随后连我们的文件夹端口
+  private receiveGroupFolder(
+    ip: string,
+    conversation: ConversationInfo,
+    groupId: string,
+    msgId: number,
+    file: PrivateGroupFileRef
+  ): void {
+    const service = this.privateService
+    const transfer = this.privateFolders
+    if (service === null || transfer === null) return
+    const peer = this.peerForIp(ip)
+    const peerDir = sanitizeFileName(peer.name) || '内网通'
+    const name = sanitizeFileName(file.name) || '收到的文件夹'
+    const saveDir = join(this.receiveDir, peerDir, name)
+    mkdirSync(saveDir, { recursive: true })
+    const channelId = randomBytes(16).toString('hex')
+    const meta = JSON.stringify({
+      source: 'private-group-folder',
+      groupId,
+      shareId: file.shareId,
+      dir: saveDir,
+      incoming: true,
+      size: 0,
+      done: false
+    })
+    const message = this.repos.messages.insertIncoming(
+      conversation.id,
+      file.name,
+      msgId,
+      'folder',
+      meta
+    )
+    this.repos.conversations.touch(conversation.id, message.createdAt, 1)
+    this.emit({ type: 'message', message })
+    this.emitConversation(conversation.id)
+    transfer.registerIncoming({ taskId: channelId, name, saveDir, size: 0 })
+    this.groupFolderDownloads.set(channelId, {
+      ip,
+      groupId,
+      conversationId: conversation.id,
+      messageId: message.id,
+      name,
+      saveDir,
+      sourcePath: file.path,
+      size: 0
+    })
+    const reqId = (this.groupRequestSeq = (this.groupRequestSeq + 1) >>> 0)
+    service.sendShareDownloadFolder(ip, reqId, file.shareId, channelId)
+    logStartup(`群文件夹请求 ${file.name} share=${file.shareId} 通道=${channelId}`)
+  }
+
+  private markGroupFolderFailed(messageId: number, error: string): void {
+    const message = this.repos.messages.getMessage(messageId)
+    if (message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const nextMeta = JSON.stringify({ ...meta, done: false, error })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    this.repos.messages.setStatus(message.id, 'failed')
+    this.emit({ type: 'message', message: { ...message, meta: nextMeta, status: 'failed' } })
   }
 
   // 群文件：消息里只有 share id，先发 5004 问发送方要文件号，再用文件通道拉
@@ -856,6 +984,93 @@ export class AppService {
     logStartup(`群文件应答 ${ip} 文件号=${share.fileId} 大小=${share.size}`)
   }
 
+  // 群成员来要文件夹：回 5007、发 1020，然后连它的文件夹端口把清单和数据推过去
+  private handleGroupFolderDownload(
+    ip: string,
+    reqId: number,
+    shareId: string,
+    channelId: string
+  ): void {
+    const service = this.privateService
+    const transfer = this.privateFolders
+    if (service === null || transfer === null) return
+    const folder = this.groupShares.get(shareId)?.folder
+    if (folder === undefined) {
+      logStartup(`群文件夹请求 ${ip} 的 share ${shareId} 不在本机`)
+      service.sendShareDownloadFolderRsp(ip, reqId, channelId, 1)
+      return
+    }
+    service.sendShareDownloadFolderRsp(ip, reqId, channelId, 0)
+    service.sendReverseFolderReq(ip, channelId)
+    const advertised = service.peerFolderPort(ip)
+    const port = advertised > 0 ? advertised : 9014
+    const outgoing: OutgoingFolder = { ...folder, taskId: channelId }
+    logStartup(`群文件夹推送 ${ip}:${port} 通道=${channelId} 大小=${outgoing.size}`)
+    void transfer
+      .send(ip, outgoing, port)
+      .then(() => {
+        logStartup(`群文件夹推送完成 通道=${channelId}`)
+        this.settleGroupFolder(shareId, true)
+      })
+      .catch(async (error: unknown) => {
+        if (port === 9014) {
+          logStartup(`群文件夹推送失败：${(error as Error).message}`)
+          this.settleGroupFolder(shareId, false)
+          return
+        }
+        logStartup(`群文件夹推送：${port} 失败，改用 9014 重试`)
+        try {
+          await transfer.send(ip, outgoing, 9014)
+          logStartup(`群文件夹推送完成 通道=${channelId}`)
+          this.settleGroupFolder(shareId, true)
+        } catch (retry: unknown) {
+          logStartup(`群文件夹推送失败：${(retry as Error).message}`)
+          this.settleGroupFolder(shareId, false)
+        }
+      })
+  }
+
+  // 成员推送全部结束后再决定气泡状态：有一个成功就算发出，全失败才标失败
+  private settleGroupFolder(shareId: string, ok: boolean): void {
+    const state = this.groupFolderStates.get(shareId)
+    if (state === undefined) return
+    if (ok) state.ok += 1
+    else state.failed += 1
+    if (state.ok + state.failed < state.total) return
+    this.groupFolderStates.delete(shareId)
+    if (state.ok > 0) return
+    const message = this.repos.messages.getMessage(state.messageId)
+    if (message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const nextMeta = JSON.stringify({ ...meta, error: '成员都没能收到这个文件夹' })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    this.repos.messages.setStatus(message.id, 'failed')
+    this.emit({ type: 'message', message: { ...message, meta: nextMeta, status: 'failed' } })
+  }
+
+  // 发送方接受了文件夹请求：等它连过来推数据
+  private handleGroupFolderResponse(
+    ip: string,
+    _reqId: number,
+    err: number,
+    channelId: string
+  ): void {
+    const ctx = this.groupFolderDownloads.get(channelId)
+    if (ctx === undefined) return
+    if (err !== 0) {
+      this.groupFolderDownloads.delete(channelId)
+      this.privateFolders?.forget(channelId)
+      this.markGroupFolderFailed(ctx.messageId, `发送方拒绝（ERR=${err}）`)
+      return
+    }
+    logStartup(`群文件夹已接受 ${ip} 通道=${channelId} 等待推送`)
+  }
+
   // 发送方回了文件号：连它的文件端口，用文件通道把数据收下来
   private handleGroupShareResponse(
     ip: string,
@@ -897,7 +1112,7 @@ export class AppService {
       .then(() => {
         this.handlePrivateFileDone(fileId, ctx.savePath)
         // 收完给发送方发回执，群里的其他成员据此看到“谁下载了”
-        service.sendRemindFile(ip, ctx.groupId, ctx.size, ctx.sourcePath)
+        service.sendRemindFile(ip, ctx.groupId, ctx.size, ctx.sourcePath, false)
       })
       .catch((error: unknown) => {
         const message = (error as Error).message
@@ -927,16 +1142,34 @@ export class AppService {
   }
 
   // 群成员下载完文件后的回执：把下载者名字写到发送方那条文件消息上
-  private handleGroupFileRemind(ip: string, groupId: string, name: string, size: number): void {
+  private handleGroupFileRemind(
+    ip: string,
+    groupId: string,
+    name: string,
+    size: number,
+    folder: boolean
+  ): void {
     try {
       const base = name.split(/[\\/]/).pop() ?? name
       const conversationId = groupConversationId(groupId)
-      const tasks = this.repos.files
-        .list(conversationId)
-        .filter((task) => task.direction === 'out' && task.name === base && task.messageId !== null)
-      const task = tasks[tasks.length - 1]
-      if (task === undefined || task.messageId === null) return
-      const message = this.repos.messages.getMessage(task.messageId)
+      let message: MessageInfo | null = null
+      if (folder) {
+        const candidates = this.repos.messages
+          .listAll(conversationId)
+          .filter(
+            (item) => item.direction === 'out' && item.kind === 'folder' && item.text === base
+          )
+        message = candidates[candidates.length - 1] ?? null
+      } else {
+        const tasks = this.repos.files
+          .list(conversationId)
+          .filter(
+            (task) => task.direction === 'out' && task.name === base && task.messageId !== null
+          )
+        const task = tasks[tasks.length - 1]
+        if (task === undefined || task.messageId === null) return
+        message = this.repos.messages.getMessage(task.messageId)
+      }
       if (message === null) return
       let meta: Record<string, unknown>
       try {
@@ -959,16 +1192,38 @@ export class AppService {
       })
       this.repos.messages.setMeta(message.id, nextMeta)
       this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
-      logStartup(`群文件回执 ${base} 下载者=${downloader} 大小=${size}`)
+      logStartup(`群${folder ? '文件夹' : '文件'}回执 ${base} 下载者=${downloader} 大小=${size}`)
     } catch (error) {
       logStartup(`群文件回执处理失败：${(error as Error).message}`)
     }
   }
 
-  // 群被解散或本端被踢：整段会话连消息一起移除
+  // 群被解散或本端被踢：整段会话连消息一起移除，并像真实客户端那样弹窗告知原因
   private handleGroupRemoved(ip: string, groupId: string, reason: string): void {
-    logStartup(`私有群 ${ip} 收到${reason}`)
+    const group = this.repos.groups.get(groupId)
+    const groupName = group?.name ?? '群聊'
+    const masterName =
+      this.repos.groups.members(groupId).find((member) => member.userId === group?.master)?.name ??
+      '群主'
+    logStartup(`私有群 ${ip} 收到${reason} 群=${groupName}`)
     this.removeGroupLocally(groupId, reason)
+    if (reason === '被移出') {
+      this.showInfoDialog(`您已被群主【${masterName}】从群【${groupName}】中移除。`)
+    } else if (reason === '解散') {
+      this.showInfoDialog(`群【${groupName}】已被群主【${masterName}】解散。`)
+    }
+  }
+
+  private showInfoDialog(message: string): void {
+    const window = this.window
+    if (window === null) return
+    void dialog.showMessageBox(window, {
+      type: 'info',
+      title: this.appInfo.name,
+      message,
+      buttons: ['确定'],
+      noLink: true
+    })
   }
 
   // 其它成员退群：从成员表里去掉他
@@ -1780,8 +2035,6 @@ export class AppService {
     if (conversation === null) {
       throw new Error('会话不存在')
     }
-    // 群聊里文件夹暂时不支持，其它文件照常进待发区
-    const groupConversation = conversation.kind === 'group'
     const sources: StagedSource[] = []
     const skipped: string[] = []
     for (const path of paths) {
@@ -1790,10 +2043,6 @@ export class AppService {
         continue
       }
       const stats = statSync(path)
-      if (groupConversation && stats.isDirectory()) {
-        skipped.push(basename(path))
-        continue
-      }
       if (stats.isDirectory()) {
         const info = scanFolder(path)
         sources.push({
@@ -1860,11 +2109,10 @@ export class AppService {
       }
       if (conversation !== null && conversation.kind === 'group') {
         // 群里的文件走离线文件：发送前把文件登记成可被成员拉取的 share
-        if (entry.kind === 'folder') {
-          throw new Error('群聊暂时不支持发送文件夹')
-        }
         if (entry.kind === 'image') {
           this.sendGroupImages(conversation, [file.path])
+        } else if (entry.kind === 'folder') {
+          this.sendGroupFolder(conversation, file.path)
         } else {
           this.sendGroupFiles(conversation, [file.path])
         }
@@ -1961,6 +2209,81 @@ export class AppService {
       }
       logStartup(`群文件已发 ${name} 文件号=${fileId} 成员=${targets.length}`)
     }
+  }
+
+  // 群文件夹：登记成 share 后发一条带 offline_folder 的群消息，成员按 share id 来要
+  private sendGroupFolder(conversation: ConversationInfo, path: string): void {
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const service = this.privateService
+    if (groupId === '' || service === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const selfId = privateUserId(this.settings.get())
+    const targets: string[] = []
+    for (const member of this.repos.groups.members(groupId)) {
+      if (member.userId === selfId) continue
+      const ip = service.peerIpByUserId(member.userId)
+      if (ip !== null && service.isReady(ip)) targets.push(ip)
+    }
+    if (targets.length === 0) {
+      throw new Error('群成员都不在线')
+    }
+    const info = scanFolder(path)
+    const name = basename(path)
+    const shareId = randomBytes(16).toString('hex')
+    this.groupShares.set(shareId, {
+      fileId: 0,
+      size: info.totalSize,
+      modified: Math.floor(statSync(path).mtimeMs / 1000),
+      folder: {
+        taskId: '',
+        name: path,
+        root: path,
+        size: info.totalSize,
+        items: info.items.map((item) => ({
+          name: item.name,
+          dir: item.dir,
+          size: item.size,
+          time: item.time
+        }))
+      }
+    })
+    const message = this.repos.messages.insertOutgoing(
+      conversation.id,
+      name,
+      this.nextPrivateMessageId(),
+      'folder',
+      JSON.stringify({
+        source: 'private-group-folder',
+        groupId,
+        shareId,
+        size: info.totalSize,
+        count: info.items.length,
+        dir: path
+      })
+    )
+    this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emitConversation(conversation.id)
+    this.groupFolderStates.set(shareId, {
+      messageId: message.id,
+      total: targets.length,
+      ok: 0,
+      failed: 0
+    })
+    for (const ip of targets) {
+      service.sendGroupFile(ip, {
+        groupId,
+        msgId: message.id,
+        shareId,
+        // 真实客户端的文件夹消息里大小固定写 0，总大小以文件夹通道的开场帧为准
+        size: 0,
+        path,
+        folder: true
+      })
+    }
+    logStartup(`群文件夹已发 ${name} share=${shareId} 成员=${targets.length}`)
   }
 
   private sendGroupImages(conversation: ConversationInfo, paths: string[]): void {

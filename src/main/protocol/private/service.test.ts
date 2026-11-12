@@ -96,6 +96,8 @@ function options(
       onGroupUsers: () => {},
       onGroupMessage: () => {},
       onShareDownload: () => {},
+      onShareDownloadFolder: () => {},
+      onShareDownloadFolderRsp: () => {},
       onShareDownloadRsp: () => {},
       onRemindFile: () => {},
       onGroupReqInfo: () => {},

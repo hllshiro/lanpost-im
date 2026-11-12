@@ -46,6 +46,8 @@ const CMD = {
   QGROUP_SEND_MSG: 3011,
   SHARE_DOWNLOAD: 5004,
   SHARE_DOWNLOAD_RSP: 5005,
+  SHARE_DOWNLOAD_FOLDER: 5006,
+  SHARE_DOWNLOAD_FOLDER_RSP: 5007,
   REMIND_FILE: 1025
 } as const
 
@@ -153,6 +155,13 @@ export type IncomingPrivate =
       files: PrivateGroupFileRef[]
     }
   | { kind: 'share-download'; reqId: number; shareId: string }
+  | { kind: 'share-download-folder'; reqId: number; shareId: string; channelId: string }
+  | {
+      kind: 'share-download-folder-rsp'
+      reqId: number
+      err: number
+      channelId: string
+    }
   | {
       kind: 'share-download-rsp'
       reqId: number
@@ -161,7 +170,7 @@ export type IncomingPrivate =
       fileSize: number
       lastModify: string
     }
-  | { kind: 'remind-file'; groupId: string; name: string; size: number }
+  | { kind: 'remind-file'; groupId: string; name: string; size: number; folder: boolean }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -643,11 +652,32 @@ export function shareDownloadRspXml(
   )
 }
 
-// 群文件下载完的回执：告诉发送方（以及群里）谁已经拿到这个文件
-export function remindFileXml(groupId: string, size: number, name: string): string {
+export function shareDownloadFolderXml(reqId: number, shareId: string, channelId: string): string {
+  return (
+    `<X_SHARE_DOWNLOAD_FOLDER docver="1"><REQ_ID>${reqId}</REQ_ID>` +
+    `<SHARE_ID>${escapeXmlText(shareId)}</SHARE_ID><SHARE_PATH></SHARE_PATH>` +
+    `<SHARE_PWD></SHARE_PWD><CHANNEL_ID>${escapeXmlText(channelId)}</CHANNEL_ID>` +
+    `<CHECK_PWD>0</CHECK_PWD><GO_ON>0</GO_ON></X_SHARE_DOWNLOAD_FOLDER>`
+  )
+}
+
+export function shareDownloadFolderRspXml(reqId: number, channelId: string, err = 0): string {
+  return (
+    `<X_SHARE_DOWNLOAD_FOLDER_RSP docver="1"><ERR>${err}</ERR><REQ_ID>${reqId}</REQ_ID>` +
+    `<CHANNEL_ID>${escapeXmlText(channelId)}</CHANNEL_ID></X_SHARE_DOWNLOAD_FOLDER_RSP>`
+  )
+}
+
+// 群文件下载完的回执：告诉发送方（以及群里）谁已经拿到这个文件；文件夹的 FILE 是 0
+export function remindFileXml(
+  groupId: string,
+  size: number,
+  name: string,
+  folder: boolean
+): string {
   return (
     `<X_REMIND_FILE docver="1"><GROUP_ID>${escapeXmlText(groupId)}</GROUP_ID>` +
-    `<FILE>1</FILE><FILE_SIZE>${size}</FILE_SIZE>` +
+    `<FILE>${folder ? 0 : 1}</FILE><FILE_SIZE>${size}</FILE_SIZE>` +
     `<FILE_NAME>${escapeXmlText(name)}</FILE_NAME></X_REMIND_FILE>`
   )
 }
@@ -1053,6 +1083,20 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const lastModify = tagText(xml, 'LAST_MODIFY') ?? ''
       return { kind: 'share-download-rsp', reqId, err, fileId, fileSize, lastModify }
     }
+    case CMD.SHARE_DOWNLOAD_FOLDER: {
+      const reqId = Number(tagText(xml, 'REQ_ID') ?? '0')
+      const shareId = tagText(xml, 'SHARE_ID')
+      const channelId = tagText(xml, 'CHANNEL_ID')
+      if (shareId === null || channelId === null) return unrecognized(cmd)
+      return { kind: 'share-download-folder', reqId, shareId, channelId }
+    }
+    case CMD.SHARE_DOWNLOAD_FOLDER_RSP: {
+      const reqId = Number(tagText(xml, 'REQ_ID') ?? '0')
+      const err = Number(tagText(xml, 'ERR') ?? '0')
+      const channelId = tagText(xml, 'CHANNEL_ID')
+      if (channelId === null) return unrecognized(cmd)
+      return { kind: 'share-download-folder-rsp', reqId, err, channelId }
+    }
     case CMD.REMIND_FILE: {
       const groupId = tagText(xml, 'GROUP_ID')
       const name = tagText(xml, 'FILE_NAME')
@@ -1061,7 +1105,8 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
         kind: 'remind-file',
         groupId,
         name,
-        size: Number(tagText(xml, 'FILE_SIZE') ?? '0')
+        size: Number(tagText(xml, 'FILE_SIZE') ?? '0'),
+        folder: (tagText(xml, 'FILE') ?? '1') === '0'
       }
     }
     case CMD.HEARTBEAT:

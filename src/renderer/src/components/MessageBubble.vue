@@ -92,11 +92,14 @@ const folderMeta = computed(() => {
   if (typeof meta.size === 'number') parts.push(formatSize(meta.size))
   if (typeof meta.count === 'number') parts.push(`${meta.count} 个文件`)
   if (meta.incoming === true) {
-    parts.push(meta.done === true ? '已接收' : '接收中')
+    parts.push(
+      typeof meta.error === 'string' ? '接收失败' : meta.done === true ? '已接收' : '接收中'
+    )
   } else if (props.message.status === 'failed') {
     parts.push('发送失败')
   } else {
-    parts.push(props.message.status === 'delivered' ? '已发送' : '发送中')
+    // 群文件夹是成员按需来拉，消息本身发出就算完成
+    parts.push('已发送')
   }
   return parts.join(' · ')
 })
@@ -170,6 +173,9 @@ async function openFolder(): Promise<void> {
               打开文件夹
             </button>
           </div>
+          <p v-if="downloadedBy.length > 0" class="downloaded">
+            已下载：{{ downloadedBy.join('、') }}
+          </p>
         </div>
 
         <div v-else-if="message.kind === 'file'" class="bubble file-bubble">

@@ -269,6 +269,10 @@ export class PrivateFolderTransfer {
       if (folder === undefined) {
         throw new Error(`没有待接收的文件夹任务 ${startInfo.taskId}`)
       }
+      // 群文件夹的消息里不带总大小，以开场帧为准
+      if (startInfo.totalSize > 0) {
+        folder.size = startInfo.totalSize
+      }
       this.log(
         `文件夹通道开场 任务=${startInfo.taskId} 项数=${startInfo.count} 总大小=${startInfo.totalSize}`
       )
