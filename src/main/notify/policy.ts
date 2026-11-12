@@ -66,11 +66,7 @@ export function decideNotification(input: NotificationInput): NotificationDecisi
   if (input.windowFocused && input.activeConversationId === input.conversationId) {
     return decision
   }
-  if (
-    input.muted ||
-    !input.settings.notify.enabled ||
-    inDndWindow(input.settings, input.now)
-  ) {
+  if (input.muted || !input.settings.notify.enabled || inDndWindow(input.settings, input.now)) {
     return decision
   }
   if (input.kind === 'file' && !input.settings.files.notifyOnComplete) {

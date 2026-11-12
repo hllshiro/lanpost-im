@@ -138,7 +138,10 @@ function ipToNumber(ip: string): number {
 
 function subnetBroadcastOf(ip: string, netmask?: string): string {
   const parts = ip.split('.').map(Number)
-  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) {
+  if (
+    parts.length !== 4 ||
+    parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)
+  ) {
     return '255.255.255.255'
   }
   if (netmask === undefined) {
@@ -218,7 +221,7 @@ export class PrivateService {
     const beacon = encodeBeacon({
       type: 1,
       ip: '0.0.0.0',
-      broadcast: subnetBroadcastOf(this.localIp),
+      broadcast: this.localIp === '0.0.0.0' ? '255.255.255.255' : subnetBroadcastOf(this.localIp),
       userId: this.options.identity.userId,
       peerId: this.options.identity.peerId,
       enetPort: this.boundEnetPort,
@@ -248,7 +251,7 @@ export class PrivateService {
     const beacon = encodeBeacon({
       type: 2,
       ip: '0.0.0.0',
-      broadcast: subnetBroadcastOf(this.localIp),
+      broadcast: this.localIp === '0.0.0.0' ? '255.255.255.255' : subnetBroadcastOf(this.localIp),
       userId: this.options.identity.userId,
       peerId: this.options.identity.peerId,
       enetPort: this.boundEnetPort,
@@ -276,9 +279,7 @@ export class PrivateService {
     } catch (error) {
       enet.close()
       if (this.options.enetPort === 0) throw error
-      this.log(
-        `ENet 端口 ${this.options.enetPort} 绑定失败，改用临时端口: ${describeError(error)}`
-      )
+      this.log(`ENet 端口 ${this.options.enetPort} 绑定失败，改用临时端口: ${describeError(error)}`)
       enet = createSocket('udp4')
       await bindSocket(enet, 0, this.options.bindAddr)
     }
@@ -649,10 +650,7 @@ export class PrivateService {
     }
     if (!DISCOVERY_BEACON_TYPES.includes(beacon.type) || beacon.enetPort <= 0) return
     // 自己发出的通告会回到本机；按用户号与源端口识别，避免把本机当成对端
-    if (
-      beacon.userId === this.options.identity.userId &&
-      rinfo.port === this.options.beaconPort
-    ) {
+    if (beacon.userId === this.options.identity.userId && rinfo.port === this.options.beaconPort) {
       return
     }
     const ip = rinfo.address

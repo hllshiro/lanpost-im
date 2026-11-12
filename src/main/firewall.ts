@@ -253,10 +253,7 @@ function linuxPortSummary(ports: FirewallPorts): string {
 
 async function repairWindows(executable: string): Promise<FirewallStatus> {
   try {
-    await runPowerShell(
-      elevatedRunner(REPAIR_SCRIPT(executable, ruleNameOf(executable))),
-      60000
-    )
+    await runPowerShell(elevatedRunner(REPAIR_SCRIPT(executable, ruleNameOf(executable))), 60000)
   } catch (error) {
     return {
       state: 'unknown',

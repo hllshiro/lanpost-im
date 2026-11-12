@@ -75,13 +75,7 @@ export interface AppInfo {
   appId: string
 }
 
-export type FirewallState =
-  | 'allowed'
-  | 'blocked'
-  | 'missing'
-  | 'manual'
-  | 'unsupported'
-  | 'unknown'
+export type FirewallState = 'allowed' | 'blocked' | 'missing' | 'manual' | 'unsupported' | 'unknown'
 
 export interface FirewallStatus {
   state: FirewallState

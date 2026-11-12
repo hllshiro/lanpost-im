@@ -26,7 +26,9 @@ function seedPeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
   }
 }
 
-function input(overrides: Partial<Parameters<PeerRegistry['upsertPrivatePeer']>[0]> = {}) {
+function input(
+  overrides: Partial<Parameters<PeerRegistry['upsertPrivatePeer']>[0]> = {}
+): Parameters<PeerRegistry['upsertPrivatePeer']>[0] {
   return {
     ip: '10.0.0.1',
     userId: 'bob',

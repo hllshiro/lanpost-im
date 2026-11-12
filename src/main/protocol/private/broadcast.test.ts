@@ -41,7 +41,11 @@ describe('eligibleTargets', () => {
 
   it('deduplicates and keeps the input order', () => {
     const targets = eligibleTargets(
-      [peer({ key: 'b', ip: '10.0.0.2' }), peer({ key: 'a', ip: '10.0.0.1' }), peer({ key: 'b', ip: '10.0.0.2' })],
+      [
+        peer({ key: 'b', ip: '10.0.0.2' }),
+        peer({ key: 'a', ip: '10.0.0.1' }),
+        peer({ key: 'b', ip: '10.0.0.2' })
+      ],
       () => true
     )
     expect(targets.map((item) => item.key)).toEqual(['b', 'a'])

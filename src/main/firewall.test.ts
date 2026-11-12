@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  linuxManualCommand,
-  linuxRepairScript,
-  normalizePorts,
-  ruleNameOf
-} from './firewall'
+import { linuxManualCommand, linuxRepairScript, normalizePorts, ruleNameOf } from './firewall'
 
 describe('normalizePorts', () => {
   it('deduplicates, sorts and drops invalid ports', () => {

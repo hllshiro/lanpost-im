@@ -3283,8 +3283,9 @@ export class AppService {
     for (const peer of peers) {
       this.repos.peers.upsert(peer)
       const conversationId = directConversationId(peer.key)
-      const title = aliases.get(peer.key)?.trim() || peer.name || peer.user || peer.ip
       const existing = this.repos.conversations.get(conversationId)
+      if (!peer.online && existing === null) continue
+      const title = aliases.get(peer.key)?.trim() || peer.name || peer.user || peer.ip
       if (existing === null) {
         const conversation = this.repos.conversations.ensureDirect(peer.key, title)
         this.emit({ type: 'conversation', conversation })
