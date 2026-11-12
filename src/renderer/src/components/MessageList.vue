@@ -243,9 +243,7 @@ onMounted(async () => {
 }
 
 .stream {
-  max-width: 860px;
-  margin: 0 auto;
-  padding: 16px 24px 10px;
+  padding: 16px 20px 10px;
 }
 
 .older {

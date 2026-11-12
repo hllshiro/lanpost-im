@@ -180,7 +180,8 @@ const displayText = computed(() =>
   display: flex;
   flex-direction: column;
   min-width: 0;
-  max-width: 60%;
+  /* 宽窗口下气泡贴着两侧，正文行宽仍控制在易读范围 */
+  max-width: min(60%, 640px);
 }
 
 .row.own .content {
