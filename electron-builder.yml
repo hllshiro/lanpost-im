@@ -13,6 +13,10 @@ files:
   - '!scripts/**'
   - '!.superpowers/**'
   - '!.github/**'
+  - '!.worktrees/**'
+  - '!.dev-data/**'
+  - '!.tmp-*/**'
+  - '!**/*.pcapng'
   - '!**/*.log'
 asarUnpack:
   - resources/**
