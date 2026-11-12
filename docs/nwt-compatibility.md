@@ -66,6 +66,7 @@
 
 ## 参考
 
+- `docs/nwt-private-protocol.md`（本客户端私有通道实现）
 - `docs/protocol-debugging.md`
 - `docs/ipmsg-protocol-zh.md`
 - 私有通道原始记录（同一工作区）：`../../nwt-re/docs/private-protocol.md`
