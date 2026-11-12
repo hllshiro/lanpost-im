@@ -3074,6 +3074,16 @@ export class AppService {
     }
   }
 
+  setStatus(status: number): void {
+    if (!isPresenceStatus(status)) {
+      throw new Error('在线状态无效')
+    }
+    this.autoPresence = null
+    if (this.settings.get().identity.status === status) return
+    this.settings.update({ identity: { status } })
+    this.applySettings(this.settings.get())
+  }
+
   evaluateIdleStatus(idleSeconds: number): void {
     const current = this.settings.get().identity.status
     if (!isPresenceStatus(current)) return

@@ -274,6 +274,15 @@ export const useAppStore = defineStore('app', () => {
     await loadFavorites()
   }
 
+  async function setStatus(status: number): Promise<void> {
+    try {
+      await window.api.identity.setStatus(status)
+      if (local.value) local.value = { ...local.value, status }
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
   async function loadFavorites(): Promise<void> {
     try {
       favorites.value = await window.api.emotions.list()
@@ -565,6 +574,7 @@ export const useAppStore = defineStore('app', () => {
     initialize,
     loadSnapshot,
     refreshPeers,
+    setStatus,
     selectConversation,
     loadMessages,
     sendText,

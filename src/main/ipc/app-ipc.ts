@@ -24,6 +24,7 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.peersRefresh, () => service.refreshPeers())
   ipcMain.handle(IPC.identityPickAvatar, () => service.pickAvatar())
   ipcMain.handle(IPC.identityClearAvatar, () => service.clearAvatar())
+  ipcMain.handle(IPC.identityStatus, (_event, status: number) => service.setStatus(status))
   ipcMain.handle(IPC.groupCreate, (_event, name: string, memberUserIds: string[]) =>
     service.createGroup(name, memberUserIds)
   )

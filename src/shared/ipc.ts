@@ -20,6 +20,7 @@ export const IPC = {
   shortcutsAvailable: 'shortcuts:available',
   identityPickAvatar: 'identity:pick-avatar',
   identityClearAvatar: 'identity:clear-avatar',
+  identityStatus: 'identity:status',
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
@@ -121,6 +122,7 @@ export type Api = {
   identity: {
     pickAvatar(): Promise<void>
     clearAvatar(): Promise<void>
+    setStatus(status: number): Promise<void>
   }
   ui: {
     onOpenSettings(listener: () => void): () => void

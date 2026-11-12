@@ -256,6 +256,7 @@ onBeforeUnmount(() => {
       :active="view"
       @settings="settingsOpen = true"
       @select="handleViewSelect"
+      @status="store.setStatus"
     />
 
     <div

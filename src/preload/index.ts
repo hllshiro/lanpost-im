@@ -101,7 +101,8 @@ const api: Api = {
   },
   identity: {
     pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),
-    clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar)
+    clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar),
+    setStatus: (status) => ipcRenderer.invoke(IPC.identityStatus, status)
   }
 }
 
