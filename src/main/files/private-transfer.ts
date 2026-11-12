@@ -11,6 +11,7 @@ import {
   FILE_FRAME_PATH,
   FILE_FRAME_WINDOW,
   FILE_WINDOW_BODY_SIZE,
+  FILE_HELLO_BODY_SIZE,
   FileFrameReader,
   buildAck,
   buildData,
@@ -59,6 +60,8 @@ export interface PrivateTransferOptions {
   callbacks: PrivateTransferCallbacks
   // 对端来取头像时按文件号找本机头像文件
   resolveAvatar?(fileId: number): { path: string; size: number } | null
+  // 对端来取群头像时带的是 md5，不是文件号
+  resolveGroupPhoto?(body: Buffer): { path: string; size: number } | null
   onLog(message: string): void
 }
 
@@ -439,6 +442,14 @@ export class PrivateFileTransfer {
         await this.serveAvatar(socket, channel, parsed.fileId, avatar)
         return
       }
+      const groupPhoto = this.options.resolveGroupPhoto?.(first.body) ?? null
+      if (groupPhoto !== null) {
+        await this.serveAvatar(socket, channel, parsed.fileId, groupPhoto)
+        return
+      }
+      this.log(
+        `未知文件 ${parsed.fileId} 的握手（${socket.remoteAddress ?? '?'}:${socket.remotePort ?? 0} -> 本机 ${socket.localPort ?? 0}）：${first.body.toString('hex').slice(0, 800)}`
+      )
       throw new Error(`私有文件通道收到未知文件 ${parsed.fileId} 的握手`)
     }
     await this.sendOver(socket, channel, outgoing, true)
@@ -461,6 +472,65 @@ export class PrivateFileTransfer {
     await this.requireFrame(channel)
     await this.streamFile(socket, { fileId, path: file.path, size: file.size })
     socket.end()
+  }
+
+  // 取对端群头像：HELLO 里把 md5 写在偏移 148（UTF-16），其余走同一套 ACK/PATH/DATA
+  async fetchGroupPhoto(input: {
+    ip: string
+    port: number
+    md5: string
+    savePath: string
+    maxBytes: number
+  }): Promise<number> {
+    const socket = await this.dial(input.ip, input.port)
+    const channel = new FrameChannel(socket)
+    try {
+      const body = Buffer.alloc(FILE_HELLO_BODY_SIZE)
+      body.writeUInt32BE(0, 44)
+      body.write(input.md5, 148, 'utf16le')
+      socket.write(encodeFileFrame(FILE_FRAME_HELLO, body))
+      const ack = await this.requireFrame(channel)
+      if (ack.type !== FILE_FRAME_ACK) {
+        throw new Error(`取群头像期望确认，收到类型 ${ack.type}`)
+      }
+      const confirmed = parseAck(ack.body)
+      if (confirmed.size <= 0 || confirmed.size > input.maxBytes) {
+        throw new Error(`群头像大小异常 ${confirmed.size}`)
+      }
+      socket.write(
+        encodeFileFrame(
+          FILE_FRAME_PATH,
+          buildPath({
+            dir: dirname(input.savePath),
+            fileId: confirmed.fileId,
+            name: basename(input.savePath)
+          })
+        )
+      )
+      const data = Buffer.alloc(confirmed.size)
+      let received = 0
+      for (;;) {
+        const frame = await this.requireFrame(channel)
+        if (frame.type !== FILE_FRAME_DATA) continue
+        const header = parseDataHeader(frame.body)
+        if (header.fileId !== confirmed.fileId) {
+          throw new Error(`取群头像时收到错误的文件 ${header.fileId}`)
+        }
+        const chunk = frame.body.subarray(
+          FILE_DATA_HEADER_SIZE,
+          FILE_DATA_HEADER_SIZE + header.chunkSize
+        )
+        chunk.copy(data, header.offset)
+        received = Math.max(received, header.offset + header.chunkSize)
+        if (received >= confirmed.size) break
+      }
+      writeFileSync(input.savePath, data.subarray(0, confirmed.size))
+      socket.end()
+      return confirmed.size
+    } finally {
+      socket.destroy()
+      this.active.delete(socket)
+    }
   }
 
   // 取对端头像：HELLO -> ACK -> PATH -> DATA，头像很小，整段收完再落盘

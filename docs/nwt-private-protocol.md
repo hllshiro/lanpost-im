@@ -313,6 +313,12 @@ src/main/protocol/private/
 - 实测：持有方发 `X_CHANGE_INFO` 后，真实客户端会立刻连 9013 取图；本机作为取方连对端 9013 也能取到（对端 13603 可能被防火墙挡住，9013 可用）。
 - 本机实现：`AvatarStore` 按 md5 存到 `userData/avatars/<md5>`；`PrivateFileTransfer.fetchAvatar` 负责取，`serveAvatar` 负责发。
 
+群头像：
+
+- 群头像的 md5 放在群资料的 `QGROUP_PHOTO_MD5` 里；群主改完后把 `QGROUP_INFO_VER` 加一，用 `3002 X_QGROUP_PUSH_INFO` 把整份群资料推给成员。本机只在群主是本机时开放修改入口，主进程也会拒绝非群主的调用。
+- 成员取群头像：连群主的 **9013**（实测），`HELLO` 的文件号写 0，md5 以 UTF-16 写在正文偏移 **148**；之后同样是 ACK / PATH / DATA，返回 96×96 PNG，按 md5 缓存。
+- 真实客户端来取本机群头像时会连本机的 `FILE_TRAN_TCP_PORT`（实测 13603），本机在 9013 和对端公布的端口上都监听，两个入口都能响应。
+
 ## 12. 已知限制
 
 - 文件夹、群组、共享文件柜、远程协助、离线消息未实现；文件夹的控制命令与数据通道已还原，见 [nwt-file-channel.md](nwt-file-channel.md)。

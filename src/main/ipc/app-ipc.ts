@@ -27,6 +27,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.groupCreate, (_event, name: string, memberUserIds: string[]) =>
     service.createGroup(name, memberUserIds)
   )
+  ipcMain.handle(IPC.groupAvatar, (_event, groupId: string, path?: string) =>
+    service.pickGroupAvatar(groupId, path)
+  )
   ipcMain.handle(IPC.groupInvite, (_event, groupId: string, memberUserIds: string[]) =>
     service.inviteToGroup(groupId, memberUserIds)
   )

@@ -32,6 +32,7 @@ import {
   reverseFileReqXml,
   reverseFolderReqXml,
   groupPushUserXml,
+  groupPushInfoXml,
   groupImageXml,
   groupRichCardXml,
   richCardXml,
@@ -87,6 +88,7 @@ const CMD_READY = 1018
 const CMD_REVERSE_FILE_REQ = 1019
 const CMD_REVERSE_FOLDER_REQ = 1020
 const CMD_QGROUP_SEND_MSG = 3011
+const CMD_QGROUP_PUSH_INFO = 3002
 const CMD_QGROUP_PUSH_USER = 3003
 const CMD_QGROUP_REQ_INFO = 3004
 const CMD_QGROUP_REQ_INFO_RSP = 3005
@@ -403,6 +405,12 @@ export class PrivateSession {
   sendGroupPushUser(info: PrivateGroupInfo, members: PrivateGroupMember[]): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_QGROUP_PUSH_USER, groupPushUserXml(info, members)))
+    return true
+  }
+
+  sendGroupPushInfo(info: PrivateGroupInfo): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_PUSH_INFO, groupPushInfoXml(info)))
     return true
   }
 

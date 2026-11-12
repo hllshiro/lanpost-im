@@ -52,6 +52,7 @@ const api: Api = {
   },
   groups: {
     create: (name, memberUserIds) => ipcRenderer.invoke(IPC.groupCreate, name, memberUserIds),
+    setAvatar: (groupId, path) => ipcRenderer.invoke(IPC.groupAvatar, groupId, path),
     invite: (groupId, memberUserIds) => ipcRenderer.invoke(IPC.groupInvite, groupId, memberUserIds),
     kick: (groupId, userId) => ipcRenderer.invoke(IPC.groupKick, groupId, userId),
     leave: (groupId) => ipcRenderer.invoke(IPC.groupLeave, groupId),

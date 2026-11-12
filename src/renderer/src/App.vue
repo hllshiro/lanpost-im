@@ -270,6 +270,7 @@ onBeforeUnmount(() => {
           <ConversationList
             :conversations="store.sortedConversations"
             :peers="store.peers"
+            :groups="store.groups"
             :previews="store.previews"
             :selected-id="store.currentConversationId"
             :loading="store.loading"

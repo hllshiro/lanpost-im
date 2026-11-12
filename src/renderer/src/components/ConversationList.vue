@@ -2,13 +2,14 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { MessageSquare, Pin, RefreshCw, Search, Users, X } from '@lucide/vue'
-import type { ConversationInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
+import type { ConversationInfo, GroupInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
 import { avatarUrl } from '../utils/avatar'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
 const props = defineProps<{
   conversations: ConversationInfo[]
   peers: PeerInfo[]
+  groups: GroupInfo[]
   previews: Record<string, MessageInfo>
   selectedId: string | null
   loading: boolean
@@ -61,6 +62,11 @@ function presenceText(conversation: ConversationInfo): string {
 }
 
 function avatarOf(conversation: ConversationInfo): string {
+  if (conversation.kind === 'group') {
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const group = props.groups.find((item) => item.id === groupId)
+    return avatarUrl(group?.photoMd5)
+  }
   return avatarUrl(peerOf(conversation)?.avatarMd5)
 }
 

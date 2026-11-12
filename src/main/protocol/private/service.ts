@@ -328,6 +328,10 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupPushUser(info, members) ?? false
   }
 
+  sendGroupPushInfo(ip: string, info: PrivateGroupInfo): boolean {
+    return this.sessions.get(ip)?.sendGroupPushInfo(info) ?? false
+  }
+
   sendGroupImage(ip: string, groupId: string, msgId: number, values: string[], text = ''): boolean {
     return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, values, text) ?? false
   }

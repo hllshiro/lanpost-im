@@ -32,6 +32,7 @@ export const IPC = {
   peerAlias: 'peer:alias',
   peersRefresh: 'peers:refresh',
   groupCreate: 'groups:create',
+  groupAvatar: 'groups:avatar',
   groupInvite: 'groups:invite',
   groupKick: 'groups:kick',
   groupLeave: 'groups:leave',
@@ -132,6 +133,7 @@ export type Api = {
   }
   groups: {
     create(name: string, memberUserIds: string[]): Promise<GroupInfo>
+    setAvatar(groupId: string, path?: string): Promise<void>
     invite(groupId: string, memberUserIds: string[]): Promise<void>
     kick(groupId: string, userId: string): Promise<void>
     leave(groupId: string): Promise<void>

@@ -57,6 +57,20 @@ const senderAvatars = computed(() => {
   }
   return map
 })
+
+const headAvatar = computed(() => {
+  if (props.conversation?.kind === 'group') return avatarUrl(props.group?.photoMd5 ?? '')
+  return avatarUrl(props.peer?.avatarMd5)
+})
+
+async function changeGroupAvatar(): Promise<void> {
+  if (props.group === null) return
+  try {
+    await window.api.groups.setAvatar(props.group.id)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
 const copied = ref(false)
 const copyError = ref('')
 const pending = ref<
@@ -172,6 +186,9 @@ onBeforeUnmount(() => {
   <section class="chat" aria-label="聊天区">
     <template v-if="conversation">
       <header class="chat-head">
+        <span v-if="headAvatar !== ''" class="head-avatar">
+          <img :src="headAvatar" alt="" />
+        </span>
         <div class="title-block">
           <div class="title-line">
             <h2 :title="conversation.title">{{ conversation.title }}</h2>
@@ -224,6 +241,22 @@ onBeforeUnmount(() => {
               </header>
               <dl class="info-body">
                 <template v-if="conversation.kind === 'group' && group">
+                  <div class="group-face">
+                    <span class="group-face-avatar">
+                      <img
+                        v-if="avatarUrl(group.photoMd5) !== ''"
+                        :src="avatarUrl(group.photoMd5)"
+                        alt=""
+                      />
+                      <template v-else>{{ initialOf(group.name) }}</template>
+                    </span>
+                    <div class="group-face-main">
+                      <strong :title="group.name">{{ group.name }}</strong>
+                      <button v-if="isMaster" class="link" @click="changeGroupAvatar">
+                        更换群头像
+                      </button>
+                    </div>
+                  </div>
                   <div class="info-row">
                     <dt>群号</dt>
                     <dd class="group-id">{{ group.id }}</dd>
@@ -385,6 +418,63 @@ onBeforeUnmount(() => {
 
 .title-block {
   min-width: 0;
+}
+
+.head-avatar {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--avatar-radius);
+  overflow: hidden;
+  background: #d9e2ea;
+}
+
+.head-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.group-face {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0 10px;
+  border-bottom: 1px solid #f0f0f0;
+  margin-bottom: 4px;
+}
+
+.group-face-avatar {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--avatar-radius);
+  background: #d9e2ea;
+  color: #4c5a68;
+  font-size: 18px;
+  overflow: hidden;
+}
+
+.group-face-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.group-face-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.group-face-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .title-line {

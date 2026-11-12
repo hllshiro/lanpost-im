@@ -120,6 +120,8 @@ export interface GroupInfo {
   infoVersion: number
   userVersion: number
   members: GroupMemberInfo[]
+  // 群头像的 md5；文件已经缓存时才有值
+  photoMd5: string
 }
 
 export interface AppSnapshot {

@@ -97,6 +97,7 @@ import {
 } from './groups/member-notice'
 import { FavoriteStore } from './emotion/favorites'
 import { AvatarStore } from './avatar/store'
+import { findUtf16Md5 } from './avatar/scan'
 import { logStartup } from './startup-log'
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
@@ -464,6 +465,7 @@ export class AppService {
           if (!existsSync(path)) return null
           return { path, size: statSync(path).size }
         },
+        resolveGroupPhoto: (body) => this.findGroupPhoto(body),
         callbacks: {
           onProgress: (fileId, received) => this.handlePrivateFileProgress(fileId, received),
           onDone: (fileId, path) => this.handlePrivateFileDone(fileId, path),
@@ -802,6 +804,7 @@ export class AppService {
       if (previous !== null) {
         this.recordGroupNotices(conversation.id, previous, info)
       }
+      this.fetchGroupPhoto(info.id, info.photoMd5)
     } catch (error) {
       logStartup(`私有群资料处理失败：${(error as Error).message}`)
     }
@@ -1947,7 +1950,8 @@ export class AppService {
         announcement: '',
         infoVersion: 0,
         userVersion: 0,
-        members: list
+        members: list,
+        photoMd5: ''
       }
     }
     return {
@@ -1958,7 +1962,8 @@ export class AppService {
       announcement: group.announcement,
       infoVersion: group.infoVersion,
       userVersion: group.userVersion,
-      members: list
+      members: list,
+      photoMd5: this.avatars.has(group.photoMd5) ? group.photoMd5 : ''
     }
   }
 
@@ -3037,32 +3042,22 @@ export class AppService {
     return this.avatars.has(md5) ? this.avatars.path(md5) : null
   }
 
+  // 群头像请求按 md5 找本地缓存；只有群主本地会有这张图，成员取到后也能转发
+  private findGroupPhoto(body: Buffer): { path: string; size: number } | null {
+    const md5 = findUtf16Md5(body)
+    if (md5 === '') return null
+    const group = this.repos.groups.list().find((item) => item.photoMd5 === md5)
+    if (group === undefined) return null
+    const path = this.avatars.path(md5)
+    if (!existsSync(path)) return null
+    return { path, size: statSync(path).size }
+  }
+
   // 选一张图作为头像：居中裁成正方形再缩到 96×96，和真实客户端的头像尺寸一致
   async pickAvatar(): Promise<void> {
-    const options: OpenDialogOptions = {
-      title: '选择头像',
-      properties: ['openFile'],
-      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
-    }
-    const result =
-      this.window === null
-        ? await dialog.showOpenDialog(options)
-        : await dialog.showOpenDialog(this.window, options)
-    const path = result.filePaths[0]
-    if (result.canceled || path === undefined) return
-    const image = nativeImage.createFromPath(path)
-    const size = image.getSize()
-    if (size.width <= 0 || size.height <= 0) {
-      throw new Error('无法读取这张图片')
-    }
-    const edge = Math.min(size.width, size.height)
-    const square = image.crop({
-      x: Math.floor((size.width - edge) / 2),
-      y: Math.floor((size.height - edge) / 2),
-      width: edge,
-      height: edge
-    })
-    const png = square.resize({ width: 96, height: 96, quality: 'best' }).toPNG()
+    const path = await this.chooseImage('选择头像')
+    if (path === null) return
+    const png = this.squarePng(path)
     const md5 = AvatarStore.md5(png)
     this.avatars.put(md5, png)
     const identity = this.settings.get().identity
@@ -3078,12 +3073,126 @@ export class AppService {
     logStartup(`头像已更新 md5=${md5} id=${avatarId}`)
   }
 
+  // 只有群主可以改群头像；改完按整份群资料推给成员
+  async pickGroupAvatar(groupId: string, path?: string): Promise<void> {
+    const group = this.requireGroup(groupId)
+    const selfId = privateUserId(this.settings.get())
+    if (group.master !== selfId) {
+      throw new Error('只有群主可以修改群头像')
+    }
+    const source = path ?? (await this.chooseImage('选择群头像'))
+    if (source === null) return
+    const png = this.squarePng(source)
+    const md5 = AvatarStore.md5(png)
+    this.avatars.put(md5, png)
+    this.storeGroupPhoto(group, md5)
+  }
+
+  private storeGroupPhoto(group: QGroupInfo, md5: string): void {
+    const info = { ...this.privateInfoOf(group), photoMd5: md5, infoVersion: group.infoVersion + 1 }
+    this.repos.groups.upsert({ ...info, updatedAt: Date.now() })
+    const service = this.privateService
+    const selfId = privateUserId(this.settings.get())
+    for (const member of this.repos.groups.members(group.id)) {
+      if (member.userId === selfId) continue
+      const ip = service?.peerIpByUserId(member.userId) ?? null
+      if (ip === null) continue
+      service?.sendGroupPushInfo(ip, info)
+    }
+    this.emitGroup(group.id)
+    this.emitConversation(groupConversationId(group.id))
+    logStartup(`群头像已更新 群号=${group.id} md5=${md5} 版本=${info.infoVersion}`)
+  }
+
+  private chooseImage(title: string): Promise<string | null> {
+    const options: OpenDialogOptions = {
+      title,
+      properties: ['openFile'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }]
+    }
+    const run =
+      this.window === null
+        ? dialog.showOpenDialog(options)
+        : dialog.showOpenDialog(this.window, options)
+    return run.then((result) => (result.canceled ? null : (result.filePaths[0] ?? null)))
+  }
+
+  // 居中裁成正方形再缩到 96×96，个人头像和群头像一致
+  private squarePng(path: string): Buffer {
+    const image = nativeImage.createFromPath(path)
+    const size = image.getSize()
+    if (size.width <= 0 || size.height <= 0) {
+      throw new Error('无法读取这张图片')
+    }
+    const edge = Math.min(size.width, size.height)
+    const square = image.crop({
+      x: Math.floor((size.width - edge) / 2),
+      y: Math.floor((size.height - edge) / 2),
+      width: edge,
+      height: edge
+    })
+    return square.resize({ width: 96, height: 96, quality: 'best' }).toPNG()
+  }
+
   clearAvatar(): void {
     const settings = this.settings.update({ identity: { avatarMd5: '', avatarId: 0 } })
     this.applySettings(settings)
     this.privateService?.broadcastChangeInfo()
     this.emit({ type: 'settings', settings })
     logStartup('头像已移除')
+  }
+
+  // 群头像：成员从群主那里按 md5 取，取到后刷新群资料
+  private fetchGroupPhoto(groupId: string, md5: string): void {
+    if (md5 === '' || this.avatars.has(md5)) return
+    const group = this.repos.groups.get(groupId)
+    if (group === null) return
+    const selfId = privateUserId(this.settings.get())
+    if (group.master === selfId) return
+    const transfer = this.privateFiles
+    const ip = this.privateService?.peerIpByUserId(group.master) ?? null
+    if (transfer === null || ip === null) return
+    const key = `group|${ip}|${md5}`
+    if (this.avatarFetches.has(key)) return
+    this.avatarFetches.add(key)
+    void (async () => {
+      try {
+        const savePath = this.avatars.path(md5)
+        const ports = [9013]
+        const advertised = this.privateService?.peerFilePort(ip) ?? 0
+        if (advertised > 0 && !ports.includes(advertised)) ports.push(advertised)
+        let lastError: Error | null = null
+        for (const port of ports) {
+          try {
+            await transfer.fetchGroupPhoto({
+              ip,
+              port,
+              md5,
+              savePath,
+              maxBytes: 4 * 1024 * 1024
+            })
+            lastError = null
+            break
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error))
+            logStartup(`取头像 ${ip}:${port} 失败: ${lastError.message}`)
+          }
+        }
+        if (lastError !== null) throw lastError
+        const saved = this.avatars.read(md5)
+        if (saved === null || AvatarStore.md5(saved) !== md5) {
+          rmSync(savePath, { force: true })
+          throw new Error('取到的群头像与公布的 md5 不一致')
+        }
+        logStartup(`群头像已缓存 群号=${groupId} md5=${md5}`)
+        this.emitGroup(groupId)
+        this.emitConversation(groupConversationId(groupId))
+      } catch (error) {
+        logStartup(`取群头像失败 群号=${groupId} md5=${md5}: ${(error as Error).message}`)
+      } finally {
+        this.avatarFetches.delete(key)
+      }
+    })()
   }
 
   // 对端换了头像：本地没缓存就去它的文件端口取，取到后按 md5 存进头像目录
@@ -3116,6 +3225,7 @@ export class AppService {
             break
           } catch (error) {
             lastError = error instanceof Error ? error : new Error(String(error))
+            logStartup(`取头像 ${ip}:${port} 失败: ${lastError.message}`)
           }
         }
         if (lastError !== null) throw lastError
@@ -3531,13 +3641,22 @@ export class AppService {
       online: true
     })
     const key = this.engine.peerKeyForIp(ip)
-    if (key === null || profile.avatarMd5 === '') return
-    const previous = this.repos.peers.get(key)
-    this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
-    if (previous?.avatarMd5 !== profile.avatarMd5) {
-      this.emit({ type: 'peers', peers: this.peerList() })
+    if (key === null) return
+    if (profile.avatarMd5 !== '') {
+      const previous = this.repos.peers.get(key)
+      this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
+      if (previous?.avatarMd5 !== profile.avatarMd5) {
+        this.emit({ type: 'peers', peers: this.peerList() })
+      }
+      this.fetchPeerAvatar(ip, profile.avatarId, profile.avatarMd5)
     }
-    this.fetchPeerAvatar(ip, profile.avatarId, profile.avatarMd5)
+    if (profile.userId !== '') {
+      for (const group of this.repos.groups.list()) {
+        if (group.master === profile.userId && group.photoMd5 !== '') {
+          this.fetchGroupPhoto(group.id, group.photoMd5)
+        }
+      }
+    }
   }
 
   private peerForIp(ip: string): { key: string; name: string } {
