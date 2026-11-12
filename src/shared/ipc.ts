@@ -24,7 +24,6 @@ export const IPC = {
   messagesList: 'messages:list',
   messagesAll: 'messages:all',
   messageSend: 'messages:send',
-  messageSendSticker: 'messages:send-sticker',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -38,7 +37,7 @@ export const IPC = {
   emotionList: 'emotions:list',
   emotionAdd: 'emotions:add',
   emotionRemove: 'emotions:remove',
-  emotionSend: 'emotions:send',
+  emotionStage: 'emotions:stage',
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
@@ -114,8 +113,6 @@ export type Api = {
     list(request: MessagesListRequest): Promise<MessagesPage>
     all(conversationId: string): Promise<MessageInfo[]>
     send(request: MessagesSendRequest): Promise<SendTextResult>
-    // 发送内置表情：sticker 是表情表的 Id 或「班车小子」组的文件名
-    sendSticker(conversationId: string, sticker: string): Promise<SendTextResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }
@@ -134,7 +131,7 @@ export type Api = {
     list(): Promise<FavoriteSticker[]>
     add(fileId: string): Promise<FavoriteSticker>
     remove(id: string): Promise<void>
-    send(conversationId: string, id: string): Promise<void>
+    stage(conversationId: string, id: string): Promise<StagedAttachment[]>
   }
   files: {
     accept(id: string): Promise<void>

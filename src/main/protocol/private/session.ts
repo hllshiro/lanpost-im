@@ -386,9 +386,9 @@ export class PrivateSession {
     return true
   }
 
-  sendGroupImage(groupId: string, msgId: number, value: string): boolean {
+  sendGroupImage(groupId: string, msgId: number, values: string[]): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, value)))
+    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, values)))
     return true
   }
 
@@ -495,9 +495,9 @@ export class PrivateSession {
     this.sendFrame(CMD_REVERSE_FILE_REQ, reverseFileReqXml(taskId))
   }
 
-  sendImageCard(msgId: number, value: string): boolean {
+  sendImageCard(msgId: number, values: string[]): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, value)))
+    this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, values)))
     return true
   }
 

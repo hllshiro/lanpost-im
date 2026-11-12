@@ -39,7 +39,6 @@ const emit = defineEmits<{
   kick: [userId: string]
   leave: []
   dismiss: []
-  sticker: [key: string]
 }>()
 
 const search = ref('')
@@ -328,7 +327,6 @@ onBeforeUnmount(() => {
         @update:draft="handleDraft"
         @send="handleSend"
         @remove-staged="emit('remove-staged', $event)"
-        @sticker="emit('sticker', $event)"
       />
     </template>
 

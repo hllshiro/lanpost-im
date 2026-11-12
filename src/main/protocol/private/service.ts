@@ -317,8 +317,8 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupPushUser(info, members) ?? false
   }
 
-  sendGroupImage(ip: string, groupId: string, msgId: number, value: string): boolean {
-    return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, value) ?? false
+  sendGroupImage(ip: string, groupId: string, msgId: number, values: string[]): boolean {
+    return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, values) ?? false
   }
 
   sendGroupFile(
@@ -410,8 +410,8 @@ export class PrivateService {
     this.sessions.get(ip)?.sendRetrieveImages(msgId, refs)
   }
 
-  sendImageCard(ip: string, msgId: number, value: string): boolean {
-    return this.sessions.get(ip)?.sendImageCard(msgId, value) ?? false
+  sendImageCard(ip: string, msgId: number, values: string[]): boolean {
+    return this.sessions.get(ip)?.sendImageCard(msgId, values) ?? false
   }
 
   // 对端公布的文件通道端口；0 表示没收到或没公布

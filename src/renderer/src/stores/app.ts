@@ -295,9 +295,9 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  async function sendFavorite(conversationId: string, id: string): Promise<void> {
+  async function stageFavorite(conversationId: string, id: string): Promise<void> {
     try {
-      await window.api.emotions.send(conversationId, id)
+      await window.api.emotions.stage(conversationId, id)
     } catch (reason) {
       reportError(reason)
     }
@@ -443,26 +443,6 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // 内置表情直接作为一条消息发出去
-  async function sendSticker(sticker: string): Promise<void> {
-    const conversationId = currentConversationId.value
-    if (!conversationId || sending.value) return
-    sending.value = true
-    try {
-      const result = await window.api.messages.sendSticker(conversationId, sticker)
-      upsertMessage(result.message)
-      previews.value = { ...previews.value, [conversationId]: result.message }
-      const conversation = conversations.value.find((item) => item.id === conversationId)
-      if (conversation && result.message.createdAt > conversation.lastMessageAt) {
-        conversation.lastMessageAt = result.message.createdAt
-      }
-    } catch (reason) {
-      reportError(reason)
-    } finally {
-      sending.value = false
-    }
-  }
-
   async function setAlias(peerKey: string, alias: string): Promise<void> {
     const name = alias.trim()
     try {
@@ -567,11 +547,10 @@ export const useAppStore = defineStore('app', () => {
     markReadCurrent,
     setPinned,
     setAlias,
-    sendSticker,
     loadFavorites,
     addFavorite,
     removeFavorite,
-    sendFavorite,
+    stageFavorite,
     createGroup,
     inviteMembers,
     kickMember,

@@ -374,18 +374,24 @@ export function retrieveImagesXml(msgId: number, refs: PrivateImageRef[]): strin
   return escapeMsgBody(xml)
 }
 
-// 发图片时内网通先发 X_SEND_FILE，再发一条 img 卡片；v 是“文件号|md5”
-export function imageCardXml(msgId: number, value: string): string {
-  const body = [
+// 发图片时内网通先发 X_SEND_FILE，再发一条 img 卡片；v 是“文件号|md5”。
+// 一条消息可以带多张图片，dt 里就是多个 img 节点。
+function imageCardBody(values: string[]): string {
+  const nodes = values.map((value) =>
+    [
+      '      {',
+      '         "img" : {',
+      '            "t" : "feihu",',
+      `            "v" : ${JSON.stringify(value)}`,
+      '         }',
+      '      }'
+    ].join('\n')
+  )
+  return [
     '{',
     '   "app" : "shiyeline",',
     '   "dt" : [',
-    '      {',
-    '         "img" : {',
-    '            "t" : "feihu",',
-    `            "v" : ${JSON.stringify(value)}`,
-    '         }',
-    '      }',
+    nodes.join(',\n'),
     '   ],',
     '   "ft" : {',
     '      "b" : "0",',
@@ -400,11 +406,14 @@ export function imageCardXml(msgId: number, value: string): string {
     '   "ver" : "6.0"',
     '}'
   ].join('\n')
+}
+
+export function imageCardXml(msgId: number, values: string[]): string {
   const xml = encodeChatMsg({
     Docver: DOCVER,
     MsgID: msgId,
     Receipt: 0,
-    Msg: body,
+    Msg: imageCardBody(values),
     MsgTime: 0,
     Offline: 0,
     HideRecord: 0
@@ -413,31 +422,8 @@ export function imageCardXml(msgId: number, value: string): string {
 }
 
 // 群图片：dt 里只放 img 卡片，纯图片的群消息不需要额外的文本占位
-export function groupImageXml(groupId: string, msgId: number, value: string): string {
-  const body = [
-    '{',
-    '   "app" : "shiyeline",',
-    '   "dt" : [',
-    '      {',
-    '         "img" : {',
-    '            "t" : "feihu",',
-    `            "v" : ${JSON.stringify(value)}`,
-    '         }',
-    '      }',
-    '   ],',
-    '   "ft" : {',
-    '      "b" : "0",',
-    '      "c" : "0x000000",',
-    '      "i" : "0",',
-    '      "n" : "微软雅黑",',
-    '      "s" : "9",',
-    '      "u" : "0"',
-    '   },',
-    `   "id" : "${randomBytes(16).toString('hex')}",`,
-    '   "type" : "0",',
-    '   "ver" : "6.0"',
-    '}'
-  ].join('\n')
+export function groupImageXml(groupId: string, msgId: number, values: string[]): string {
+  const body = imageCardBody(values)
   const escaped = body
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')

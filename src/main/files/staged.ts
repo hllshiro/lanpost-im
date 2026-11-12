@@ -34,7 +34,8 @@ export class StagedStore {
         name: source.name ?? basename(source.path),
         size: source.size,
         kind: source.kind,
-        createdAt: Date.now()
+        createdAt: Date.now(),
+        ...(source.sticker === true ? { sticker: true } : {})
       })
       this.files.set(id, {
         path: source.path,

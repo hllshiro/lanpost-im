@@ -12,7 +12,7 @@ const props = defineProps<{
   message: MessageInfo
   own: boolean
   showTime: boolean
-  file: FileTaskInfo | null
+  files: FileTaskInfo[]
   ownInitial: string
   otherInitial: string
 }>()
@@ -44,37 +44,50 @@ const emit = defineEmits<{
   menu: [file: FileTaskInfo, event: MouseEvent]
 }>()
 
-function previewImage(): void {
-  if (props.file !== null) emit('preview', props.file)
+function previewImage(file: FileTaskInfo): void {
+  emit('preview', file)
 }
 
-function openImageMenu(event: MouseEvent): void {
-  if (props.file !== null) emit('menu', props.file, event)
+function openImageMenu(file: FileTaskInfo, event: MouseEvent): void {
+  emit('menu', file, event)
 }
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 
-const imageUrl = computed(() => {
-  const file = props.file
-  if (file === null || !IMAGE_EXTENSIONS.test(file.name)) {
-    return ''
+// 一条消息可以带多张图片，按文件任务逐张渲染
+const imageEntries = computed(() => {
+  const entries: Array<{ file: FileTaskInfo; url: string }> = []
+  for (const file of props.files) {
+    if (!IMAGE_EXTENSIONS.test(file.name)) continue
+    // 自己发的图片本地就有原图，立刻显示；收到的要等文件落盘完成
+    if (file.direction !== 'out' && file.state !== 'done') continue
+    entries.push({ file, url: `lanpost-file:///${encodeURIComponent(file.id)}` })
   }
-  // 自己发的图片本地就有原图，立刻显示；收到的要等文件落盘完成
-  if (file.direction === 'out' || file.state === 'done') {
-    return `lanpost-file:///${encodeURIComponent(file.id)}`
-  }
-  return ''
+  return entries
 })
 
-const imageBroken = ref(false)
+const brokenImages = ref<string[]>([])
 watch(
-  () => [props.file?.id, props.file?.state],
+  () => [props.message.id, props.files.map((file) => `${file.id}:${file.state}`).join(',')],
   () => {
-    imageBroken.value = false
+    brokenImages.value = []
   }
 )
 
-const showImage = computed(() => imageUrl.value !== '' && !imageBroken.value)
+function markBroken(file: FileTaskInfo): void {
+  if (!brokenImages.value.includes(file.id)) {
+    brokenImages.value = [...brokenImages.value, file.id]
+  }
+}
+
+const visibleImages = computed(() =>
+  imageEntries.value.filter((entry) => !brokenImages.value.includes(entry.file.id))
+)
+
+const showImage = computed(() => visibleImages.value.length > 0)
+
+// 发送方/接收方共用的第一张文件任务，文件卡片和文件夹消息用它
+const file = computed(() => props.files[0] ?? null)
 
 // 内置表情：meta 里存的是表情表的 Id 或文件名，用本机表情包渲染，不走文件通道
 const stickerKey = computed(() => {
@@ -254,17 +267,20 @@ async function revealFolder(): Promise<void> {
             :src="stickerUrl"
             :alt="sticker?.tips ?? '表情'"
           />
-          <img
-            v-if="showImage"
-            class="inline-image"
-            :class="{ 'sticker-photo': imageSticker }"
-            :src="imageUrl"
-            :alt="file?.name ?? '图片'"
-            loading="lazy"
-            @click="previewImage"
-            @contextmenu.prevent="openImageMenu"
-            @error="imageBroken = true"
-          />
+          <div v-if="showImage" class="image-row">
+            <img
+              v-for="entry in visibleImages"
+              :key="entry.file.id"
+              class="inline-image"
+              :class="{ 'sticker-photo': imageSticker }"
+              :src="entry.url"
+              :alt="entry.file.name"
+              loading="lazy"
+              @click="previewImage(entry.file)"
+              @contextmenu.prevent="openImageMenu(entry.file, $event)"
+              @error="markBroken(entry.file)"
+            />
+          </div>
           <span v-if="displayText !== ''" class="text-body">{{ displayText }}</span>
         </div>
 
@@ -399,6 +415,13 @@ async function revealFolder(): Promise<void> {
   border-radius: 10px;
   cursor: zoom-in;
   object-fit: contain;
+}
+
+/* 一条消息里的多张图片并排显示 */
+.image-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
 /* 表情不套气泡底色，按原始尺寸显示 */

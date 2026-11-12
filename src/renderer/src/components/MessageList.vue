@@ -31,7 +31,7 @@ type Row =
       message: MessageInfo
       own: boolean
       showTime: boolean
-      file: FileTaskInfo | null
+      files: FileTaskInfo[]
     }
 
 const scroller = ref<HTMLElement | null>(null)
@@ -52,11 +52,12 @@ function openMenu(file: FileTaskInfo, event: MouseEvent): void {
 }
 
 const filesByMessage = computed(() => {
-  const map = new Map<number, FileTaskInfo>()
+  const map = new Map<number, FileTaskInfo[]>()
   for (const file of props.files) {
     if (file.messageId === null) continue
-    const current = map.get(file.messageId)
-    if (!current || file.updatedAt >= current.updatedAt) map.set(file.messageId, file)
+    const list = map.get(file.messageId) ?? []
+    if (!list.some((item) => item.id === file.id)) list.push(file)
+    map.set(file.messageId, list)
   }
   return map
 })
@@ -96,7 +97,7 @@ const rows = computed<Row[]>(() => {
       message,
       own: message.direction === 'out',
       showTime: previous === null || minuteKey(previous.createdAt) !== minuteKey(message.createdAt),
-      file: filesByMessage.value.get(message.id) ?? null
+      files: filesByMessage.value.get(message.id) ?? []
     })
     previous = message
   }
@@ -193,7 +194,7 @@ onMounted(async () => {
             :message="row.message"
             :own="row.own"
             :show-time="row.showTime"
-            :file="row.file"
+            :files="row.files"
             :own-initial="ownInitial"
             :other-initial="otherInitial"
             @preview="openViewer"

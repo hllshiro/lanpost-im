@@ -65,35 +65,23 @@ function favoriteUrl(id: string): string {
 function sendFavorite(id: string): void {
   if (props.sending) return
   stickersOpen.value = false
-  void store.sendFavorite(props.conversationId, id)
+  void store.stageFavorite(props.conversationId, id)
 }
 
 onClickOutside(stickerAnchor, () => {
   stickersOpen.value = false
 })
 
-function sendSticker(item: EmotionItem): void {
+async function sendSticker(item: EmotionItem): Promise<void> {
   if (props.sending) return
-  stickersOpen.value = false
   rememberUsage(item)
-  if (item.kind === 'emotion') {
-    emit('sticker', item.id === null ? item.image : String(item.id))
-    return
-  }
-  // 微信/QQ 的表情对端没有同一张表，按图片发出去
-  void runImageSticker(item)
-}
-
-async function runImageSticker(item: EmotionItem): Promise<void> {
+  stickersOpen.value = false
   try {
     const url = emotionUrl(item)
     if (url === '') throw new Error('表情资源不可用')
-    const response = await fetch(url)
-    if (!response.ok) throw new Error('表情资源不可用')
-    const data = await response.arrayBuffer()
+    const data = await (await fetch(url)).arrayBuffer()
     const name = item.image.split('/').pop() ?? 'sticker.gif'
     await window.api.files.stageBytes(props.conversationId, name, data, true)
-    await window.api.files.sendStaged(props.conversationId)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   }

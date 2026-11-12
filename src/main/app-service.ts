@@ -1496,47 +1496,6 @@ export class AppService {
     return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
   }
 
-  // 内置表情：直接发一张 img 卡片，对端用本地表情表渲染，不走文件通道
-  sendSticker(conversationId: string, sticker: string): SendTextResult {
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) throw new Error('会话不存在')
-    const service = this.privateService
-    if (service === null) throw new Error('内网通私有会话未就绪')
-    const key = sticker.trim()
-    if (key === '') throw new Error('表情无效')
-    const selfId = privateUserId(this.settings.get())
-    if (conversation.kind === 'group') {
-      const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
-      if (groupId === '') throw new Error('会话不存在')
-      const msgId = this.allocatePrivateSeq()
-      let delivered = 0
-      for (const member of this.repos.groups.members(groupId)) {
-        if (member.userId === selfId) continue
-        const ip = service.peerIpByUserId(member.userId)
-        if (ip !== null && service.isReady(ip) && service.sendGroupImage(ip, groupId, msgId, key)) {
-          delivered += 1
-        }
-      }
-      if (delivered === 0) throw new Error('群成员都不在线')
-      const meta = JSON.stringify({
-        source: 'private-group-sticker',
-        groupId,
-        sticker: key,
-        senderId: selfId,
-        senderName: this.settings.get().identity.displayName
-      })
-      return { message: this.recordOutgoing(conversationId, '[表情]', msgId, 'sent', meta) }
-    }
-    if (conversation.peerKey === null) throw new Error('会话不存在')
-    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
-    if (peer === undefined || !peer.online) throw new Error('联系人不在线')
-    if (!service.isReady(peer.ip)) throw new Error('内网通私有会话未就绪')
-    const msgId = this.allocatePrivateSeq()
-    if (!service.sendImageCard(peer.ip, msgId, key)) throw new Error('表情发送失败')
-    const meta = JSON.stringify({ source: 'private-sticker', sticker: key })
-    return { message: this.recordOutgoing(conversationId, '[表情]', msgId, 'sent', meta) }
-  }
-
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
   private sendGroupText(conversation: ConversationInfo, text: string): SendTextResult {
     const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
@@ -1961,17 +1920,20 @@ export class AppService {
     this.favorites.remove(id)
   }
 
-  // 收藏的表情按图片发给当前会话，对端同样按表情尺寸显示
-  sendFavorite(conversationId: string, id: string): void {
+  // 收藏的表情加进待发区，和图片一起发送
+  stageFavorite(conversationId: string, id: string): StagedAttachment[] {
     const path = this.favorites.filePath(id)
     if (path === null) throw new Error('收藏的表情已被删除')
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) throw new Error('会话不存在')
-    if (conversation.kind === 'group') {
-      this.sendGroupImages(conversation, [path], true)
-    } else {
-      this.sendFiles(conversationId, [path], '', true)
-    }
+    return this.addStaged(conversationId, [
+      {
+        path,
+        name: basename(path),
+        size: statSync(path).size,
+        kind: 'image',
+        temporary: false,
+        sticker: true
+      }
+    ])
   }
 
   emotionPath(id: string): string | null {
@@ -2209,6 +2171,32 @@ export class AppService {
   // 依次发出待发附件，成功一张就移除一张，中途失败时剩下的留在待发区
   async sendStaged(conversationId: string): Promise<void> {
     const conversation = this.repos.conversations.get(conversationId)
+    // 图片与表情合并成一条消息，其余附件各自发送
+    const entries = this.staged.list(conversationId)
+    const images = entries.filter((entry) => entry.kind === 'image')
+    if (images.length > 0) {
+      const paths: string[] = []
+      for (const entry of images) {
+        const file = this.staged.file(entry.id)
+        if (file === undefined) continue
+        paths.push(file.path)
+      }
+      if (paths.length > 0) {
+        const sticker = images.every((entry) => entry.sticker === true)
+        if (conversation !== null && conversation.kind === 'group') {
+          this.sendGroupImages(conversation, paths, sticker)
+        } else {
+          this.sendFiles(conversationId, paths, '', sticker)
+        }
+      }
+      for (const entry of images) {
+        this.staged.take(conversationId, entry.id)
+      }
+      logStartup(
+        `待发区发出 ${paths.length} 张图片，剩余 ${this.staged.list(conversationId).length} 个`
+      )
+      this.emitStaged(conversationId)
+    }
     for (;;) {
       const entry = this.staged.list(conversationId)[0]
       if (entry === undefined) break
@@ -2220,9 +2208,7 @@ export class AppService {
       }
       if (conversation !== null && conversation.kind === 'group') {
         // 群里的文件走离线文件：发送前把文件登记成可被成员拉取的 share
-        if (entry.kind === 'image') {
-          this.sendGroupImages(conversation, [file.path], file.sticker === true)
-        } else if (entry.kind === 'folder') {
+        if (entry.kind === 'folder') {
           this.sendGroupFolder(conversation, file.path)
         } else {
           this.sendGroupFiles(conversation, [file.path])
@@ -2230,7 +2216,7 @@ export class AppService {
       } else if (entry.kind === 'folder') {
         await this.sendFolder(conversationId, file.path)
       } else {
-        this.sendFiles(conversationId, [file.path], '', file.sticker === true)
+        this.sendFiles(conversationId, [file.path])
       }
       this.staged.take(conversationId, entry.id)
       logStartup(`待发区发出 ${entry.name}，剩余 ${this.staged.list(conversationId).length} 个`)
@@ -2414,35 +2400,23 @@ export class AppService {
     if (targets.length === 0) {
       throw new Error('群成员都不在线')
     }
+    const messageId = this.nextPrivateMessageId()
+    const values: string[] = []
+    const tasks: FileTaskInfo[] = []
     for (const path of paths) {
       const stats = statSync(path)
       if (!stats.isFile()) continue
       const fileId = this.nextFileId()
-      const name = basename(path)
       const value = `${fileId}|${fileMd5(path)}`
       transfer.registerOutgoing({ fileId, path, size: stats.size, window: value })
       const fileTaskId = `pf${fileId}`
-      const message = this.repos.messages.insertOutgoing(
-        conversation.id,
-        '[图片]',
-        this.nextPrivateMessageId(),
-        'text',
-        JSON.stringify({
-          source: 'private-image',
-          fileId: fileTaskId,
-          groupId,
-          ...(sticker ? { sticker: true } : {})
-        })
-      )
-      this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId: message.id })
-      this.repos.messages.setStatus(message.id, 'sent')
       const now = Date.now()
-      const task: FileTaskInfo = {
+      tasks.push({
         id: fileTaskId,
-        messageId: message.id,
+        messageId: 0,
         conversationId: conversation.id,
         direction: 'out',
-        name,
+        name: basename(path),
         size: stats.size,
         mtime: Math.floor(stats.mtimeMs / 1000),
         fileId: String(fileId),
@@ -2453,20 +2427,12 @@ export class AppService {
         error: '',
         createdAt: now,
         updatedAt: now
-      }
-      // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
-      this.repos.files.upsert(task)
-      this.emit({ type: 'file', file: task })
-      this.repos.conversations.touch(conversation.id, message.createdAt, 0)
-      this.emit({ type: 'message', message: { ...message, status: 'sent' } })
-      this.emitConversation(conversation.id)
+      })
+      values.push(value)
       const pushes = targets.map((target) => ({
         ip: target.ip,
         taskId: this.nextPrivateTaskId(target.ip)
       }))
-      for (const push of pushes) {
-        service.sendGroupImage(push.ip, groupId, message.id, value)
-      }
       this.privateImagePushes.set(fileId, pushes)
       this.privateFileTasks.set(fileId, {
         fileTaskId,
@@ -2474,8 +2440,35 @@ export class AppService {
         taskId: pushes[0]?.taskId ?? '',
         ip: pushes[0]?.ip ?? ''
       })
-      logStartup(`群图片已发卡片 ${name} 文件号=${fileId} 成员=${pushes.length}`)
     }
+    if (values.length === 0) return
+    const message = this.repos.messages.insertOutgoing(
+      conversation.id,
+      '[图片]',
+      messageId,
+      'text',
+      JSON.stringify({
+        source: 'private-image',
+        files: tasks.map((task) => task.id),
+        groupId,
+        ...(sticker ? { sticker: true } : {})
+      })
+    )
+    this.repos.messages.setStatus(message.id, 'sent')
+    // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
+    for (const task of tasks) {
+      task.messageId = message.id
+      this.fileLinks.set(task.id, { conversationId: conversation.id, messageId: message.id })
+      this.repos.files.upsert(task)
+      this.emit({ type: 'file', file: task })
+    }
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emitConversation(conversation.id)
+    for (const target of targets) {
+      service.sendGroupImage(target.ip, groupId, message.id, values)
+    }
+    logStartup(`群图片已发卡片 ${values.length} 张 成员=${targets.length}`)
   }
 
   stagedImagePath(id: string): string | null {
@@ -2581,11 +2574,17 @@ export class AppService {
     if (!service.isReady(peer.ip)) {
       throw new Error('内网通私有会话未就绪')
     }
+    const images = paths.filter((path) => isImagePath(basename(path)))
+    if (images.length > 0) {
+      this.sendPrivateImages(conversation, peer.ip, peer.key, images, sticker)
+    }
+    const files = paths.filter((path) => !isImagePath(basename(path)))
+    if (files.length === 0) return
     const peerPort = service.peerFilePort(peer.ip)
     if (peerPort <= 0) {
       throw new Error('对端没有公布文件通道端口')
     }
-    for (const path of paths) {
+    for (const path of files) {
       const stats = statSync(path)
       if (!stats.isFile()) {
         continue
@@ -2593,8 +2592,6 @@ export class AppService {
       const fileId = this.nextFileId()
       const taskId = this.nextPrivateTaskId(peer.ip)
       const name = basename(path)
-      const image = isImagePath(name)
-      const imageValue = image ? `${fileId}|${fileMd5(path)}` : undefined
       const offer = {
         taskId,
         fileId,
@@ -2602,7 +2599,7 @@ export class AppService {
         size: stats.size,
         lastModify: fileTimeFromMs(stats.mtimeMs)
       }
-      transfer.registerOutgoing({ fileId, path, size: stats.size, window: imageValue })
+      transfer.registerOutgoing({ fileId, path, size: stats.size })
       const fileTaskId = `pf${fileId}`
       this.privateFileTasks.set(fileId, { fileTaskId, direction: 'out', taskId, ip: peer.ip })
       const now = Date.now()
@@ -2624,42 +2621,85 @@ export class AppService {
         createdAt: now,
         updatedAt: now
       }
-      if (image) {
-        // 图片只发卡片，对端会发 1019 来要，再用窗口通道推过去；
-        // 这样对端只显示图片，不会多出一条“文件接收成功”
-        const value = imageValue ?? `${fileId}`
-        const message = this.repos.messages.insertOutgoing(
-          conversationId,
-          '[图片]',
-          this.nextPrivateMessageId(),
-          'text',
-          JSON.stringify({
-            source: 'private-image',
-            fileId: fileTaskId,
-            ...(sticker ? { sticker: true } : {})
-          })
-        )
-        this.fileLinks.set(fileTaskId, { conversationId, messageId: message.id })
-        task.messageId = message.id
-        // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
-        this.repos.files.upsert(task)
-        this.handleFileUpdate(task)
-        this.repos.conversations.touch(conversationId, message.createdAt, 0)
-        this.emitConversation(conversationId)
-        service.sendImageCard(peer.ip, message.id, value)
-        this.privateImagePushes.set(fileId, [{ ip: peer.ip, taskId }])
-        // 卡片已经交给可靠通道，状态先置为已发送；回执来了再更新
-        this.repos.messages.setStatus(message.id, 'sent')
-        this.emit({ type: 'message', message: { ...message, status: 'sent' } })
-      } else {
-        if (!service.sendFileOffer(peer.ip, offer)) {
-          throw new Error('内网通私有会话未就绪')
-        }
-        service.sendOperateSendFile(peer.ip, taskId, 2)
-        this.repos.files.upsert(task)
-        this.handleFileUpdate(task)
+      if (!service.sendFileOffer(peer.ip, offer)) {
+        throw new Error('内网通私有会话未就绪')
       }
+      service.sendOperateSendFile(peer.ip, taskId, 2)
+      this.repos.files.upsert(task)
+      this.handleFileUpdate(task)
     }
+  }
+
+  // 多张图片（包括表情）合并成一条消息发出，对端会按 dt 里的多个 img 节点取图
+  private sendPrivateImages(
+    conversation: ConversationInfo,
+    ip: string,
+    peerKey: string,
+    paths: string[],
+    sticker: boolean
+  ): void {
+    const service = this.privateService
+    const transfer = this.privateFiles
+    if (service === null || transfer === null) return
+    const messageId = this.nextPrivateMessageId()
+    const values: string[] = []
+    const tasks: FileTaskInfo[] = []
+    for (const path of paths) {
+      const stats = statSync(path)
+      if (!stats.isFile()) continue
+      const fileId = this.nextFileId()
+      const taskId = this.nextPrivateTaskId(ip)
+      const value = `${fileId}|${fileMd5(path)}`
+      transfer.registerOutgoing({ fileId, path, size: stats.size, window: value })
+      const fileTaskId = `pf${fileId}`
+      this.privateFileTasks.set(fileId, { fileTaskId, direction: 'out', taskId, ip })
+      const now = Date.now()
+      tasks.push({
+        id: fileTaskId,
+        messageId: 0,
+        conversationId: conversation.id,
+        peerKey,
+        direction: 'out',
+        name: basename(path),
+        size: stats.size,
+        mtime: Math.floor(stats.mtimeMs / 1000),
+        fileId: String(fileId),
+        packetId: 0,
+        path,
+        state: 'transferring',
+        received: 0,
+        error: '',
+        createdAt: now,
+        updatedAt: now
+      })
+      values.push(value)
+      this.privateImagePushes.set(fileId, [{ ip, taskId }])
+    }
+    if (values.length === 0) return
+    const meta = JSON.stringify({
+      source: 'private-image',
+      files: tasks.map((task) => task.id),
+      ...(sticker ? { sticker: true } : {})
+    })
+    const message = this.repos.messages.insertOutgoing(
+      conversation.id,
+      '[图片]',
+      messageId,
+      'text',
+      meta
+    )
+    // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
+    for (const task of tasks) {
+      task.messageId = message.id
+      this.fileLinks.set(task.id, { conversationId: conversation.id, messageId: message.id })
+      this.repos.files.upsert(task)
+      this.handleFileUpdate(task)
+    }
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    service.sendImageCard(ip, message.id, values)
+    this.repos.messages.setStatus(message.id, 'sent')
+    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emitConversation(conversation.id)
   }
 
   private nextPrivateMessageId(): number {

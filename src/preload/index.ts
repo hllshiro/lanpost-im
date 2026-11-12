@@ -41,8 +41,6 @@ const api: Api = {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
     all: (conversationId) => ipcRenderer.invoke(IPC.messagesAll, conversationId),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),
-    sendSticker: (conversationId, sticker) =>
-      ipcRenderer.invoke(IPC.messageSendSticker, conversationId, sticker),
     markRead: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.conversationRead, conversationId, messageId),
     saveDraft: (conversationId, draft) =>
@@ -63,7 +61,7 @@ const api: Api = {
     list: () => ipcRenderer.invoke(IPC.emotionList),
     add: (fileId) => ipcRenderer.invoke(IPC.emotionAdd, fileId),
     remove: (id) => ipcRenderer.invoke(IPC.emotionRemove, id),
-    send: (conversationId, id) => ipcRenderer.invoke(IPC.emotionSend, conversationId, id)
+    stage: (conversationId, id) => ipcRenderer.invoke(IPC.emotionStage, conversationId, id)
   },
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),

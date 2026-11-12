@@ -78,6 +78,8 @@ export interface StagedAttachment {
   size: number
   kind: 'image' | 'file' | 'folder'
   createdAt: number
+  // 表情按图片发送，气泡里按小尺寸显示
+  sticker?: boolean
 }
 
 // 收藏的表情：文件复制在数据目录里，渲染进程只拿编号和名字
