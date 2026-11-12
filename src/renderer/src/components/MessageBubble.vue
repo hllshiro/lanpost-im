@@ -81,26 +81,32 @@ const displayText = computed(() =>
 )
 
 // 文件夹气泡的信息都放在 meta 里：大小、项数、收发方向与完成状态
-const folderMeta = computed(() => {
-  let meta: Record<string, unknown>
+const folderMetaRaw = computed<Record<string, unknown>>(() => {
   try {
-    meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return JSON.parse(props.message.meta) as Record<string, unknown>
   } catch {
-    meta = {}
+    return {}
   }
+})
+
+// 收到的文件夹按真实客户端的说法显示状态，发出的按发送状态
+const folderIncoming = computed(() => folderMetaRaw.value.incoming === true)
+const folderDone = computed(() => folderMetaRaw.value.done === true)
+
+const folderStateText = computed(() => {
+  if (!folderIncoming.value) {
+    return props.message.status === 'failed' ? '发送失败' : '已发送'
+  }
+  if (typeof folderMetaRaw.value.error === 'string') return '接收失败'
+  return folderDone.value ? '接收成功' : '接收中'
+})
+
+const folderMeta = computed(() => {
+  const meta = folderMetaRaw.value
   const parts: string[] = []
   if (typeof meta.size === 'number') parts.push(formatSize(meta.size))
   if (typeof meta.count === 'number') parts.push(`${meta.count} 个文件`)
-  if (meta.incoming === true) {
-    parts.push(
-      typeof meta.error === 'string' ? '接收失败' : meta.done === true ? '接收成功' : '接收中'
-    )
-  } else if (props.message.status === 'failed') {
-    parts.push('发送失败')
-  } else {
-    // 群文件夹是成员按需来拉，消息本身发出就算完成
-    parts.push('已发送')
-  }
+  parts.push(folderStateText.value)
   return parts.join(' · ')
 })
 
@@ -136,18 +142,6 @@ const folderPath = computed(() => {
     return ''
   }
 })
-
-const folderMetaRaw = computed<Record<string, unknown>>(() => {
-  try {
-    return JSON.parse(props.message.meta) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-})
-
-// 收到的文件夹按真实客户端的写法显示成一条通知，而不是卡片
-const folderIncoming = computed(() => folderMetaRaw.value.incoming === true)
-const folderDone = computed(() => folderMetaRaw.value.done === true)
 
 async function openFolder(): Promise<void> {
   if (folderPath.value === '') return
@@ -185,23 +179,18 @@ async function revealFolder(): Promise<void> {
         <span v-if="senderLabel !== ''" class="sender">{{ senderLabel }}</span>
         <div v-if="message.kind === 'folder'" class="bubble folder-bubble">
           <div class="folder-card">
-            <Folder :size="22" :stroke-width="1.6" />
-            <div class="folder-text">
-              <p class="folder-name">{{ message.text || '文件夹' }}</p>
-              <p class="folder-meta">{{ folderMeta }}</p>
+            <div class="folder-main">
+              <span class="folder-icon">
+                <Folder :size="22" :stroke-width="1.6" />
+              </span>
+              <div class="folder-text">
+                <p class="folder-name" :title="message.text">{{ message.text || '文件夹' }}</p>
+                <p class="folder-meta">{{ folderMeta }}</p>
+              </div>
             </div>
-            <div class="folder-actions">
-              <template v-if="folderIncoming && folderDone">
-                <button class="folder-open" @click="openFolder">打开</button>
-                <button class="folder-open" @click="revealFolder">打开文件夹</button>
-              </template>
-              <button
-                v-else-if="!folderIncoming && folderPath !== ''"
-                class="folder-open"
-                @click="openFolder"
-              >
-                打开文件夹
-              </button>
+            <div v-if="folderIncoming ? folderDone : folderPath !== ''" class="folder-actions">
+              <button class="folder-open" @click="openFolder">打开</button>
+              <button class="folder-open" @click="revealFolder">打开文件夹</button>
             </div>
           </div>
           <p v-if="downloadedBy.length > 0" class="downloaded">
@@ -391,52 +380,74 @@ async function revealFolder(): Promise<void> {
 }
 
 .folder-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 220px;
-  max-width: 320px;
+  width: 300px;
+  max-width: 100%;
   padding: 10px 12px;
   border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-card);
   background: var(--card-bg);
-  color: var(--text-secondary);
+}
+
+.folder-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.folder-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-button);
+  background: #f2f3f5;
+  color: #5b6570;
 }
 
 .folder-text {
+  flex: 1;
   min-width: 0;
 }
 
 .folder-name {
-  margin: 0 0 3px;
+  margin: 1px 0 5px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 13px;
+  line-height: 1.4;
   color: var(--text);
+  word-break: break-all;
 }
 
 .folder-meta {
   margin: 0;
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+/* 收到的文件夹：保留卡片样式，动作按真实客户端的写法给出两个入口 */
+.folder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
 }
 
 .folder-open {
-  flex: 0 0 auto;
-  padding: 3px 8px;
+  padding: 4px 10px;
+  border: 1px solid #e0e0e0;
   border-radius: var(--radius-button);
-  background: var(--hover);
-  color: var(--text-secondary);
-  font-size: 11.5px;
+  background: #ffffff;
+  color: #444444;
+  font-size: 12px;
 }
 
 .folder-open:hover {
-  color: var(--accent);
-}
-
-.file-bubble :deep(.file-card) {
-  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-color: #c9c9c9;
+  background: #f7f7f7;
 }
 
 .file-missing {

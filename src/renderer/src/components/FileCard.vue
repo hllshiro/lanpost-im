@@ -52,11 +52,11 @@ const stateText = computed(() => {
     case 'transferring':
       return incoming.value ? '接收中' : '发送中'
     case 'done':
-      return incoming.value ? '已接收' : '已发送'
+      return incoming.value ? '接收成功' : '已发送'
     case 'rejected':
       return incoming.value ? '已拒绝' : '对方已拒绝'
     case 'failed':
-      return '传输失败'
+      return incoming.value ? '接收失败' : '发送失败'
     case 'canceled':
       return '已取消'
     default:
@@ -165,7 +165,7 @@ function saveAs(): void {
         <button class="action" :disabled="busy !== ''" @click="reject">拒绝</button>
       </template>
       <template v-else-if="done">
-        <button class="action" :disabled="busy !== ''" @click="open">打开文件</button>
+        <button class="action" :disabled="busy !== ''" @click="open">打开</button>
         <button class="action" :disabled="busy !== ''" @click="reveal">打开文件夹</button>
         <button class="action" :disabled="busy !== ''" @click="saveAs">另存为</button>
       </template>
@@ -178,6 +178,7 @@ function saveAs(): void {
   width: 300px;
   max-width: 100%;
   padding: 10px 12px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
   border-radius: var(--radius-card);
   background: #ffffff;
 }
