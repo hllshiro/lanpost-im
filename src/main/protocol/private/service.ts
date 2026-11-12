@@ -5,6 +5,8 @@ import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type {
   PrivateFileOffer,
   PrivateFolderOffer,
+  PrivateGroupInfo,
+  PrivateGroupMember,
   PrivateImageRef,
   PrivateProfile,
   RemoteProfile
@@ -49,6 +51,9 @@ export interface PrivateServiceOptions {
     onFolderOffer(ip: string, offer: PrivateFolderOffer): void
     onFolderOperate(ip: string, cmd: number, taskId: string, op: number): void
     onFolderReverse(ip: string, taskId: string): void
+    onGroupInfo(ip: string, info: PrivateGroupInfo): void
+    onGroupUsers(ip: string, info: PrivateGroupInfo, members: PrivateGroupMember[]): void
+    onGroupMessage(ip: string, groupId: string, msgId: number, text: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
@@ -276,6 +281,22 @@ export class PrivateService {
     this.sessions.get(ip)?.sendReverseFolderReq(taskId)
   }
 
+  sendGroupMessage(ip: string, groupId: string, msgId: number, text: string): boolean {
+    return this.sessions.get(ip)?.sendGroupMessage(groupId, msgId, text) ?? false
+  }
+
+  sendGroupPushUser(ip: string, info: PrivateGroupInfo, members: PrivateGroupMember[]): boolean {
+    return this.sessions.get(ip)?.sendGroupPushUser(info, members) ?? false
+  }
+
+  // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
+  peerIpByUserId(userId: string): string | null {
+    for (const [ip, profile] of this.peerProfiles) {
+      if (profile.userId === userId) return ip
+    }
+    return null
+  }
+
   sendProgressRecvFile(ip: string, taskId: string, totalSize: number, recvdSize: number): void {
     this.sessions.get(ip)?.sendProgressRecvFile(taskId, totalSize, recvdSize)
   }
@@ -455,6 +476,10 @@ export class PrivateService {
       onFolderOperate: (cmd, taskId, op) =>
         this.options.callbacks.onFolderOperate(ip, cmd, taskId, op),
       onFolderReverse: (taskId) => this.options.callbacks.onFolderReverse(ip, taskId),
+      onGroupInfo: (info) => this.options.callbacks.onGroupInfo(ip, info),
+      onGroupUsers: (info, members) => this.options.callbacks.onGroupUsers(ip, info, members),
+      onGroupMessage: (groupId, msgId, text) =>
+        this.options.callbacks.onGroupMessage(ip, groupId, msgId, text),
       onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)

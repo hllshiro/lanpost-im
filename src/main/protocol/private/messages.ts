@@ -35,7 +35,10 @@ const CMD = {
   SEND_FOLDER: 1013,
   OPERATE_SEND_FOLDER: 1014,
   OPERATE_RECV_FOLDER: 1015,
-  REVERSE_FOLDER_REQ: 1020
+  REVERSE_FOLDER_REQ: 1020,
+  QGROUP_PUSH_INFO: 3002,
+  QGROUP_PUSH_USER: 3003,
+  QGROUP_SEND_MSG: 3011
 } as const
 
 const HELLO_TYPE = 4
@@ -77,6 +80,24 @@ export interface PrivateFolderOffer {
   maxItemSize: number
 }
 
+// 群资料；闭合标签 `</GROUP_INFO_VER>` 少一个 Q 是线上原样，解析按前缀匹配
+export interface PrivateGroupInfo {
+  id: string
+  name: string
+  master: string
+  topic: string
+  announcement: string
+  infoVersion: number
+  userVersion: number
+  allowOtherAdd: number
+  photoMd5: string
+}
+
+export interface PrivateGroupMember {
+  userId: string
+  name: string
+}
+
 export type IncomingPrivate =
   | { kind: 'text'; msgId: number; text: string; images: PrivateImageRef[] }
   | { kind: 'text-unsupported'; msgId: number }
@@ -98,6 +119,9 @@ export type IncomingPrivate =
   | { kind: 'folder-offer'; offer: PrivateFolderOffer }
   | { kind: 'folder-operate'; cmd: number; taskId: string; op: number }
   | { kind: 'folder-reverse'; taskId: string }
+  | { kind: 'group-info'; info: PrivateGroupInfo }
+  | { kind: 'group-user'; info: PrivateGroupInfo; members: PrivateGroupMember[] }
+  | { kind: 'group-message'; groupId: string; msgId: number; text: string }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -402,6 +426,55 @@ export function reverseFolderReqXml(taskId: string): string {
   return encodeReverseFolderReq({ Docver: DOCVER, TaskID: taskId })
 }
 
+function escapeXmlText(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+}
+
+// 群资料的字段顺序与真实客户端一致；`</GROUP_INFO_VER>` 少一个 Q 是线上原样
+function groupInfoXml(info: PrivateGroupInfo): string {
+  return (
+    `<QGROUP_ID>${escapeXmlText(info.id)}</QGROUP_ID>` +
+    `<QGROUP_NAME>${escapeXmlText(info.name)}</QGROUP_NAME>` +
+    `<QGROUP_MASTER>${escapeXmlText(info.master)}</QGROUP_MASTER>` +
+    `<QGROUP_INTR>${escapeXmlText(info.topic)}</QGROUP_INTR>` +
+    `<QGROUP_ANN>${escapeXmlText(info.announcement)}</QGROUP_ANN>` +
+    `<QGROUP_INFO_VER>${info.infoVersion}</GROUP_INFO_VER>` +
+    `<QGROUP_USER_VER>${info.userVersion}</QGROUP_USER_VER>` +
+    `<QGROUP_ALLOW_OTHER_ADD>${info.allowOtherAdd}</QGROUP_ALLOW_OTHER_ADD>` +
+    `<QGROUP_PHOTO_MD5>${escapeXmlText(info.photoMd5)}</QGROUP_PHOTO_MD5>`
+  )
+}
+
+export function groupPushUserXml(info: PrivateGroupInfo, members: PrivateGroupMember[]): string {
+  const user = members
+    .map(
+      (member) => `<ID name="${escapeXmlText(member.name)}">${escapeXmlText(member.userId)}</ID>`
+    )
+    .join('')
+  return (
+    `<X_QGROUP_PUSH_USER docver="1"><INFO>${groupInfoXml(info)}</INFO>` +
+    `<USER>${user}</USER></X_QGROUP_PUSH_USER>`
+  )
+}
+
+export function groupPushInfoXml(info: PrivateGroupInfo): string {
+  return `<X_QGROUP_PUSH_INFO docver="1"><INFO>${groupInfoXml(info)}</INFO></X_QGROUP_PUSH_INFO>`
+}
+
+export function groupSendXml(groupId: string, msgId: number, text: string): string {
+  const body = textJsonBody(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  const xml = `<X_QGROUP_SEND_MSG docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID><MSG_ID>${msgId}</MSG_ID><MSG>${body}</MSG><HIDE_RECORD>0</HIDE_RECORD></X_QGROUP_SEND_MSG>`
+  return escapeMsgBody(xml)
+}
+
 export function sendFolderXml(input: {
   taskId: string
   name: string
@@ -550,6 +623,40 @@ function remoteProfile(handshake: Handshake): RemoteProfile {
   }
 }
 
+function tagText(xml: string, tag: string): string | null {
+  const match = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(xml)
+  return match === null ? null : match[1]
+}
+
+// 群资料的版本位线上闭合标签少一个 Q，单独按前缀匹配
+export function groupInfoFromXml(xml: string): PrivateGroupInfo | null {
+  const id = tagText(xml, 'QGROUP_ID')
+  if (id === null) return null
+  const version = /<QGROUP_INFO_VER>(\d+)<\/GROUP_INFO_VER>/.exec(xml)
+  return {
+    id,
+    name: tagText(xml, 'QGROUP_NAME') ?? '',
+    master: tagText(xml, 'QGROUP_MASTER') ?? '',
+    topic: tagText(xml, 'QGROUP_INTR') ?? '',
+    announcement: tagText(xml, 'QGROUP_ANN') ?? '',
+    infoVersion: version === null ? 0 : Number(version[1]),
+    userVersion: Number(tagText(xml, 'QGROUP_USER_VER') ?? '0'),
+    allowOtherAdd: Number(tagText(xml, 'QGROUP_ALLOW_OTHER_ADD') ?? '0'),
+    photoMd5: tagText(xml, 'QGROUP_PHOTO_MD5') ?? ''
+  }
+}
+
+export function groupMembersFromXml(xml: string): PrivateGroupMember[] {
+  const members: PrivateGroupMember[] = []
+  const pattern = /<ID name="([^"]*)">([^<]*)<\/ID>/g
+  for (;;) {
+    const match = pattern.exec(xml)
+    if (match === null) break
+    members.push({ name: match[1], userId: match[2] })
+  }
+  return members
+}
+
 export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
   switch (cmd) {
     case CMD.HANDSHAKE: {
@@ -653,6 +760,23 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
     case CMD.REVERSE_FOLDER_REQ: {
       const value = decodePrivate('X_REVERSE_FOLDER_REQ', xml)
       return value === null ? unrecognized(cmd) : { kind: 'folder-reverse', taskId: value.TaskID }
+    }
+    case CMD.QGROUP_PUSH_INFO: {
+      const info = groupInfoFromXml(xml)
+      return info === null ? unrecognized(cmd) : { kind: 'group-info', info }
+    }
+    case CMD.QGROUP_PUSH_USER: {
+      const info = groupInfoFromXml(xml)
+      if (info === null) return unrecognized(cmd)
+      return { kind: 'group-user', info, members: groupMembersFromXml(xml) }
+    }
+    case CMD.QGROUP_SEND_MSG: {
+      const groupId = tagText(xml, 'QGROUP_ID')
+      const msgId = Number(tagText(xml, 'MSG_ID') ?? '0')
+      const body = tagText(xml, 'MSG')
+      const text = body === null ? null : textFromJson(body)
+      if (groupId === null || text === null) return unrecognized(cmd)
+      return { kind: 'group-message', groupId, msgId, text }
     }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }

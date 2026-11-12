@@ -30,6 +30,8 @@ import {
   readyXml,
   reverseFileReqXml,
   reverseFolderReqXml,
+  groupPushUserXml,
+  groupSendXml,
   retrieveImagesXml,
   imageCardXml,
   sendFileXml,
@@ -41,6 +43,8 @@ import {
 import type {
   PrivateFileOffer,
   PrivateFolderOffer,
+  PrivateGroupInfo,
+  PrivateGroupMember,
   PrivateImageRef,
   PrivateProfile,
   RemoteProfile
@@ -63,6 +67,8 @@ const CMD_QUIT = 1017
 const CMD_READY = 1018
 const CMD_REVERSE_FILE_REQ = 1019
 const CMD_REVERSE_FOLDER_REQ = 1020
+const CMD_QGROUP_SEND_MSG = 3011
+const CMD_QGROUP_PUSH_USER = 3003
 
 const COMMAND_MASK = 0x7f
 const FRAME_HEADER_SIZE = 8
@@ -103,6 +109,9 @@ export interface SessionCallbacks {
   onFolderOffer(offer: PrivateFolderOffer): void
   onFolderOperate(cmd: number, taskId: string, op: number): void
   onFolderReverse(taskId: string): void
+  onGroupInfo(info: PrivateGroupInfo): void
+  onGroupUsers(info: PrivateGroupInfo, members: PrivateGroupMember[]): void
+  onGroupMessage(groupId: string, msgId: number, text: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
   onSendFailed(msgId: number): void
   onState(state: SessionState): void
@@ -314,6 +323,19 @@ export class PrivateSession {
   sendReverseFolderReq(taskId: string): void {
     if (this.currentState !== 'ready') return
     this.sendFrame(CMD_REVERSE_FOLDER_REQ, reverseFolderReqXml(taskId))
+  }
+
+  // 群消息与建群推送都走可靠通道；群消息没有 ACK，送达靠 ENet 本身
+  sendGroupMessage(groupId: string, msgId: number, text: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupSendXml(groupId, msgId, text)))
+    return true
+  }
+
+  sendGroupPushUser(info: PrivateGroupInfo, members: PrivateGroupMember[]): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_PUSH_USER, groupPushUserXml(info, members)))
+    return true
   }
 
   // 取图请求：把收到的 img 节点原样回给发送方，请它把原图推过来
@@ -630,6 +652,15 @@ export class PrivateSession {
         return
       case 'folder-reverse':
         this.callbacks.onFolderReverse(incoming.taskId)
+        return
+      case 'group-info':
+        this.callbacks.onGroupInfo(incoming.info)
+        return
+      case 'group-user':
+        this.callbacks.onGroupUsers(incoming.info, incoming.members)
+        return
+      case 'group-message':
+        this.callbacks.onGroupMessage(incoming.groupId, incoming.msgId, incoming.text)
         return
       case 'ready':
         if (this.currentState === 'handshaking') {

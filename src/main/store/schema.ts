@@ -31,6 +31,26 @@ CREATE TABLE IF NOT EXISTS messages (
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_messages_time ON messages(created_at);
 
+CREATE TABLE IF NOT EXISTS qgroups (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL DEFAULT '',
+  topic TEXT NOT NULL DEFAULT '',
+  announcement TEXT NOT NULL DEFAULT '',
+  master TEXT NOT NULL DEFAULT '',
+  info_version INTEGER NOT NULL DEFAULT 0,
+  user_version INTEGER NOT NULL DEFAULT 0,
+  allow_other_add INTEGER NOT NULL DEFAULT 0,
+  photo_md5 TEXT NOT NULL DEFAULT '',
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS qgroup_members (
+  group_id TEXT NOT NULL,
+  user_id TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (group_id, user_id)
+);
+
 CREATE TABLE IF NOT EXISTS file_tasks (
   id TEXT PRIMARY KEY,
   message_id INTEGER REFERENCES messages(id),

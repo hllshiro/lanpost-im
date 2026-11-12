@@ -61,6 +61,10 @@ function makeSession(
       onFolderOffer: (offer) => events.push(`folder-offer:${offer.taskId}`),
       onFolderOperate: (cmd, taskId, op) => events.push(`folder-op:${cmd}:${taskId}:${op}`),
       onFolderReverse: (taskId) => events.push(`folder-reverse:${taskId}`),
+      onGroupInfo: (info) => events.push(`group-info:${info.id}:${info.name}`),
+      onGroupUsers: (info, members) => events.push(`group-users:${info.id}:${members.length}`),
+      onGroupMessage: (groupId, msgId, text) =>
+        events.push(`group-msg:${groupId}:${msgId}:${text}`),
       onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),
       onLog: () => {}

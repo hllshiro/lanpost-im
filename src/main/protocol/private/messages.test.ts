@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   fileTimeFromMs,
+  groupPushUserXml,
+  groupSendXml,
   handshakeXml,
   heartbeatXml,
   helloFrame,
@@ -276,5 +278,68 @@ describe('private file messages', () => {
   it('converts milliseconds to a windows file time string', () => {
     expect(fileTimeFromMs(0)).toBe('116444736000000000')
     expect(fileTimeFromMs(1_700_000_000_000)).toBe('133444736000000000')
+  })
+})
+
+describe('private group messages', () => {
+  // 抓包原文：真实客户端建群时推送的成员列表
+  const pushUser =
+    '<X_QGROUP_PUSH_USER docver="1"><INFO><QGROUP_ID>3793f2276684a242a0b0aabc68b3660b</QGROUP_ID>' +
+    '<QGROUP_NAME>上网机PC3，笔记本2</QGROUP_NAME><QGROUP_MASTER>68e24da0fa70794981775dd7dbfb7c6f</QGROUP_MASTER>' +
+    '<QGROUP_INTR></QGROUP_INTR><QGROUP_ANN></QGROUP_ANN><QGROUP_INFO_VER>2</GROUP_INFO_VER>' +
+    '<QGROUP_USER_VER>2</QGROUP_USER_VER><QGROUP_ALLOW_OTHER_ADD>0</QGROUP_ALLOW_OTHER_ADD>' +
+    '<QGROUP_PHOTO_MD5></QGROUP_PHOTO_MD5></INFO><USER><ID name="笔记本2">3d2f84b92bd3d542839590568661971c</ID>' +
+    '<ID name="上网机PC3">68e24da0fa70794981775dd7dbfb7c6f</ID></USER></X_QGROUP_PUSH_USER>'
+
+  it('parses the group info and member list even with the broken closing tag', () => {
+    const parsed = parsePrivate(3003, pushUser)
+    expect(parsed).toEqual({
+      kind: 'group-user',
+      info: {
+        id: '3793f2276684a242a0b0aabc68b3660b',
+        name: '上网机PC3，笔记本2',
+        master: '68e24da0fa70794981775dd7dbfb7c6f',
+        topic: '',
+        announcement: '',
+        infoVersion: 2,
+        userVersion: 2,
+        allowOtherAdd: 0,
+        photoMd5: ''
+      },
+      members: [
+        { name: '笔记本2', userId: '3d2f84b92bd3d542839590568661971c' },
+        { name: '上网机PC3', userId: '68e24da0fa70794981775dd7dbfb7c6f' }
+      ]
+    })
+  })
+
+  it('parses a group message and keeps its text', () => {
+    const xml = groupSendXml('3793f2276684a242a0b0aabc68b3660b', 7, '大家好')
+    const parsed = parsePrivate(3011, xml)
+    expect(parsed).toEqual({
+      kind: 'group-message',
+      groupId: '3793f2276684a242a0b0aabc68b3660b',
+      msgId: 7,
+      text: '大家好'
+    })
+  })
+
+  it('builds a push frame the real client can parse', () => {
+    const xml = groupPushUserXml(
+      {
+        id: '3793f2276684a242a0b0aabc68b3660b',
+        name: '测试群',
+        master: '68e24da0fa70794981775dd7dbfb7c6f',
+        topic: '',
+        announcement: '',
+        infoVersion: 1,
+        userVersion: 1,
+        allowOtherAdd: 0,
+        photoMd5: ''
+      },
+      [{ name: '笔记本2', userId: '3d2f84b92bd3d542839590568661971c' }]
+    )
+    expect(xml).toContain('<QGROUP_INFO_VER>1</GROUP_INFO_VER>')
+    expect(parsePrivate(3003, xml)).toMatchObject({ kind: 'group-user' })
   })
 })

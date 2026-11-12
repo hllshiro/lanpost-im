@@ -24,6 +24,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import type {
   AppEvent,
   AppSnapshot,
+  ConversationInfo,
   FileTaskInfo,
   MessageInfo,
   MessagesPage,
@@ -41,7 +42,12 @@ import type { Settings } from '../shared/settings'
 import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discovery'
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
-import type { PrivateProfile, RemoteProfile } from './protocol/private/messages'
+import type {
+  PrivateGroupInfo,
+  PrivateGroupMember,
+  PrivateProfile,
+  RemoteProfile
+} from './protocol/private/messages'
 import {
   nextPrivateSeq,
   outstandingToFail,
@@ -58,7 +64,12 @@ import { PrivateFileTransfer } from './files/private-transfer'
 import { StagedStore, type StagedSource } from './files/staged'
 import { sanitizeFileName, uniqueName } from './files/names'
 import { NotificationManager } from './notify/manager'
-import { createRepositories, directConversationId, type Repositories } from './store/repositories'
+import {
+  createRepositories,
+  directConversationId,
+  groupConversationId,
+  type Repositories
+} from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
@@ -394,6 +405,10 @@ export class AppService {
             }
           },
           onFolderReverse: (ip, taskId) => this.handlePrivateFolderReverse(ip, taskId),
+          onGroupInfo: (ip, info) => this.handleGroupInfo(ip, info),
+          onGroupUsers: (ip, info, members) => this.handleGroupUsers(ip, info, members),
+          onGroupMessage: (ip, groupId, msgId, text) =>
+            this.handleGroupMessage(ip, groupId, msgId, text),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -564,6 +579,60 @@ export class AppService {
   }
 
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
+  // 群资料推送：更新群信息并刷新会话标题
+  private handleGroupInfo(ip: string, info: PrivateGroupInfo): void {
+    logStartup(`私有群资料 ${ip} 群=${info.name} 版本=${info.infoVersion}`)
+    this.repos.groups.upsert({
+      id: info.id,
+      name: info.name,
+      topic: info.topic,
+      announcement: info.announcement,
+      master: info.master,
+      infoVersion: info.infoVersion,
+      userVersion: info.userVersion,
+      allowOtherAdd: info.allowOtherAdd,
+      photoMd5: info.photoMd5,
+      updatedAt: Date.now()
+    })
+    const conversation = this.repos.conversations.ensureGroup(info.id, info.name || '群聊')
+    this.repos.conversations.setTitle(conversation.id, info.name || '群聊')
+    this.emitConversation(conversation.id)
+  }
+
+  // 成员列表推送：建群或成员变动时整份下发，收到就以这份为准
+  private handleGroupUsers(
+    ip: string,
+    info: PrivateGroupInfo,
+    members: PrivateGroupMember[]
+  ): void {
+    logStartup(`私有群成员 ${ip} 群=${info.name} 成员=${members.length}`)
+    this.handleGroupInfo(ip, info)
+    this.repos.groups.replaceMembers(info.id, members)
+    this.emitConversation(groupConversationId(info.id))
+  }
+
+  // 群消息：没有 ACK，按 MSG_ID 去重后落库
+  private handleGroupMessage(ip: string, groupId: string, msgId: number, text: string): void {
+    const group = this.repos.groups.get(groupId)
+    const title = group?.name || '群聊'
+    const conversation = this.repos.conversations.ensureGroup(groupId, title)
+    const senderId = this.privateService?.peerUserId(ip) ?? ''
+    const senderName = this.repos.groups
+      .members(groupId)
+      .find((member) => member.userId === senderId)?.name
+    const meta = JSON.stringify({
+      source: 'private-group',
+      groupId,
+      senderId,
+      senderName: senderName ?? ip
+    })
+    const message = this.repos.messages.insertIncoming(conversation.id, text, msgId, 'text', meta)
+    this.repos.conversations.touch(conversation.id, message.createdAt, 1)
+    this.emit({ type: 'message', message })
+    this.emitConversation(conversation.id)
+    logStartup(`私有群消息 ${title} MSG_ID=${msgId} 来自 ${senderName ?? ip}`)
+  }
+
   private handlePrivateFolderReverse(ip: string, taskId: string): void {
     logStartup(`私有文件夹反向请求 ${ip} 任务 ${taskId}`)
   }
@@ -715,7 +784,13 @@ export class AppService {
 
   sendText(request: MessagesSendRequest): SendTextResult {
     const conversation = this.repos.conversations.get(request.conversationId)
-    if (conversation === null || conversation.peerKey === null) {
+    if (conversation === null) {
+      throw new Error('会话不存在')
+    }
+    if (conversation.kind === 'group') {
+      return this.sendGroupText(conversation, request.text)
+    }
+    if (conversation.peerKey === null) {
       throw new Error('会话不存在')
     }
     const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
@@ -748,13 +823,46 @@ export class AppService {
     return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
   }
 
+  // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
+  private sendGroupText(conversation: ConversationInfo, text: string): SendTextResult {
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const service = this.privateService
+    if (groupId === '' || service === null) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const members = this.repos.groups.members(groupId)
+    const selfId = privateUserId(this.settings.get())
+    const msgId = this.allocatePrivateSeq()
+    let delivered = 0
+    for (const member of members) {
+      if (member.userId === selfId) continue
+      const ip = service.peerIpByUserId(member.userId)
+      if (ip === null) continue
+      if (service.isReady(ip) && service.sendGroupMessage(ip, groupId, msgId, text)) {
+        delivered += 1
+      }
+    }
+    if (delivered === 0) {
+      throw new Error('群成员都不在线')
+    }
+    const meta = JSON.stringify({ source: 'private-group', groupId })
+    return { message: this.recordOutgoing(conversation.id, text, msgId, 'sent', meta) }
+  }
+
   private recordOutgoing(
     conversationId: string,
     text: string,
     remoteSeq: number,
-    status?: string
+    status?: string,
+    meta = '{}'
   ): MessageInfo {
-    const message = this.repos.messages.insertOutgoing(conversationId, text, remoteSeq)
+    const message = this.repos.messages.insertOutgoing(
+      conversationId,
+      text,
+      remoteSeq,
+      'text',
+      meta
+    )
     if (status !== undefined) {
       this.repos.messages.setStatus(message.id, status)
     }

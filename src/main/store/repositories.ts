@@ -156,6 +156,121 @@ export function directConversationId(peerKey: string): string {
   return `direct:${peerKey}`
 }
 
+export function groupConversationId(groupId: string): string {
+  return `group:${groupId}`
+}
+
+export interface QGroupInfo {
+  id: string
+  name: string
+  topic: string
+  announcement: string
+  master: string
+  infoVersion: number
+  userVersion: number
+  allowOtherAdd: number
+  photoMd5: string
+  updatedAt: number
+}
+
+export interface QGroupMember {
+  userId: string
+  name: string
+}
+
+export class QGroupRepository {
+  constructor(private readonly db: DatabaseSync) {}
+
+  upsert(info: QGroupInfo): void {
+    this.db
+      .prepare(
+        `INSERT INTO qgroups (id, name, topic, announcement, master, info_version, user_version, allow_other_add, photo_md5, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           topic = excluded.topic,
+           announcement = excluded.announcement,
+           master = excluded.master,
+           info_version = excluded.info_version,
+           user_version = excluded.user_version,
+           allow_other_add = excluded.allow_other_add,
+           photo_md5 = excluded.photo_md5,
+           updated_at = excluded.updated_at`
+      )
+      .run(
+        info.id,
+        info.name,
+        info.topic,
+        info.announcement,
+        info.master,
+        info.infoVersion,
+        info.userVersion,
+        info.allowOtherAdd,
+        info.photoMd5,
+        info.updatedAt
+      )
+  }
+
+  get(id: string): QGroupInfo | null {
+    const row = this.db.prepare('SELECT * FROM qgroups WHERE id = ?').get(id) as
+      QGroupRow | undefined
+    return row === undefined ? null : mapQGroup(row)
+  }
+
+  members(groupId: string): QGroupMember[] {
+    const rows = this.db
+      .prepare('SELECT user_id, name FROM qgroup_members WHERE group_id = ? ORDER BY name')
+      .all(groupId) as unknown as Array<{ user_id: string; name: string }>
+    return rows.map((row) => ({ userId: row.user_id, name: row.name }))
+  }
+
+  // 成员表以整份推送为准，先清空再写入
+  replaceMembers(groupId: string, members: QGroupMember[]): void {
+    this.db.prepare('DELETE FROM qgroup_members WHERE group_id = ?').run(groupId)
+    const insert = this.db.prepare(
+      'INSERT OR REPLACE INTO qgroup_members (group_id, user_id, name) VALUES (?, ?, ?)'
+    )
+    for (const member of members) {
+      insert.run(groupId, member.userId, member.name)
+    }
+  }
+
+  list(): QGroupInfo[] {
+    const rows = this.db
+      .prepare('SELECT * FROM qgroups ORDER BY updated_at DESC')
+      .all() as unknown as QGroupRow[]
+    return rows.map(mapQGroup)
+  }
+}
+
+interface QGroupRow {
+  id: string
+  name: string
+  topic: string
+  announcement: string
+  master: string
+  info_version: number
+  user_version: number
+  allow_other_add: number
+  photo_md5: string
+  updated_at: number
+}
+
+function mapQGroup(row: QGroupRow): QGroupInfo {
+  return {
+    id: row.id,
+    name: row.name,
+    topic: row.topic,
+    announcement: row.announcement,
+    master: row.master,
+    infoVersion: row.info_version,
+    userVersion: row.user_version,
+    allowOtherAdd: row.allow_other_add,
+    photoMd5: row.photo_md5,
+    updatedAt: row.updated_at
+  }
+}
+
 export class ConversationRepository {
   constructor(private readonly db: DatabaseSync) {}
 
@@ -173,6 +288,17 @@ export class ConversationRepository {
         'INSERT OR IGNORE INTO conversations (id, kind, peer_key, title, created_at) VALUES (?, ?, ?, ?, ?)'
       )
       .run(id, 'direct', peerKey, title, Date.now())
+    return this.require(id)
+  }
+
+  // 群会话的 id 是 group:<群号>，没有 peer_key
+  ensureGroup(groupId: string, title: string): ConversationInfo {
+    const id = groupConversationId(groupId)
+    this.db
+      .prepare(
+        'INSERT OR IGNORE INTO conversations (id, kind, title, created_at) VALUES (?, ?, ?, ?)'
+      )
+      .run(id, 'group', title, Date.now())
     return this.require(id)
   }
 
@@ -481,6 +607,7 @@ export interface Repositories {
   messages: MessageRepository
   peers: PeerRepository
   files: FileRepository
+  groups: QGroupRepository
 }
 
 export function createRepositories(db: DatabaseSync): Repositories {
@@ -488,6 +615,7 @@ export function createRepositories(db: DatabaseSync): Repositories {
     conversations: new ConversationRepository(db),
     messages: new MessageRepository(db),
     peers: new PeerRepository(db),
-    files: new FileRepository(db)
+    files: new FileRepository(db),
+    groups: new QGroupRepository(db)
   }
 }

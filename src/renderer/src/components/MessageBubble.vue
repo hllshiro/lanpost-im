@@ -101,6 +101,17 @@ const folderMeta = computed(() => {
   return parts.join(' · ')
 })
 
+// 群消息里显示发送者名字，私聊不显示
+const senderLabel = computed(() => {
+  if (props.own) return ''
+  try {
+    const meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return typeof meta.senderName === 'string' ? meta.senderName : ''
+  } catch {
+    return ''
+  }
+})
+
 // 文件夹卡片上的“打开文件夹”，路径来自消息 meta
 const folderPath = computed(() => {
   try {
@@ -135,6 +146,7 @@ async function openFolder(): Promise<void> {
       </span>
 
       <div class="content">
+        <span v-if="senderLabel !== ''" class="sender">{{ senderLabel }}</span>
         <div v-if="message.kind === 'folder'" class="bubble folder-bubble">
           <div class="folder-card">
             <Folder :size="22" :stroke-width="1.6" />
@@ -266,6 +278,12 @@ async function openFolder(): Promise<void> {
   font-size: var(--chat-font-size);
   line-height: 1.55;
   color: #191919;
+}
+
+.sender {
+  margin-bottom: 3px;
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .text-bubble {
