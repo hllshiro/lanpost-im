@@ -298,6 +298,10 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupPushUser(info, members) ?? false
   }
 
+  sendGroupImage(ip: string, groupId: string, msgId: number, value: string): boolean {
+    return this.sessions.get(ip)?.sendGroupImage(groupId, msgId, value) ?? false
+  }
+
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
     for (const [ip, readyId] of this.peerUserIds) {

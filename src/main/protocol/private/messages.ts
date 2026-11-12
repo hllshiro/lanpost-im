@@ -369,6 +369,47 @@ export function imageCardXml(msgId: number, value: string): string {
   return escapeMsgBody(xml)
 }
 
+// 群图片：dt 里同时带文本占位与 img 卡片，和真实客户端一致
+export function groupImageXml(groupId: string, msgId: number, value: string): string {
+  const body = [
+    '{',
+    '   "app" : "shiyeline",',
+    '   "dt" : [',
+    '      {',
+    '         "txt" : {',
+    '            "t" : "normal",',
+    '            "v" : "[图片]"',
+    '         }',
+    '      },',
+    '      {',
+    '         "img" : {',
+    '            "t" : "feihu",',
+    `            "v" : ${JSON.stringify(value)}`,
+    '         }',
+    '      }',
+    '   ],',
+    '   "ft" : {',
+    '      "b" : "0",',
+    '      "c" : "0x000000",',
+    '      "i" : "0",',
+    '      "n" : "微软雅黑",',
+    '      "s" : "9",',
+    '      "u" : "0"',
+    '   },',
+    `   "id" : "${randomBytes(16).toString('hex')}",`,
+    '   "type" : "0",',
+    '   "ver" : "6.0"',
+    '}'
+  ].join('\n')
+  const escaped = body
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  const xml = `<X_QGROUP_SEND_MSG docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID><MSG_ID>${msgId}</MSG_ID><MSG>${escaped}</MSG><HIDE_RECORD>0</HIDE_RECORD></X_QGROUP_SEND_MSG>`
+  return escapeMsgBody(xml)
+}
+
 export function sendReceiptXml(msgId: number): string {
   return encodeChatReceipt({ Docver: DOCVER, MsgID: msgId })
 }

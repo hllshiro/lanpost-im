@@ -1335,7 +1335,7 @@ export class AppService {
         taskId: this.nextPrivateTaskId(target.ip)
       }))
       for (const push of pushes) {
-        service.sendImageCard(push.ip, message.id, value)
+        service.sendGroupImage(push.ip, groupId, message.id, value)
       }
       this.privateImagePushes.set(fileId, pushes)
       this.privateFileTasks.set(fileId, {

@@ -31,6 +31,7 @@ import {
   reverseFileReqXml,
   reverseFolderReqXml,
   groupPushUserXml,
+  groupImageXml,
   groupSendXml,
   retrieveImagesXml,
   imageCardXml,
@@ -337,6 +338,12 @@ export class PrivateSession {
   sendGroupPushUser(info: PrivateGroupInfo, members: PrivateGroupMember[]): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_QGROUP_PUSH_USER, groupPushUserXml(info, members)))
+    return true
+  }
+
+  sendGroupImage(groupId: string, msgId: number, value: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupImageXml(groupId, msgId, value)))
     return true
   }
 
