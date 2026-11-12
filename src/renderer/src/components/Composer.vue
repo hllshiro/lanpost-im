@@ -12,6 +12,12 @@ import {
   emotions,
   type EmotionItem
 } from '../utils/emotion'
+import {
+  emotionUsageKey,
+  loadEmotionUsage,
+  saveEmotionUsage,
+  sortByUsage
+} from '../utils/emotion-usage'
 
 const props = defineProps<{
   draft: string
@@ -34,7 +40,19 @@ const fileError = ref('')
 const stickersOpen = ref(false)
 const stickerAnchor = ref<HTMLElement | null>(null)
 const activeGroup = ref(emotionGroups[0] ?? '')
-const groupItems = computed(() => emotions.filter((item) => item.group === activeGroup.value))
+const usage = ref<Record<string, number>>(loadEmotionUsage())
+const groupItems = computed(() =>
+  sortByUsage(
+    emotions.filter((item) => item.group === activeGroup.value),
+    usage.value
+  )
+)
+
+function rememberUsage(item: EmotionItem): void {
+  const key = emotionUsageKey(item)
+  usage.value = { ...usage.value, [key]: (usage.value[key] ?? 0) + 1 }
+  saveEmotionUsage(usage.value)
+}
 
 onClickOutside(stickerAnchor, () => {
   stickersOpen.value = false
@@ -43,6 +61,7 @@ onClickOutside(stickerAnchor, () => {
 function sendSticker(item: EmotionItem): void {
   if (props.sending) return
   stickersOpen.value = false
+  rememberUsage(item)
   if (item.kind === 'emotion') {
     emit('sticker', item.id === null ? item.image : String(item.id))
     return

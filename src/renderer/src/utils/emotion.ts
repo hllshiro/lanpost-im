@@ -28,7 +28,7 @@ const extra = extraCatalog as EmotionItem[]
 
 export const emotions: EmotionItem[] = [...builtin, ...extra]
 
-const order = ['微信', 'QQ', '内网通']
+const order = ['QQ', '微信', '内网通']
 export const emotionGroups = order.filter((group) => emotions.some((item) => item.group === group))
 
 // 内网通表情节点是 Id（1251–1334）或「班车小子」组的文件名（2001.gif）
