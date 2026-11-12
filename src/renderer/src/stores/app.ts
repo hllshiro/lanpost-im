@@ -13,7 +13,7 @@ import type {
 import { errorMessage } from '../utils/errors'
 
 const MESSAGE_PAGE_SIZE = 50
-const MESSAGE_WINDOW = 240
+const MESSAGE_WINDOW = 50
 const PREVIEW_PAGE_SIZE = 10
 const DRAFT_SAVE_DELAY = 400
 

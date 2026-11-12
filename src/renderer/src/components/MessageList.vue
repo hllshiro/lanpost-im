@@ -115,6 +115,7 @@ function isNearBottom(element: HTMLElement): boolean {
 function scrollToBottom(): void {
   const element = scroller.value
   if (!element) return
+  ignoreScroll = true
   element.scrollTop = element.scrollHeight
   atBottom.value = true
   newBelow.value = 0
@@ -127,6 +128,11 @@ function onScroll(): void {
   if (bottom && !atBottom.value) emit('read')
   atBottom.value = bottom
   if (bottom) newBelow.value = 0
+  // 刚由代码调整过滚动位置，这次事件不触发补页，避免一补页就来回弹
+  if (ignoreScroll) {
+    ignoreScroll = false
+    return
+  }
   // 翻到顶部附近就动态向前补一页，旧消息不会一次性全读出来
   if (element.scrollTop < 120 && props.hasMore && !props.loadingMore && props.messages.length > 0) {
     requestOlder()
@@ -146,16 +152,26 @@ const requestedOlder = ref(false)
 const requestedNewer = ref(false)
 let anchorElement: HTMLElement | null = null
 let anchorTop = 0
+let anchorDirection: 'older' | 'newer' = 'older'
+let ignoreScroll = false
 
 // 补页前后以某个消息为锚点，保证眼下的内容不会跳
-function setAnchor(element: Element | null): void {
+function setAnchor(element: Element | null, direction: 'older' | 'newer'): void {
   anchorElement = element instanceof HTMLElement ? element : null
   anchorTop = anchorElement?.offsetTop ?? 0
+  anchorDirection = direction
 }
 
 function restoreAnchor(): void {
   const scrollerElement = scroller.value
   if (scrollerElement === null || anchorElement === null) return
+  ignoreScroll = true
+  // 窗口只有一页时锚点可能正好被裁掉，这时把刚补上的一页滚进视野
+  if (!scrollerElement.contains(anchorElement)) {
+    scrollerElement.scrollTop = anchorDirection === 'older' ? scrollerElement.scrollHeight : 0
+    anchorElement = null
+    return
+  }
   const delta = anchorElement.offsetTop - anchorTop
   if (delta !== 0) scrollerElement.scrollTop += delta
   anchorElement = null
@@ -166,7 +182,7 @@ function requestOlder(): void {
   const first = props.messages[0]
   if (!element || !first || props.loadingMore || requestedOlder.value) return
   requestedOlder.value = true
-  setAnchor(element.querySelector('.message'))
+  setAnchor(element.querySelector('.message'), 'older')
   emit('loadMore', first.id)
 }
 
@@ -176,7 +192,7 @@ function requestNewer(): void {
   if (!element || props.loadingMore || requestedNewer.value) return
   requestedNewer.value = true
   const items = element.querySelectorAll('.message')
-  setAnchor(items.length > 0 ? items[items.length - 1] : null)
+  setAnchor(items.length > 0 ? items[items.length - 1] : null, 'newer')
   emit('loadNewer')
 }
 
