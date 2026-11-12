@@ -33,6 +33,7 @@ import type {
 import type {
   AppInfo,
   MessagesListRequest,
+  MessagesNewerRequest,
   MessagesSendRequest,
   StagePathsResult
 } from '../shared/ipc'
@@ -707,6 +708,14 @@ export class AppService {
 
   listMessages(request: MessagesListRequest): MessagesPage {
     return this.repos.messages.list(request.conversationId, request.beforeId, request.limit ?? 50)
+  }
+
+  listNewerMessages(request: MessagesNewerRequest): MessagesPage {
+    return this.repos.messages.listAfter(
+      request.conversationId,
+      request.afterId,
+      request.limit ?? 50
+    )
   }
 
   sendText(request: MessagesSendRequest): SendTextResult {

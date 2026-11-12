@@ -279,6 +279,18 @@ export class MessageRepository {
     return rows.map(mapMessage)
   }
 
+  listAfter(conversationId: string, afterId: number, limit = 50): MessagesPage {
+    const size = Math.max(1, Math.floor(limit))
+    const rows = this.db
+      .prepare(
+        'SELECT * FROM messages WHERE conversation_id = ? AND id > ? ORDER BY id ASC LIMIT ?'
+      )
+      .all(conversationId, afterId, size + 1) as unknown as MessageRow[]
+    const hasMore = rows.length > size
+    const page = hasMore ? rows.slice(0, size) : rows
+    return { messages: page.map(mapMessage), hasMore }
+  }
+
   setRemoteSeq(id: number, seq: number): void {
     this.db.prepare('UPDATE messages SET remote_seq = ? WHERE id = ?').run(seq, id)
   }

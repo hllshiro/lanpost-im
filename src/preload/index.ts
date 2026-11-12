@@ -39,6 +39,7 @@ const api: Api = {
   },
   messages: {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
+    listNewer: (request) => ipcRenderer.invoke(IPC.messagesNewer, request),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),
     markRead: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.conversationRead, conversationId, messageId),

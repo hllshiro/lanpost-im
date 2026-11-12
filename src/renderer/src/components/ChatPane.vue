@@ -24,6 +24,7 @@ const props = defineProps<{
   local: LocalInfo | null
   loadingMessages: boolean
   hasMore: boolean
+  hasNewer: boolean
   sending: boolean
   unreadAfterId: number
 }>()
@@ -34,6 +35,7 @@ const emit = defineEmits<{
   'remove-staged': [id: string]
   read: []
   loadMore: [beforeId: number]
+  loadNewer: []
 }>()
 
 const search = ref('')
@@ -232,10 +234,12 @@ onBeforeUnmount(() => {
           :other-initial="otherInitial"
           :unread-after-id="keyword.length > 0 ? 0 : unreadAfterId"
           :has-more="hasMore"
+          :has-newer="hasNewer"
           :loading-more="loadingMessages"
           :searching="keyword.length > 0"
           :loading="loadingMessages"
           @load-more="handleLoadMore"
+          @load-newer="emit('loadNewer')"
           @read="emit('read')"
         />
       </div>

@@ -15,6 +15,7 @@ const props = defineProps<{
   otherInitial: string
   unreadAfterId: number
   hasMore: boolean
+  hasNewer: boolean
   loadingMore: boolean
   searching: boolean
   loading: boolean
@@ -22,6 +23,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   loadMore: [beforeId: number]
+  loadNewer: []
   read: []
 }>()
 
@@ -40,7 +42,6 @@ type Row =
 const scroller = ref<HTMLElement | null>(null)
 const atBottom = ref(true)
 const newBelow = ref(0)
-let prependHeight: number | null = null
 
 // 单击图片放大查看，右键出图片菜单
 const viewer = ref<FileTaskInfo | null>(null)
@@ -130,6 +131,10 @@ function onScroll(): void {
   if (element.scrollTop < 120 && props.hasMore && !props.loadingMore && props.messages.length > 0) {
     requestOlder()
   }
+  // 往回翻到底部附近时，把之前为控内存裁掉的新消息补回来
+  if (props.hasNewer && !props.loadingMore && bottom && props.messages.length > 0) {
+    requestNewer()
+  }
 }
 
 function jumpToBottom(): void {
@@ -138,20 +143,51 @@ function jumpToBottom(): void {
 }
 
 const requestedOlder = ref(false)
+const requestedNewer = ref(false)
+let anchorElement: HTMLElement | null = null
+let anchorTop = 0
+
+// 补页前后以某个消息为锚点，保证眼下的内容不会跳
+function setAnchor(element: Element | null): void {
+  anchorElement = element instanceof HTMLElement ? element : null
+  anchorTop = anchorElement?.offsetTop ?? 0
+}
+
+function restoreAnchor(): void {
+  const scrollerElement = scroller.value
+  if (scrollerElement === null || anchorElement === null) return
+  const delta = anchorElement.offsetTop - anchorTop
+  if (delta !== 0) scrollerElement.scrollTop += delta
+  anchorElement = null
+}
 
 function requestOlder(): void {
   const element = scroller.value
   const first = props.messages[0]
   if (!element || !first || props.loadingMore || requestedOlder.value) return
   requestedOlder.value = true
-  prependHeight = element.scrollHeight
+  setAnchor(element.querySelector('.message'))
   emit('loadMore', first.id)
+}
+
+// 向下补页时窗口会裁掉顶部的一部分，同样用锚点补偿滚动位置
+function requestNewer(): void {
+  const element = scroller.value
+  if (!element || props.loadingMore || requestedNewer.value) return
+  requestedNewer.value = true
+  const items = element.querySelectorAll('.message')
+  setAnchor(items.length > 0 ? items[items.length - 1] : null)
+  emit('loadNewer')
 }
 
 watch(
   () => props.loadingMore,
-  (loading) => {
-    if (!loading) requestedOlder.value = false
+  async (loading) => {
+    if (loading) return
+    requestedOlder.value = false
+    requestedNewer.value = false
+    await nextTick()
+    restoreAnchor()
   }
 )
 
@@ -160,7 +196,6 @@ watch(
   async () => {
     newBelow.value = 0
     atBottom.value = true
-    prependHeight = null
     viewer.value = null
     menu.value = null
     await nextTick()
@@ -173,26 +208,13 @@ watch(
   async (length, previousLength) => {
     await nextTick()
     const element = scroller.value
-    if (!element || prependHeight !== null) return
+    if (!element || requestedOlder.value || requestedNewer.value) return
     if (props.searching) return
     const grew = length > (previousLength ?? 0)
     if (!grew) return
     const last = props.messages[props.messages.length - 1]
     if (atBottom.value || last?.direction === 'out') scrollToBottom()
     else newBelow.value += length - (previousLength ?? 0)
-  }
-)
-
-watch(
-  () => props.loadingMore,
-  async (loading) => {
-    if (loading) return
-    await nextTick()
-    const element = scroller.value
-    if (!element || prependHeight === null) return
-    const delta = element.scrollHeight - prependHeight
-    if (delta > 0) element.scrollTop += delta
-    prependHeight = null
   }
 )
 

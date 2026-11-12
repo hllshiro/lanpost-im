@@ -50,6 +50,11 @@ const currentHasMore = computed(() => {
   return id ? (store.hasMore[id] ?? false) : false
 })
 
+const currentHasNewer = computed(() => {
+  const id = store.currentConversationId
+  return id ? (store.hasNewer[id] ?? false) : false
+})
+
 const currentLoadingMessages = computed(() => {
   const id = store.currentConversationId
   return id ? (store.loadingMessages[id] ?? false) : false
@@ -143,6 +148,11 @@ function handleRead(): void {
 function handleLoadMore(beforeId: number): void {
   const id = store.currentConversationId
   if (id) void store.loadMessages(id, beforeId)
+}
+
+function handleLoadNewer(): void {
+  const id = store.currentConversationId
+  if (id) void store.loadNewer(id)
 }
 
 function handleViewSelect(next: 'chat' | 'contacts' | 'files'): void {
@@ -249,6 +259,7 @@ onBeforeUnmount(() => {
             :local="store.local"
             :loading-messages="currentLoadingMessages"
             :has-more="currentHasMore"
+            :has-newer="currentHasNewer"
             :sending="store.sending"
             :unread-after-id="currentUnreadAfterId"
             @send="handleSend"
@@ -256,6 +267,7 @@ onBeforeUnmount(() => {
             @remove-staged="handleRemoveStaged"
             @read="handleRead"
             @load-more="handleLoadMore"
+            @load-newer="handleLoadNewer"
           />
         </template>
 

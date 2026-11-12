@@ -13,6 +13,7 @@ import type {
 import { errorMessage } from '../utils/errors'
 
 const MESSAGE_PAGE_SIZE = 50
+const MESSAGE_WINDOW = 240
 const PREVIEW_PAGE_SIZE = 10
 const DRAFT_SAVE_DELAY = 400
 
@@ -26,6 +27,8 @@ export const useAppStore = defineStore('app', () => {
   const messages = ref<Record<string, MessageInfo[]>>({})
   const previews = ref<Record<string, MessageInfo>>({})
   const hasMore = ref<Record<string, boolean>>({})
+  // 窗口被裁掉的一侧还有内容：向下滚时要能补回来
+  const hasNewer = ref<Record<string, boolean>>({})
   const loadingMessages = ref<Record<string, boolean>>({})
   const readMarks = ref<Record<string, number>>({})
   const loading = ref(false)
@@ -254,9 +257,11 @@ export const useAppStore = defineStore('app', () => {
       const list = [...merged.values()].sort((left, right) => left.id - right.id)
       messages.value[conversationId] = list
       hasMore.value[conversationId] = page.hasMore
+      // 内存里只保留滑动窗口，读得越早越会裁掉靠近底部的一侧
+      const trimmed = trimNewest(conversationId)
       const latest = list[list.length - 1]
       const preview = previews.value[conversationId]
-      if (latest && (!preview || latest.id > preview.id)) {
+      if (!trimmed && latest && (!preview || latest.id > preview.id)) {
         previews.value = { ...previews.value, [conversationId]: latest }
       }
       if (!beforeId) await markRead(conversationId)
@@ -265,6 +270,50 @@ export const useAppStore = defineStore('app', () => {
     } finally {
       loadingMessages.value = { ...loadingMessages.value, [conversationId]: false }
     }
+  }
+
+  // 往上翻到窗口顶端后继续往下补，补回来的是刚才被裁掉的那些
+  async function loadNewer(conversationId: string): Promise<void> {
+    if (loadingMessages.value[conversationId]) return
+    const list = messages.value[conversationId] ?? []
+    const last = list[list.length - 1]
+    if (!last) return
+    loadingMessages.value = { ...loadingMessages.value, [conversationId]: true }
+    try {
+      const page = await window.api.messages.listNewer({
+        conversationId,
+        afterId: last.id,
+        limit: MESSAGE_PAGE_SIZE
+      })
+      const merged = new Map<number, MessageInfo>()
+      for (const message of list) merged.set(message.id, message)
+      for (const message of page.messages) merged.set(message.id, message)
+      messages.value[conversationId] = [...merged.values()].sort(
+        (left, right) => left.id - right.id
+      )
+      hasNewer.value = { ...hasNewer.value, [conversationId]: page.hasMore }
+      trimOldest(conversationId)
+    } catch (reason) {
+      reportError(reason)
+    } finally {
+      loadingMessages.value = { ...loadingMessages.value, [conversationId]: false }
+    }
+  }
+
+  // 保留最早的 MESSAGE_WINDOW 条，返回是否发生了裁剪
+  function trimNewest(conversationId: string): boolean {
+    const list = messages.value[conversationId] ?? []
+    if (list.length <= MESSAGE_WINDOW) return false
+    messages.value[conversationId] = list.slice(0, MESSAGE_WINDOW)
+    hasNewer.value = { ...hasNewer.value, [conversationId]: true }
+    return true
+  }
+
+  function trimOldest(conversationId: string): void {
+    const list = messages.value[conversationId] ?? []
+    if (list.length <= MESSAGE_WINDOW) return
+    messages.value[conversationId] = list.slice(list.length - MESSAGE_WINDOW)
+    hasMore.value = { ...hasMore.value, [conversationId]: true }
   }
 
   async function selectConversation(id: string | null): Promise<void> {
@@ -412,6 +461,7 @@ export const useAppStore = defineStore('app', () => {
     messages,
     previews,
     hasMore,
+    hasNewer,
     loadingMessages,
     readMarks,
     loading,
@@ -430,6 +480,7 @@ export const useAppStore = defineStore('app', () => {
     refreshPeers,
     selectConversation,
     loadMessages,
+    loadNewer,
     sendText,
     saveDraft,
     removeStaged,
