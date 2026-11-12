@@ -508,13 +508,6 @@ async function revealFolder(): Promise<void> {
 }
 
 /* 收到的文件夹：保留卡片样式，动作按真实客户端的写法给出两个入口 */
-.folder-actions {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
