@@ -49,4 +49,5 @@ appImage:
   artifactName: ${name}-${version}-${arch}.${ext}
 deb:
   artifactName: ${name}_${version}_${arch}.${ext}
+publish: null
 npmRebuild: false
