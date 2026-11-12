@@ -581,22 +581,26 @@ export class AppService {
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
   // 群资料推送：更新群信息并刷新会话标题
   private handleGroupInfo(ip: string, info: PrivateGroupInfo): void {
-    logStartup(`私有群资料 ${ip} 群=${info.name} 版本=${info.infoVersion}`)
-    this.repos.groups.upsert({
-      id: info.id,
-      name: info.name,
-      topic: info.topic,
-      announcement: info.announcement,
-      master: info.master,
-      infoVersion: info.infoVersion,
-      userVersion: info.userVersion,
-      allowOtherAdd: info.allowOtherAdd,
-      photoMd5: info.photoMd5,
-      updatedAt: Date.now()
-    })
-    const conversation = this.repos.conversations.ensureGroup(info.id, info.name || '群聊')
-    this.repos.conversations.setTitle(conversation.id, info.name || '群聊')
-    this.emitConversation(conversation.id)
+    try {
+      logStartup(`私有群资料 ${ip} 群=${info.name} 版本=${info.infoVersion}`)
+      this.repos.groups.upsert({
+        id: info.id,
+        name: info.name,
+        topic: info.topic,
+        announcement: info.announcement,
+        master: info.master,
+        infoVersion: info.infoVersion,
+        userVersion: info.userVersion,
+        allowOtherAdd: info.allowOtherAdd,
+        photoMd5: info.photoMd5,
+        updatedAt: Date.now()
+      })
+      const conversation = this.repos.conversations.ensureGroup(info.id, info.name || '群聊')
+      this.repos.conversations.setTitle(conversation.id, info.name || '群聊')
+      this.emitConversation(conversation.id)
+    } catch (error) {
+      logStartup(`私有群资料处理失败：${(error as Error).message}`)
+    }
   }
 
   // 成员列表推送：建群或成员变动时整份下发，收到就以这份为准
@@ -605,32 +609,40 @@ export class AppService {
     info: PrivateGroupInfo,
     members: PrivateGroupMember[]
   ): void {
-    logStartup(`私有群成员 ${ip} 群=${info.name} 成员=${members.length}`)
-    this.handleGroupInfo(ip, info)
-    this.repos.groups.replaceMembers(info.id, members)
-    this.emitConversation(groupConversationId(info.id))
+    try {
+      logStartup(`私有群成员 ${ip} 群=${info.name} 成员=${members.length}`)
+      this.handleGroupInfo(ip, info)
+      this.repos.groups.replaceMembers(info.id, members)
+      this.emitConversation(groupConversationId(info.id))
+    } catch (error) {
+      logStartup(`私有群成员处理失败：${(error as Error).message}`)
+    }
   }
 
   // 群消息：没有 ACK，按 MSG_ID 去重后落库
   private handleGroupMessage(ip: string, groupId: string, msgId: number, text: string): void {
-    const group = this.repos.groups.get(groupId)
-    const title = group?.name || '群聊'
-    const conversation = this.repos.conversations.ensureGroup(groupId, title)
-    const senderId = this.privateService?.peerUserId(ip) ?? ''
-    const senderName = this.repos.groups
-      .members(groupId)
-      .find((member) => member.userId === senderId)?.name
-    const meta = JSON.stringify({
-      source: 'private-group',
-      groupId,
-      senderId,
-      senderName: senderName ?? ip
-    })
-    const message = this.repos.messages.insertIncoming(conversation.id, text, msgId, 'text', meta)
-    this.repos.conversations.touch(conversation.id, message.createdAt, 1)
-    this.emit({ type: 'message', message })
-    this.emitConversation(conversation.id)
-    logStartup(`私有群消息 ${title} MSG_ID=${msgId} 来自 ${senderName ?? ip}`)
+    try {
+      const group = this.repos.groups.get(groupId)
+      const title = group?.name || '群聊'
+      const conversation = this.repos.conversations.ensureGroup(groupId, title)
+      const senderId = this.privateService?.peerUserId(ip) ?? ''
+      const senderName = this.repos.groups
+        .members(groupId)
+        .find((member) => member.userId === senderId)?.name
+      const meta = JSON.stringify({
+        source: 'private-group',
+        groupId,
+        senderId,
+        senderName: senderName ?? ip
+      })
+      const message = this.repos.messages.insertIncoming(conversation.id, text, msgId, 'text', meta)
+      this.repos.conversations.touch(conversation.id, message.createdAt, 1)
+      this.emit({ type: 'message', message })
+      this.emitConversation(conversation.id)
+      logStartup(`私有群消息 ${title} MSG_ID=${msgId} 来自 ${senderName ?? ip}`)
+    } catch (error) {
+      logStartup(`私有群消息处理失败：${(error as Error).message}`)
+    }
   }
 
   private handlePrivateFolderReverse(ip: string, taskId: string): void {

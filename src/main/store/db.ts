@@ -71,7 +71,7 @@ export function openDatabase(file: string, options: OpenDatabaseOptions = {}): D
     if (row.user_version > SCHEMA_VERSION) {
       throw new NewerSchemaError(`数据库由更新版本创建，无法打开 (${file})`)
     }
-    if (row.user_version === 0) {
+    if (row.user_version < SCHEMA_VERSION) {
       migrate(db)
     }
     return db

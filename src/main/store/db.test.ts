@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from './db'
+import { SCHEMA_VERSION } from './schema'
 
 const tempDirs: string[] = []
 
@@ -27,10 +28,36 @@ describe('openDatabase', () => {
       .all()
       .map((row) => (row as { name: string }).name)
     expect(tables).toEqual(
-      expect.arrayContaining(['conversations', 'messages', 'file_tasks', 'peers', 'group_members'])
+      expect.arrayContaining([
+        'conversations',
+        'messages',
+        'file_tasks',
+        'peers',
+        'group_members',
+        'qgroups',
+        'qgroup_members'
+      ])
     )
     const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
-    expect(version.user_version).toBe(1)
+    expect(version.user_version).toBe(SCHEMA_VERSION)
+    db.close()
+  })
+
+  it('adds the newer tables when opening an older database', () => {
+    const file = tempDb()
+    const older = new DatabaseSync(file)
+    older.exec('CREATE TABLE conversations (id TEXT PRIMARY KEY)')
+    older.exec('PRAGMA user_version = 1')
+    older.close()
+
+    const db = openDatabase(file)
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((row) => (row as { name: string }).name)
+    expect(tables).toEqual(expect.arrayContaining(['qgroups', 'qgroup_members']))
+    const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
+    expect(version.user_version).toBe(SCHEMA_VERSION)
     db.close()
   })
 
