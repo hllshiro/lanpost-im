@@ -7,6 +7,8 @@ export interface Handlers {
   settingsGet(): Settings
   settingsUpdate(patch: unknown): Settings
   settingsDefaults(): Settings
+  shortcutsSetRecording(active: boolean): void
+  shortcutsAvailable(accelerator: string): boolean
 }
 
 function assertPatch(value: unknown): asserts value is SettingsPatch {
@@ -19,6 +21,8 @@ export function createHandlers(ctx: {
   settings: SettingsStore
   appInfo: AppInfo
   onSettingsChanged?: (settings: Settings) => void
+  shortcutsSetRecording?: (active: boolean) => void
+  shortcutsAvailable?: (accelerator: string) => boolean
 }): Handlers {
   return {
     appInfo: () => ({ ...ctx.appInfo }),
@@ -29,6 +33,11 @@ export function createHandlers(ctx: {
       ctx.onSettingsChanged?.(next)
       return next
     },
-    settingsDefaults: () => ctx.settings.defaultSettings()
+    settingsDefaults: () => ctx.settings.defaultSettings(),
+    shortcutsSetRecording: (active) => ctx.shortcutsSetRecording?.(active),
+    shortcutsAvailable: (accelerator) =>
+      typeof accelerator === 'string' && ctx.shortcutsAvailable !== undefined
+        ? ctx.shortcutsAvailable(accelerator)
+        : false
   }
 }

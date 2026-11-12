@@ -2972,6 +2972,15 @@ export class AppService {
     await clipboard.write([new ClipboardItem({ [type]: new Blob([data], { type }) })])
   }
 
+  // 全局快捷键“打开接收目录”
+  async openReceiveDir(): Promise<void> {
+    mkdirSync(this.receiveDir, { recursive: true })
+    const error = await shell.openPath(this.receiveDir)
+    if (error !== '') {
+      throw new Error(error)
+    }
+  }
+
   // 文件夹消息里的“打开文件夹”：只接受真实存在的目录
   async openPath(path: string): Promise<void> {
     if (path === '' || !existsSync(path) || !statSync(path).isDirectory()) {

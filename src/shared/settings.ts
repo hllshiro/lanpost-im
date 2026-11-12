@@ -59,6 +59,17 @@ const appearanceSchema = z.object({
   density: z.enum(['standard', 'compact']).default('standard')
 })
 
+export const DEFAULT_SHORTCUTS = {
+  toggleWindow: 'Ctrl+Alt+W',
+  openReceiveDir: 'Ctrl+Alt+R'
+} as const
+
+const shortcutsSchema = z.object({
+  enabled: z.boolean().default(true),
+  toggleWindow: z.string().default(DEFAULT_SHORTCUTS.toggleWindow),
+  openReceiveDir: z.string().default(DEFAULT_SHORTCUTS.openReceiveDir)
+})
+
 const generalSchema = z.object({
   closeToTray: z.boolean().default(true),
   startAtLogin: z.boolean().default(false),
@@ -79,6 +90,7 @@ export const settingsSchema = z.object({
   files: filesSchema.prefault({}),
   appearance: appearanceSchema.prefault({}),
   general: generalSchema.prefault({}),
+  shortcuts: shortcutsSchema.prefault({}),
   storage: storageSchema.prefault({})
 })
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -12,7 +12,7 @@ export function setQuitting(value: boolean): void {
   quitting = value
 }
 
-export function createMainWindow(settings: SettingsStore): BrowserWindow {
+export function createMainWindow(settings: SettingsStore, startHidden = false): BrowserWindow {
   const window = new BrowserWindow({
     width: 1080,
     height: 720,
@@ -31,7 +31,17 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
     }
   })
 
+  if (process.platform !== 'darwin') {
+    // Windows/Linux 上 Alt 会唤出默认菜单栏；移除菜单，保留应用内快捷键。
+    Menu.setApplicationMenu(null)
+    window.setMenu(null)
+  }
+
   window.on('ready-to-show', () => {
+    if (startHidden) {
+      logStartup('window ready-to-show (hidden)')
+      return
+    }
     window.show()
     logStartup('window ready-to-show')
   })
@@ -102,6 +112,17 @@ export function createMainWindow(settings: SettingsStore): BrowserWindow {
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
+}
+
+export function toggleMainWindow(): void {
+  if (!mainWindow) return
+  if (mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    mainWindow.hide()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 }
 
 export function showMainWindow(): void {

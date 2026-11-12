@@ -12,8 +12,21 @@ import { currentIdentityDefaults } from './identity'
 import { createHandlers } from './ipc/handlers'
 import { registerIpc } from './ipc/register'
 import { registerAppIpc } from './ipc/app-ipc'
-import { createMainWindow, getMainWindow, setQuitting, showMainWindow } from './window'
+import {
+  createMainWindow,
+  getMainWindow,
+  setQuitting,
+  showMainWindow,
+  toggleMainWindow
+} from './window'
 import { createTray, destroyTray } from './tray'
+import {
+  applyGlobalShortcuts,
+  setShortcutRecording,
+  shortcutAvailable,
+  unregisterGlobalShortcuts,
+  type ShortcutHandlers
+} from './shortcuts'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
 
 app.setName(APP_NAME_EN)
@@ -137,10 +150,27 @@ if (!gotLock) {
       const appService = new AppService(database, settings, appInfo)
       service = appService
 
+      const shortcutHandlers: ShortcutHandlers = {
+        toggleWindow: toggleMainWindow,
+        openReceiveDir: () => {
+          void appService.openReceiveDir().catch((error: unknown) => {
+            logStartup(
+              'open receive directory failed: ' +
+                (error instanceof Error ? error.message : String(error))
+            )
+          })
+        }
+      }
+
       const handlers = createHandlers({
         settings,
         appInfo,
-        onSettingsChanged: (next) => appService.applySettings(next)
+        onSettingsChanged: (next) => {
+          appService.applySettings(next)
+          applyGlobalShortcuts(next, shortcutHandlers)
+        },
+        shortcutsSetRecording: setShortcutRecording,
+        shortcutsAvailable: shortcutAvailable
       })
       registerIpc(handlers)
       registerAppIpc(appService)
@@ -190,6 +220,7 @@ if (!gotLock) {
 
       createMainWindow(settings)
       appService.attachWindow(getMainWindow())
+      applyGlobalShortcuts(settings.get(), shortcutHandlers)
       logStartup('main window created')
 
       createTray({
@@ -239,6 +270,7 @@ if (!gotLock) {
   })
 
   app.on('will-quit', () => {
+    unregisterGlobalShortcuts()
     void service?.stop()
     database?.close()
     database = null

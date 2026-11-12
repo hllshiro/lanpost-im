@@ -94,6 +94,10 @@ const api: Api = {
     update: (patch) => ipcRenderer.invoke(IPC.settingsUpdate, patch),
     defaults: () => ipcRenderer.invoke(IPC.settingsDefaults)
   },
+  shortcuts: {
+    setRecording: (active) => ipcRenderer.invoke(IPC.shortcutsRecording, active),
+    available: (accelerator) => ipcRenderer.invoke(IPC.shortcutsAvailable, accelerator)
+  },
   identity: {
     pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),
     clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar)

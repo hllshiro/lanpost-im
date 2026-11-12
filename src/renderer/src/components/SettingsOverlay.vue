@@ -8,14 +8,22 @@ import {
   FolderOpen,
   HardDrive,
   Info,
+  Keyboard,
   Network,
   Palette,
+  RotateCcw,
   SlidersHorizontal,
   UserRound,
   X
 } from '@lucide/vue'
 import type { AppInfo } from '../../../shared/ipc'
-import { defaultSettings, type Settings, type SettingsPatch } from '../../../shared/settings'
+import {
+  DEFAULT_SHORTCUTS,
+  defaultSettings,
+  type Settings,
+  type SettingsPatch
+} from '../../../shared/settings'
+import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import ToggleSwitch from './ToggleSwitch.vue'
@@ -32,12 +40,34 @@ const categories = [
   { id: 'files', label: '文件', icon: FolderOpen },
   { id: 'appearance', label: '外观', icon: Palette },
   { id: 'general', label: '通用', icon: SlidersHorizontal },
+  { id: 'shortcuts', label: '快捷键', icon: Keyboard },
   { id: 'storage', label: '存储', icon: HardDrive },
   { id: 'about', label: '关于', icon: Info }
 ] as const
 
 type CategoryId = (typeof categories)[number]['id']
 type Section = Exclude<keyof Settings, 'version'>
+type ShortcutAction = keyof typeof DEFAULT_SHORTCUTS
+
+const shortcutItems: Array<{
+  key: ShortcutAction
+  label: string
+  hint: string
+  fallback: string
+}> = [
+  {
+    key: 'toggleWindow',
+    label: '显示/隐藏主窗口',
+    hint: '在任意程序中按下都能切换内网传书窗口',
+    fallback: DEFAULT_SHORTCUTS.toggleWindow
+  },
+  {
+    key: 'openReceiveDir',
+    label: '打开接收文件目录',
+    hint: '在文件管理器中打开当前接收目录',
+    fallback: DEFAULT_SHORTCUTS.openReceiveDir
+  }
+]
 
 const current = ref<CategoryId>('identity')
 const settings = ref<Settings>(structuredClone(defaultSettings))
@@ -47,6 +77,8 @@ const pending = ref(0)
 const error = ref('')
 const saved = ref(false)
 const confirmingReset = ref(false)
+const recording = ref<ShortcutAction | null>(null)
+const recordTip = ref('')
 const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 let savedTimer: number | undefined
@@ -153,6 +185,61 @@ function setDensity(density: Settings['appearance']['density']): void {
   saveField('appearance', { density })
 }
 
+function startRecording(action: ShortcutAction): void {
+  if (recording.value === action) {
+    cancelRecording()
+    return
+  }
+  recording.value = action
+  recordTip.value = ''
+  error.value = ''
+  void window.api.shortcuts.setRecording(true)
+}
+
+function cancelRecording(): void {
+  if (recording.value === null) return
+  recording.value = null
+  recordTip.value = ''
+  void window.api.shortcuts.setRecording(false)
+}
+
+async function commitRecording(accelerator: string): Promise<void> {
+  const action = recording.value
+  if (action === null) return
+  recording.value = null
+  recordTip.value = ''
+  try {
+    if (!(await window.api.shortcuts.available(accelerator))) {
+      error.value = `快捷键 ${accelerator} 已被其他程序占用，请换一个组合`
+      return
+    }
+    settings.value.shortcuts[action] = accelerator
+    await pushPatch({ shortcuts: { [action]: accelerator } })
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    await window.api.shortcuts.setRecording(false)
+  }
+}
+
+function clearShortcut(action: ShortcutAction): void {
+  cancelRecording()
+  settings.value.shortcuts[action] = ''
+  void pushPatch({ shortcuts: { [action]: '' } })
+}
+
+function resetShortcut(action: ShortcutAction): void {
+  cancelRecording()
+  settings.value.shortcuts[action] = DEFAULT_SHORTCUTS[action]
+  void pushPatch({ shortcuts: { [action]: DEFAULT_SHORTCUTS[action] } })
+}
+
+function setShortcutsEnabled(enabled: boolean): void {
+  settings.value.shortcuts.enabled = enabled
+  if (!enabled) cancelRecording()
+  void pushPatch({ shortcuts: { enabled } })
+}
+
 async function restoreDefaults(): Promise<void> {
   let next: Settings
   try {
@@ -168,6 +255,7 @@ async function restoreDefaults(): Promise<void> {
     files: next.files,
     appearance: next.appearance,
     general: next.general,
+    shortcuts: next.shortcuts,
     storage: next.storage
   }
   confirmingReset.value = false
@@ -175,8 +263,38 @@ async function restoreDefaults(): Promise<void> {
 }
 
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
+  if (recording.value !== null) return
   if (event.key === 'Escape') emit('close')
 })
+
+useEventListener(
+  window,
+  'keydown',
+  (event: KeyboardEvent) => {
+    if (recording.value === null) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.key === 'Escape' && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+      cancelRecording()
+      return
+    }
+    const accelerator = acceleratorFromKeyStroke({
+      code: event.code,
+      key: event.key,
+      ctrl: event.ctrlKey,
+      alt: event.altKey,
+      shift: event.shiftKey,
+      meta: event.metaKey,
+      repeat: event.repeat
+    })
+    if (accelerator === null) {
+      recordTip.value = '请同时按住 Ctrl、Alt 或 Shift，再按字母、数字或功能键'
+      return
+    }
+    void commitRecording(accelerator)
+  },
+  { capture: true }
+)
 
 onMounted(() => {
   void loadSettings()
@@ -185,6 +303,7 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   if (savedTimer !== undefined) window.clearTimeout(savedTimer)
+  if (recording.value !== null) void window.api.shortcuts.setRecording(false)
 })
 </script>
 
@@ -731,6 +850,70 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <div v-show="current === 'shortcuts'" class="group">
+          <h2>全局快捷键</h2>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">启用全局快捷键</span>
+              <p class="hint">关闭后所有快捷键停止响应，已配置的组合会保留</p>
+            </div>
+            <div class="control control-auto">
+              <ToggleSwitch
+                v-model="settings.shortcuts.enabled"
+                @update:model-value="setShortcutsEnabled($event)"
+              />
+            </div>
+          </div>
+          <div v-for="item in shortcutItems" :key="item.key" class="row">
+            <div class="row-text">
+              <span class="label">{{ item.label }}</span>
+              <p class="hint">{{ item.hint }}</p>
+            </div>
+            <div class="control control-auto shortcut-control">
+              <button
+                class="shortcut-key"
+                :class="{ recording: recording === item.key }"
+                :title="recording === item.key ? '按下按键组合，Esc 取消' : '点击后按下新的快捷键'"
+                @click="startRecording(item.key)"
+              >
+                {{
+                  recording === item.key
+                    ? '请按下快捷键…'
+                    : settings.shortcuts[item.key] || '未设置'
+                }}
+              </button>
+              <button
+                class="shortcut-action"
+                :disabled="settings.shortcuts[item.key] === ''"
+                :title="`清除「${item.label}」快捷键`"
+                :aria-label="`清除「${item.label}」快捷键`"
+                @click="clearShortcut(item.key)"
+              >
+                <X :size="14" :stroke-width="1.8" />
+              </button>
+              <button
+                class="shortcut-action"
+                :disabled="settings.shortcuts[item.key] === item.fallback"
+                :title="`恢复默认 ${item.fallback}`"
+                aria-label="恢复默认快捷键"
+                @click="resetShortcut(item.key)"
+              >
+                <RotateCcw :size="14" :stroke-width="1.8" />
+              </button>
+            </div>
+          </div>
+          <p v-if="recording" class="shortcut-tip">
+            {{ recordTip || '请按下新的快捷键，Esc 取消' }}
+          </p>
+          <p v-if="!settings.shortcuts.enabled" class="shortcut-tip">
+            全局快捷键当前已关闭，下面的组合不会响应；可随时重新启用。
+          </p>
+          <p class="note">
+            快捷键在程序运行期间全局生效；录制时会暂时释放已有快捷键，Esc
+            可取消。清空某一项后该项不再响应。若组合被其他程序占用，会提示更换。
+          </p>
+        </div>
+
         <div v-show="current === 'storage'" class="group">
           <h2>数据存储</h2>
           <div class="row">
@@ -1157,6 +1340,59 @@ select.input {
   margin: 14px 0 0;
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+.shortcut-tip {
+  margin: 10px 0 0;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+.shortcut-control {
+  gap: 8px;
+}
+
+.shortcut-key {
+  min-width: 152px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid #dcdcdc;
+  border-radius: var(--radius-button);
+  background: #ffffff;
+  font-size: 12px;
+  color: var(--text);
+  text-align: center;
+}
+
+.shortcut-key:hover {
+  border-color: #c4c4c4;
+}
+
+.shortcut-key.recording {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(7, 193, 96, 0.06);
+}
+
+.shortcut-action {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-button);
+  border: 1px solid #e0e0e0;
+  background: #ffffff;
+  color: var(--text-secondary);
+}
+
+.shortcut-action:hover:enabled {
+  background: #f5f5f5;
+  color: var(--text);
+}
+
+.shortcut-action:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .panel-foot {
