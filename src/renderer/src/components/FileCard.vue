@@ -160,15 +160,19 @@ function saveAs(): void {
     <p v-if="error" class="file-error">{{ error }}</p>
 
     <div v-if="canReceive || done" class="actions">
-      <template v-if="canReceive">
-        <button class="action primary" :disabled="busy !== ''" @click="accept">接收</button>
-        <button class="action" :disabled="busy !== ''" @click="reject">拒绝</button>
-      </template>
-      <template v-else-if="done">
-        <button class="action" :disabled="busy !== ''" @click="open">打开</button>
-        <button class="action" :disabled="busy !== ''" @click="reveal">打开文件夹</button>
-        <button class="action" :disabled="busy !== ''" @click="saveAs">另存为</button>
-      </template>
+      <div class="actions-left">
+        <button v-if="done" class="link" :disabled="busy !== ''" @click="saveAs">另存为</button>
+      </div>
+      <div class="actions-right">
+        <template v-if="canReceive">
+          <button class="link primary" :disabled="busy !== ''" @click="accept">接收</button>
+          <button class="link" :disabled="busy !== ''" @click="reject">拒绝</button>
+        </template>
+        <template v-else-if="done">
+          <button class="link" :disabled="busy !== ''" @click="open">打开</button>
+          <button class="link" :disabled="busy !== ''" @click="reveal">打开文件夹</button>
+        </template>
+      </div>
     </div>
   </div>
 </template>
@@ -256,37 +260,40 @@ function saveAs(): void {
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e7e7e7;
 }
 
-.action {
-  padding: 4px 10px;
-  border: 1px solid #e0e0e0;
-  border-radius: var(--radius-button);
+.actions-left,
+.actions-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1a73e8;
   font-size: 12px;
-  color: #444444;
-  background: #ffffff;
+  cursor: pointer;
 }
 
-.action:hover:not(:disabled) {
-  border-color: #c9c9c9;
-  background: #f7f7f7;
+.link:hover:not(:disabled) {
+  text-decoration: underline;
 }
 
-.action.primary {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: #ffffff;
+.link.primary {
+  color: var(--accent);
 }
 
-.action.primary:hover:not(:disabled) {
-  border-color: var(--accent-hover);
-  background: var(--accent-hover);
-}
-
-.action:disabled {
+.link:disabled {
   opacity: 0.55;
+  cursor: default;
 }
 </style>

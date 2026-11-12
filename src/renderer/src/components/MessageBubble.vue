@@ -181,7 +181,7 @@ async function revealFolder(): Promise<void> {
           <div class="folder-card">
             <div class="folder-main">
               <span class="folder-icon">
-                <Folder :size="22" :stroke-width="1.6" />
+                <Folder :size="42" :stroke-width="1.2" fill="#f7a72c" color="#e5941f" />
               </span>
               <div class="folder-text">
                 <p class="folder-name" :title="message.text">{{ message.text || '文件夹' }}</p>
@@ -189,8 +189,9 @@ async function revealFolder(): Promise<void> {
               </div>
             </div>
             <div v-if="folderIncoming ? folderDone : folderPath !== ''" class="folder-actions">
-              <button class="folder-open" @click="openFolder">打开</button>
-              <button class="folder-open" @click="revealFolder">打开文件夹</button>
+              <span class="folder-spacer" />
+              <button class="folder-link" @click="openFolder">打开</button>
+              <button class="folder-link" @click="revealFolder">打开文件夹</button>
             </div>
           </div>
           <p v-if="downloadedBy.length > 0" class="downloaded">
@@ -398,11 +399,9 @@ async function revealFolder(): Promise<void> {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-button);
-  background: #f2f3f5;
-  color: #5b6570;
+  width: 44px;
+  height: 44px;
+  color: #e5941f;
 }
 
 .folder-text {
@@ -428,26 +427,31 @@ async function revealFolder(): Promise<void> {
   color: var(--text-secondary);
 }
 
-/* 收到的文件夹：保留卡片样式，动作按真实客户端的写法给出两个入口 */
+/* 底部动作栏：分隔线上面是文件信息，下面按真实客户端的样子放文字入口 */
 .folder-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  align-items: center;
+  gap: 12px;
   margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid #e7e7e7;
 }
 
-.folder-open {
-  padding: 4px 10px;
-  border: 1px solid #e0e0e0;
-  border-radius: var(--radius-button);
-  background: #ffffff;
-  color: #444444;
+.folder-spacer {
+  flex: 1;
+}
+
+.folder-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1a73e8;
   font-size: 12px;
+  cursor: pointer;
 }
 
-.folder-open:hover {
-  border-color: #c9c9c9;
-  background: #f7f7f7;
+.folder-link:hover {
+  text-decoration: underline;
 }
 
 .file-missing {
