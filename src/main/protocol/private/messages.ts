@@ -756,11 +756,24 @@ function nodeText(item: unknown): string {
 }
 
 // 内网通的图片节点只给编号和摘要，例如 {"img":{"t":"feihu","v":"5723|6825bf..."}}；
-// 编号是发送方缓存里的文件号，收到消息后要按它回一条 retrieve 消息把原图取回来
+// 编号是发送方缓存里的文件号，收到消息后要按它回一条 retrieve 消息把原图取回来。
+// 内置表情复用同一个节点：v 是表情表的 Id（1251–1334）或「班车小子」组的文件名（2001.gif），
+// 这类节点不需要取图，直接用本机表情表渲染。
 export interface PrivateImageRef {
   id: number
   type: string
   value: string
+  sticker?: boolean
+}
+
+const STICKER_ID_MIN = 1251
+const STICKER_ID_MAX = 1334
+
+function isStickerValue(value: string): boolean {
+  if (/^\d{4}\.gif$/i.test(value)) return true
+  if (!/^\d+$/.test(value)) return false
+  const id = Number(value)
+  return id >= STICKER_ID_MIN && id <= STICKER_ID_MAX
 }
 
 function imageRefsFromJson(raw: string): PrivateImageRef[] {
@@ -785,12 +798,14 @@ function imageRefsFromJson(raw: string): PrivateImageRef[] {
     if (typeof img !== 'object' || img === null) continue
     const record = img as { v?: unknown; t?: unknown }
     if (typeof record.v !== 'string') continue
-    const id = Number(record.v.split('|')[0])
-    if (!Number.isSafeInteger(id) || id <= 0) continue
+    const sticker = isStickerValue(record.v)
+    const id = sticker ? 0 : Number(record.v.split('|')[0])
+    if (!sticker && (!Number.isSafeInteger(id) || id <= 0)) continue
     refs.push({
       id,
       type: typeof record.t === 'string' ? record.t : '',
-      value: record.v
+      value: record.v,
+      ...(sticker ? { sticker: true } : {})
     })
   }
   return refs
@@ -926,10 +941,18 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       if (msg === null) {
         return unrecognized(cmd)
       }
+      const images = imageRefsFromJson(msg.Msg)
       const text = textFromJson(msg.Msg)
-      return text === null
-        ? { kind: 'text-unsupported', msgId: msg.MsgID }
-        : { kind: 'text', msgId: msg.MsgID, text, images: imageRefsFromJson(msg.Msg) }
+      if (text === null && images.length === 0) {
+        return { kind: 'text-unsupported', msgId: msg.MsgID }
+      }
+      const stickersOnly = images.length > 0 && images.every((ref) => ref.sticker === true)
+      return {
+        kind: 'text',
+        msgId: msg.MsgID,
+        text: text ?? (stickersOnly ? '' : '[图片]'),
+        images
+      }
     }
     case CMD.SEND_MSG_ACK: {
       const ack = decodePrivate('X_SEND_MSG_ACK', xml)
@@ -1059,7 +1082,8 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       if (groupId === null || (text === null && images.length === 0 && files.length === 0)) {
         return unrecognized(cmd)
       }
-      const fallback = images.length > 0 ? '[图片]' : '[文件]'
+      const stickersOnly = images.length > 0 && images.every((ref) => ref.sticker === true)
+      const fallback = files.length > 0 ? '[文件]' : stickersOnly ? '' : '[图片]'
       return {
         kind: 'group-message',
         groupId,

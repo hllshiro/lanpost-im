@@ -41,6 +41,8 @@ const api: Api = {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
     all: (conversationId) => ipcRenderer.invoke(IPC.messagesAll, conversationId),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),
+    sendSticker: (conversationId, sticker) =>
+      ipcRenderer.invoke(IPC.messageSendSticker, conversationId, sticker),
     markRead: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.conversationRead, conversationId, messageId),
     saveDraft: (conversationId, draft) =>

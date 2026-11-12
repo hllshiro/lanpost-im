@@ -4,6 +4,7 @@ import { Check, CheckCheck, CircleAlert, FileText, Folder, LoaderCircle } from '
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, formatSize, statusLabel } from '../utils/format'
 import { errorMessage } from '../utils/errors'
+import { emotionByKey, emotionUrl } from '../utils/emotion'
 import { useAppStore } from '../stores/app'
 import FileCard from './FileCard.vue'
 
@@ -75,10 +76,25 @@ watch(
 
 const showImage = computed(() => imageUrl.value !== '' && !imageBroken.value)
 
-// 图片已经显示出来时，去掉占位文字
-const displayText = computed(() =>
-  showImage.value ? props.message.text.replace(/\[图片\]/g, '').trim() : props.message.text
-)
+// 内置表情：meta 里存的是表情表的 Id 或文件名，用本机表情包渲染，不走文件通道
+const stickerKey = computed(() => {
+  let meta: Record<string, unknown>
+  try {
+    meta = JSON.parse(props.message.meta) as Record<string, unknown>
+  } catch {
+    return ''
+  }
+  return typeof meta.sticker === 'string' ? meta.sticker : ''
+})
+
+const sticker = computed(() => (stickerKey.value === '' ? null : emotionByKey(stickerKey.value)))
+const stickerUrl = computed(() => (sticker.value === null ? '' : emotionUrl(sticker.value)))
+
+// 图片和表情已经显示出来时，去掉占位文字
+const displayText = computed(() => {
+  if (stickerUrl.value !== '') return ''
+  return showImage.value ? props.message.text.replace(/\[图片\]/g, '').trim() : props.message.text
+})
 
 // 文件夹气泡的信息都放在 meta 里：大小、项数、收发方向与完成状态
 const folderMetaRaw = computed<Record<string, unknown>>(() => {
@@ -216,8 +232,18 @@ async function revealFolder(): Promise<void> {
         <div
           v-else
           class="bubble text-bubble"
-          :class="{ failed: message.status === 'failed', 'image-bubble': showImage }"
+          :class="{
+            failed: message.status === 'failed',
+            'image-bubble': showImage,
+            'sticker-bubble': stickerUrl !== ''
+          }"
         >
+          <img
+            v-if="stickerUrl !== ''"
+            class="sticker-image"
+            :src="stickerUrl"
+            :alt="sticker?.tips ?? '表情'"
+          />
           <img
             v-if="showImage"
             class="inline-image"
@@ -361,6 +387,23 @@ async function revealFolder(): Promise<void> {
   max-height: 320px;
   border-radius: 10px;
   cursor: zoom-in;
+  object-fit: contain;
+}
+
+/* 表情不套气泡底色，按原始尺寸显示 */
+.sticker-bubble {
+  padding: 0;
+  background: transparent;
+}
+
+.row.own .sticker-bubble {
+  background: transparent;
+}
+
+.sticker-image {
+  display: block;
+  width: 84px;
+  height: 84px;
   object-fit: contain;
 }
 

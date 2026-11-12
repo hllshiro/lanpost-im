@@ -811,18 +811,23 @@ export class AppService {
         }
         return
       }
-      const meta = JSON.stringify({
+      const stickers = images.filter((ref) => ref.sticker === true)
+      const photos = images.filter((ref) => ref.sticker !== true)
+      const metaRecord: Record<string, unknown> = {
         source: 'private-group',
         groupId,
         senderId,
         senderName: senderName ?? ip
-      })
-      const message = this.repos.messages.insertIncoming(conversation.id, text, msgId, 'text', meta)
+      }
+      if (stickers.length > 0) metaRecord.sticker = stickers[0].value
+      const meta = JSON.stringify(metaRecord)
+      const body = text === '' && stickers.length > 0 ? '[表情]' : text
+      const message = this.repos.messages.insertIncoming(conversation.id, body, msgId, 'text', meta)
       this.repos.conversations.touch(conversation.id, message.createdAt, 1)
       this.emit({ type: 'message', message })
       this.emitConversation(conversation.id)
-      if (images.length > 0) {
-        this.requestImages(ip, message.id, images, conversation.id)
+      if (photos.length > 0) {
+        this.requestImages(ip, message.id, photos, conversation.id)
       }
       logStartup(`私有群消息 ${title} MSG_ID=${msgId} 来自 ${senderName ?? ip}`)
     } catch (error) {
@@ -1463,6 +1468,47 @@ export class AppService {
     }
     const seq = this.engine.sendText(peer.key, request.text)
     return { message: this.recordOutgoing(conversation.id, request.text, seq, 'sent') }
+  }
+
+  // 内置表情：直接发一张 img 卡片，对端用本地表情表渲染，不走文件通道
+  sendSticker(conversationId: string, sticker: string): SendTextResult {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null) throw new Error('会话不存在')
+    const service = this.privateService
+    if (service === null) throw new Error('内网通私有会话未就绪')
+    const key = sticker.trim()
+    if (key === '') throw new Error('表情无效')
+    const selfId = privateUserId(this.settings.get())
+    if (conversation.kind === 'group') {
+      const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+      if (groupId === '') throw new Error('会话不存在')
+      const msgId = this.allocatePrivateSeq()
+      let delivered = 0
+      for (const member of this.repos.groups.members(groupId)) {
+        if (member.userId === selfId) continue
+        const ip = service.peerIpByUserId(member.userId)
+        if (ip !== null && service.isReady(ip) && service.sendGroupImage(ip, groupId, msgId, key)) {
+          delivered += 1
+        }
+      }
+      if (delivered === 0) throw new Error('群成员都不在线')
+      const meta = JSON.stringify({
+        source: 'private-group-sticker',
+        groupId,
+        sticker: key,
+        senderId: selfId,
+        senderName: this.settings.get().identity.displayName
+      })
+      return { message: this.recordOutgoing(conversationId, '[表情]', msgId, 'sent', meta) }
+    }
+    if (conversation.peerKey === null) throw new Error('会话不存在')
+    const peer = this.engine.getPeers().find((item) => item.key === conversation.peerKey)
+    if (peer === undefined || !peer.online) throw new Error('联系人不在线')
+    if (!service.isReady(peer.ip)) throw new Error('内网通私有会话未就绪')
+    const msgId = this.allocatePrivateSeq()
+    if (!service.sendImageCard(peer.ip, msgId, key)) throw new Error('表情发送失败')
+    const meta = JSON.stringify({ source: 'private-sticker', sticker: key })
+    return { message: this.recordOutgoing(conversationId, '[表情]', msgId, 'sent', meta) }
   }
 
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
@@ -2823,10 +2869,15 @@ export class AppService {
       return
     }
     const peer = this.repos.peers.get(peerKey)
-    const meta = JSON.stringify({ source: 'private', msgId: String(msgId) })
-    const message = this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, text, msgId, meta)
-    if (images.length > 0) {
-      this.requestImages(ip, message.id, images)
+    const stickers = images.filter((ref) => ref.sticker === true)
+    const photos = images.filter((ref) => ref.sticker !== true)
+    const metaRecord: Record<string, unknown> = { source: 'private', msgId: String(msgId) }
+    if (stickers.length > 0) metaRecord.sticker = stickers[0].value
+    const meta = JSON.stringify(metaRecord)
+    const body = text === '' && stickers.length > 0 ? '[表情]' : text
+    const message = this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, body, msgId, meta)
+    if (photos.length > 0) {
+      this.requestImages(ip, message.id, photos)
     }
   }
 

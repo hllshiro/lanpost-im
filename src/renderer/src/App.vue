@@ -293,6 +293,7 @@ onBeforeUnmount(() => {
             @draft="handleDraft"
             @remove-staged="handleRemoveStaged"
             @read="handleRead"
+            @sticker="store.sendSticker"
             @invite="openInvite"
             @kick="handleKick"
             @leave="handleLeaveGroup"

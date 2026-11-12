@@ -23,6 +23,7 @@ export const IPC = {
   messagesList: 'messages:list',
   messagesAll: 'messages:all',
   messageSend: 'messages:send',
+  messageSendSticker: 'messages:send-sticker',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -108,6 +109,8 @@ export type Api = {
     list(request: MessagesListRequest): Promise<MessagesPage>
     all(conversationId: string): Promise<MessageInfo[]>
     send(request: MessagesSendRequest): Promise<SendTextResult>
+    // 发送内置表情：sticker 是表情表的 Id 或「班车小子」组的文件名
+    sendSticker(conversationId: string, sticker: string): Promise<SendTextResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }

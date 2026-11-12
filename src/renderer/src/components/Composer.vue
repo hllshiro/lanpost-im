@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { FileText, Folder, Paperclip, Send, X } from '@lucide/vue'
+import { onClickOutside } from '@vueuse/core'
+import { FileText, Folder, Paperclip, Send, Smile, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
+import { emotionGroups, emotionThumb, emotions, type EmotionItem } from '../utils/emotion'
 
 const props = defineProps<{
   draft: string
@@ -17,10 +19,26 @@ const emit = defineEmits<{
   'update:draft': [value: string]
   send: [text: string]
   'remove-staged': [id: string]
+  sticker: [key: string]
 }>()
 
 const fileBusy = ref(false)
 const fileError = ref('')
+
+const stickersOpen = ref(false)
+const stickerAnchor = ref<HTMLElement | null>(null)
+const activeGroup = ref(emotionGroups[0] ?? '')
+const groupItems = computed(() => emotions.filter((item) => item.group === activeGroup.value))
+
+onClickOutside(stickerAnchor, () => {
+  stickersOpen.value = false
+})
+
+function sendSticker(item: EmotionItem): void {
+  if (props.sending) return
+  stickersOpen.value = false
+  emit('sticker', item.id === null ? item.image : String(item.id))
+}
 
 function stagedUrl(id: string): string {
   return `lanpost-staged:///${encodeURIComponent(id)}`
@@ -154,6 +172,45 @@ onMounted(async () => {
     />
 
     <div class="toolbar">
+      <div ref="stickerAnchor" class="sticker-anchor">
+        <button
+          class="tool"
+          :class="{ active: stickersOpen }"
+          title="表情"
+          aria-label="表情"
+          @click="stickersOpen = !stickersOpen"
+        >
+          <Smile :size="17" :stroke-width="1.8" />
+          <span>表情</span>
+        </button>
+
+        <div v-if="stickersOpen" class="sticker-panel" role="dialog" aria-label="表情">
+          <div class="sticker-tabs">
+            <button
+              v-for="group in emotionGroups"
+              :key="group"
+              class="sticker-tab"
+              :class="{ active: group === activeGroup }"
+              @click="activeGroup = group"
+            >
+              {{ group }}
+            </button>
+          </div>
+          <div class="sticker-grid">
+            <button
+              v-for="item in groupItems"
+              :key="item.image"
+              class="sticker-item"
+              :title="item.tips"
+              :aria-label="item.tips"
+              @click="sendSticker(item)"
+            >
+              <img :src="emotionThumb(item)" :alt="item.tips" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       <button
         class="tool"
         :disabled="fileBusy || conversationId === ''"
@@ -277,6 +334,70 @@ onMounted(async () => {
   align-items: center;
   gap: 12px;
   padding-top: 4px;
+}
+
+.sticker-anchor {
+  position: relative;
+  display: flex;
+}
+
+.sticker-panel {
+  position: absolute;
+  left: 0;
+  bottom: 32px;
+  z-index: 30;
+  width: 360px;
+  max-width: 70vw;
+  padding: 8px;
+  border: 1px solid var(--divider);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.16);
+}
+
+.sticker-tabs {
+  display: flex;
+  gap: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.sticker-tab {
+  padding: 3px 8px;
+  border-radius: var(--radius-button);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sticker-tab.active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sticker-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding-top: 6px;
+}
+
+.sticker-item {
+  display: grid;
+  place-items: center;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.sticker-item:hover {
+  background: var(--hover);
+}
+
+.sticker-item img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 
 .tool {
