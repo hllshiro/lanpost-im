@@ -101,6 +101,11 @@ const renderParts = computed<RenderPart[]>(() => {
 
 const hasSegments = computed(() => renderParts.value.length > 0)
 
+// 只有图片或表情、没有文字时才去掉气泡底色；带文字的消息仍要套气泡背景
+const segmentsHaveText = computed(() =>
+  renderParts.value.some((part) => part.kind === 'text' && part.text.trim() !== '')
+)
+
 // 一条消息里的图片要么一起出现，要么先显示加载提示，避免一张一张往外蹦
 const pendingImages = computed(() => {
   let meta: Record<string, unknown>
@@ -299,7 +304,7 @@ async function revealFolder(): Promise<void> {
           class="bubble text-bubble"
           :class="{
             failed: message.status === 'failed',
-            'image-bubble': hasSegments || stickerUrl !== '',
+            'image-bubble': (hasSegments && !segmentsHaveText) || stickerUrl !== '',
             'sticker-bubble': stickerUrl !== '' && !hasSegments
           }"
         >
