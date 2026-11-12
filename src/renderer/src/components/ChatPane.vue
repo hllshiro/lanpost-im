@@ -5,6 +5,8 @@ import { Ellipsis, MessageCircle, Search, VolumeX, X } from '@lucide/vue'
 import type {
   ConversationInfo,
   FileTaskInfo,
+  GroupInfo,
+  GroupMemberInfo,
   LocalInfo,
   MessageInfo,
   PeerInfo,
@@ -18,6 +20,7 @@ import MessageList from './MessageList.vue'
 const props = defineProps<{
   conversation: ConversationInfo | null
   peer: PeerInfo | null
+  group: GroupInfo | null
   messages: MessageInfo[]
   files: FileTaskInfo[]
   staged: StagedAttachment[]
@@ -32,6 +35,10 @@ const emit = defineEmits<{
   draft: [value: string]
   'remove-staged': [id: string]
   read: []
+  invite: []
+  kick: [userId: string]
+  leave: []
+  dismiss: []
 }>()
 
 const search = ref('')
@@ -39,13 +46,32 @@ const infoOpen = ref(false)
 const infoAnchor = ref<HTMLElement | null>(null)
 const copied = ref(false)
 const copyError = ref('')
+const pending = ref<
+  null | { kind: 'kick'; member: GroupMemberInfo } | { kind: 'leave' } | { kind: 'dismiss' }
+>(null)
 let copyTimer: number | undefined
 
 const keyword = computed(() => search.value.trim().toLowerCase())
 
+const selfId = computed(() => props.local?.privateUserId ?? '')
+
+const isMaster = computed(
+  () => props.group !== null && selfId.value !== '' && props.group.master === selfId.value
+)
+
+const pendingText = computed(() => {
+  const action = pending.value
+  if (action === null) return ''
+  if (action.kind === 'kick') return `把「${action.member.name}」移出群聊？`
+  if (action.kind === 'leave') return '退出这个群聊？'
+  return '解散这个群聊？成员将全部被移出。'
+})
+
 const presence = computed(() => {
   if (!props.conversation) return ''
-  if (props.conversation.kind === 'group') return '群聊'
+  if (props.conversation.kind === 'group') {
+    return props.group === null ? '群聊' : `${props.group.members.length} 人`
+  }
   if (!props.peer || !props.peer.online) return '离线'
   if (props.peer.status === 1) return '忙碌'
   if (props.peer.status === 2) return '离开'
@@ -53,6 +79,7 @@ const presence = computed(() => {
 })
 
 const presenceClass = computed(() => {
+  if (props.conversation?.kind === 'group') return 'online'
   if (!props.peer?.online) return 'offline'
   if (props.peer.status === 1) return 'busy'
   if (props.peer.status === 2) return 'away'
@@ -86,8 +113,23 @@ watch(
     infoOpen.value = false
     copied.value = false
     copyError.value = ''
+    pending.value = null
   }
 )
+
+function askKick(member: GroupMemberInfo): void {
+  pending.value = { kind: 'kick', member }
+}
+
+function confirmPending(): void {
+  const action = pending.value
+  if (action === null) return
+  pending.value = null
+  infoOpen.value = false
+  if (action.kind === 'kick') emit('kick', action.member.userId)
+  else if (action.kind === 'leave') emit('leave')
+  else emit('dismiss')
+}
 
 function handleDraft(value: string): void {
   emit('draft', value)
@@ -172,11 +214,41 @@ onBeforeUnmount(() => {
                 </button>
               </header>
               <dl class="info-body">
+                <template v-if="conversation.kind === 'group' && group">
+                  <div class="info-row">
+                    <dt>群号</dt>
+                    <dd class="group-id">{{ group.id }}</dd>
+                  </div>
+                  <div class="member-block">
+                    <header class="member-head">
+                      <span>成员（{{ group.members.length }}）</span>
+                      <button v-if="isMaster" class="link" @click="emit('invite')">邀请</button>
+                    </header>
+                    <div class="member-list">
+                      <div v-for="member in group.members" :key="member.userId" class="member-item">
+                        <span class="member-name">
+                          {{ member.name }}
+                          <em v-if="member.userId === group.master" class="tag">群主</em>
+                          <em v-else-if="member.userId === selfId" class="tag">我</em>
+                        </span>
+                        <button
+                          v-if="
+                            isMaster && member.userId !== selfId && member.userId !== group.master
+                          "
+                          class="link danger"
+                          @click="askKick(member)"
+                        >
+                          移出
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </template>
                 <div v-if="conversation.kind === 'direct'" class="info-row">
                   <dt>账号</dt>
                   <dd>{{ peer?.user || '未知' }}</dd>
                 </div>
-                <div class="info-row">
+                <div v-if="conversation.kind === 'direct'" class="info-row">
                   <dt>状态</dt>
                   <dd>{{ presence }}</dd>
                 </div>
@@ -206,6 +278,21 @@ onBeforeUnmount(() => {
                   <dd>{{ files.length }} 个</dd>
                 </div>
               </dl>
+              <template v-if="conversation.kind === 'group'">
+                <div v-if="pending === null" class="group-actions">
+                  <button v-if="isMaster" class="danger" @click="pending = { kind: 'dismiss' }">
+                    解散群聊
+                  </button>
+                  <button v-else class="danger" @click="pending = { kind: 'leave' }">
+                    退出群聊
+                  </button>
+                </div>
+                <div v-else class="confirm">
+                  <span>{{ pendingText }}</span>
+                  <button class="link" @click="pending = null">取消</button>
+                  <button class="link danger" @click="confirmPending">确定</button>
+                </div>
+              </template>
               <p v-if="copyError" class="copy-error">{{ copyError }}</p>
             </div>
           </div>
@@ -488,6 +575,110 @@ h2 {
   padding: 0 12px 10px;
   font-size: 11px;
   color: var(--danger);
+}
+
+.group-id {
+  font-family: ui-monospace, 'Consolas', monospace;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.member-block {
+  padding: 6px 0 2px;
+}
+
+.member-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.member-list {
+  max-height: 168px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0;
+  font-size: 12px;
+}
+
+.member-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+
+.tag {
+  flex: 0 0 auto;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: var(--hover);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.link.danger {
+  color: var(--danger);
+}
+
+.group-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 12px 10px;
+}
+
+.group-actions button {
+  padding: 4px 10px;
+  border: 1px solid var(--divider);
+  border-radius: 5px;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.group-actions button.danger {
+  border-color: transparent;
+  color: var(--danger);
+}
+
+.group-actions button.danger:hover {
+  background: rgba(250, 81, 81, 0.08);
+}
+
+.confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px 10px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.confirm span {
+  flex: 1;
 }
 
 .chat-body {

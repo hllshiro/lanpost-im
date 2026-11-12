@@ -22,6 +22,17 @@ export function registerAppIpc(service: AppService): void {
     service.setAlias(peerKey, alias)
   )
   ipcMain.handle(IPC.peersRefresh, () => service.refreshPeers())
+  ipcMain.handle(IPC.groupCreate, (_event, name: string, memberUserIds: string[]) =>
+    service.createGroup(name, memberUserIds)
+  )
+  ipcMain.handle(IPC.groupInvite, (_event, groupId: string, memberUserIds: string[]) =>
+    service.inviteToGroup(groupId, memberUserIds)
+  )
+  ipcMain.handle(IPC.groupKick, (_event, groupId: string, userId: string) =>
+    service.kickFromGroup(groupId, userId)
+  )
+  ipcMain.handle(IPC.groupLeave, (_event, groupId: string) => service.leaveGroup(groupId))
+  ipcMain.handle(IPC.groupDismiss, (_event, groupId: string) => service.dismissGroup(groupId))
   ipcMain.handle(IPC.filesList, (_event, conversationId?: string) =>
     service.listFiles(conversationId)
   )

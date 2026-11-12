@@ -1,6 +1,7 @@
 import type {
   AppEvent,
   AppSnapshot,
+  GroupInfo,
   MessageInfo,
   MessagesPage,
   SendTextResult,
@@ -27,6 +28,11 @@ export const IPC = {
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
   peersRefresh: 'peers:refresh',
+  groupCreate: 'groups:create',
+  groupInvite: 'groups:invite',
+  groupKick: 'groups:kick',
+  groupLeave: 'groups:leave',
+  groupDismiss: 'groups:dismiss',
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
@@ -107,6 +113,13 @@ export type Api = {
   peers: {
     setAlias(peerKey: string, alias: string): Promise<void>
     refresh(): Promise<void>
+  }
+  groups: {
+    create(name: string, memberUserIds: string[]): Promise<GroupInfo>
+    invite(groupId: string, memberUserIds: string[]): Promise<void>
+    kick(groupId: string, userId: string): Promise<void>
+    leave(groupId: string): Promise<void>
+    dismiss(groupId: string): Promise<void>
   }
   files: {
     accept(id: string): Promise<void>

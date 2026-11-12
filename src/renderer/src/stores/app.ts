@@ -5,6 +5,7 @@ import type {
   AppSnapshot,
   ConversationInfo,
   FileTaskInfo,
+  GroupInfo,
   LocalInfo,
   MessageInfo,
   PeerInfo,
@@ -19,6 +20,7 @@ export const useAppStore = defineStore('app', () => {
   const local = ref<LocalInfo | null>(null)
   const peers = ref<PeerInfo[]>([])
   const conversations = ref<ConversationInfo[]>([])
+  const groups = ref<GroupInfo[]>([])
   const files = ref<FileTaskInfo[]>([])
   const staged = ref<StagedAttachment[]>([])
   const currentConversationId = ref<string | null>(null)
@@ -72,6 +74,13 @@ export const useAppStore = defineStore('app', () => {
     return id ? files.value.filter((file) => file.conversationId === id) : []
   })
 
+  const currentGroup = computed(() => {
+    const conversation = currentConversation.value
+    if (!conversation || conversation.kind !== 'group') return null
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    return groups.value.find((group) => group.id === groupId) ?? null
+  })
+
   const currentStaged = computed(() => {
     const id = currentConversationId.value
     return id ? staged.value.filter((item) => item.conversationId === id) : []
@@ -89,6 +98,7 @@ export const useAppStore = defineStore('app', () => {
     local.value = snapshot.local
     peers.value = snapshot.peers
     conversations.value = snapshot.conversations
+    groups.value = snapshot.groups
     files.value = snapshot.files
     staged.value = snapshot.staged
     if (
@@ -174,11 +184,21 @@ export const useAppStore = defineStore('app', () => {
         break
       case 'conversation-removed': {
         conversations.value = conversations.value.filter((item) => item.id !== event.conversationId)
+        if (event.conversationId.startsWith('group:')) {
+          const groupId = event.conversationId.slice(6)
+          groups.value = groups.value.filter((group) => group.id !== groupId)
+        }
         delete messages.value[event.conversationId]
         delete previews.value[event.conversationId]
         if (currentConversationId.value === event.conversationId) {
           currentConversationId.value = null
         }
+        break
+      }
+      case 'group': {
+        const index = groups.value.findIndex((group) => group.id === event.group.id)
+        if (index >= 0) groups.value[index] = event.group
+        else groups.value.push(event.group)
         break
       }
       case 'settings':
@@ -402,10 +422,63 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 建群、拉人、踢人、退群、解散：主进程负责发协议，这里只负责刷新界面
+  async function createGroup(name: string, memberUserIds: string[]): Promise<void> {
+    try {
+      const group = await window.api.groups.create(name, [...memberUserIds])
+      await loadSnapshot()
+      await selectConversation(`group:${group.id}`)
+    } catch (reason) {
+      reportError(reason)
+      throw reason
+    }
+  }
+
+  async function inviteMembers(groupId: string, memberUserIds: string[]): Promise<void> {
+    try {
+      await window.api.groups.invite(groupId, [...memberUserIds])
+      await loadSnapshot()
+    } catch (reason) {
+      reportError(reason)
+      throw reason
+    }
+  }
+
+  async function kickMember(groupId: string, userId: string): Promise<void> {
+    try {
+      await window.api.groups.kick(groupId, userId)
+      await loadSnapshot()
+    } catch (reason) {
+      reportError(reason)
+      throw reason
+    }
+  }
+
+  async function leaveGroup(groupId: string): Promise<void> {
+    try {
+      await window.api.groups.leave(groupId)
+      await loadSnapshot()
+    } catch (reason) {
+      reportError(reason)
+      throw reason
+    }
+  }
+
+  async function dismissGroup(groupId: string): Promise<void> {
+    try {
+      await window.api.groups.dismiss(groupId)
+      await loadSnapshot()
+    } catch (reason) {
+      reportError(reason)
+      throw reason
+    }
+  }
+
   return {
     local,
     peers,
     conversations,
+    groups,
     files,
     currentConversationId,
     messages,
@@ -421,6 +494,7 @@ export const useAppStore = defineStore('app', () => {
     currentConversation,
     currentMessages,
     currentPeer,
+    currentGroup,
     currentFiles,
     currentStaged,
     initialize,
@@ -435,6 +509,11 @@ export const useAppStore = defineStore('app', () => {
     markReadCurrent,
     setPinned,
     setAlias,
+    createGroup,
+    inviteMembers,
+    kickMember,
+    leaveGroup,
+    dismissGroup,
     handleEvent,
     reportError,
     clearError

@@ -19,6 +19,8 @@ export interface PeerInfo {
   lastSeen: number
   unread: number
   alias: string
+  // 私有通道的 32 位用户号，群成员按它识别；没握过手时为空
+  privateUserId?: string
 }
 
 export interface ConversationInfo {
@@ -85,12 +87,31 @@ export interface LocalInfo {
   status: number
   online: boolean
   version: string
+  // 本机的私有通道用户号，用来在群成员里认出自己
+  privateUserId: string
+}
+
+export interface GroupMemberInfo {
+  userId: string
+  name: string
+}
+
+export interface GroupInfo {
+  id: string
+  name: string
+  master: string
+  topic: string
+  announcement: string
+  infoVersion: number
+  userVersion: number
+  members: GroupMemberInfo[]
 }
 
 export interface AppSnapshot {
   local: LocalInfo
   peers: PeerInfo[]
   conversations: ConversationInfo[]
+  groups: GroupInfo[]
   files: FileTaskInfo[]
   staged: StagedAttachment[]
   unread: number
@@ -101,6 +122,7 @@ export type AppEvent =
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
   | { type: 'conversation-removed'; conversationId: string }
+  | { type: 'group'; group: GroupInfo }
   | { type: 'file'; file: FileTaskInfo }
   | { type: 'staged'; conversationId: string; attachments: StagedAttachment[] }
   | { type: 'settings'; settings: Settings }

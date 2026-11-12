@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   fileTimeFromMs,
+  groupDismissXml,
+  groupKickXml,
   groupPushUserXml,
   groupInfoRspXml,
   groupSendXml,
@@ -383,5 +385,41 @@ describe('private group messages', () => {
       '<X_QGROUP_REQ_INFO_RSP docver="1"><RET>10</RET><QGROUP_ID>gone</QGROUP_ID></X_QGROUP_REQ_INFO_RSP>'
     )
     expect(parsed).toEqual({ kind: 'group-info-rsp', ret: 10, groupId: 'gone', info: null })
+  })
+
+  it('decodes &nbsp; and other entities in group fields', () => {
+    const xml =
+      '<X_QGROUP_PUSH_USER docver="1"><INFO><QGROUP_ID>g1</QGROUP_ID>' +
+      '<QGROUP_NAME>上网机&nbsp;笔记本</QGROUP_NAME><QGROUP_MASTER>m1</QGROUP_MASTER>' +
+      '<QGROUP_INTR>主题&amp;备注</QGROUP_INTR><QGROUP_ANN>公告&nbsp;一</QGROUP_ANN>' +
+      '<QGROUP_INFO_VER>2</GROUP_INFO_VER><QGROUP_USER_VER>2</QGROUP_USER_VER>' +
+      '<QGROUP_ALLOW_OTHER_ADD>0</QGROUP_ALLOW_OTHER_ADD><QGROUP_PHOTO_MD5></QGROUP_PHOTO_MD5>' +
+      '</INFO><USER><ID name="上网机&nbsp;笔记本">u1</ID></USER></X_QGROUP_PUSH_USER>'
+    expect(parsePrivate(3003, xml)).toEqual({
+      kind: 'group-user',
+      info: {
+        id: 'g1',
+        name: '上网机 笔记本',
+        master: 'm1',
+        topic: '主题&备注',
+        announcement: '公告 一',
+        infoVersion: 2,
+        userVersion: 2,
+        allowOtherAdd: 0,
+        photoMd5: ''
+      },
+      members: [{ name: '上网机 笔记本', userId: 'u1' }]
+    })
+  })
+
+  it('builds dismiss and kick frames that parse back to the same group', () => {
+    expect(parsePrivate(3008, groupDismissXml('g1'))).toEqual({
+      kind: 'group-dismiss',
+      groupId: 'g1'
+    })
+    expect(parsePrivate(3010, groupKickXml('g2'))).toEqual({
+      kind: 'group-kick',
+      groupId: 'g2'
+    })
   })
 })

@@ -363,6 +363,14 @@ export class PrivateService {
     return this.sessions.get(ip)?.sendGroupReqInfo(groupId) ?? false
   }
 
+  sendGroupDismiss(ip: string, groupId: string): boolean {
+    return this.sessions.get(ip)?.sendGroupDismiss(groupId) ?? false
+  }
+
+  sendGroupKick(ip: string, groupId: string): boolean {
+    return this.sessions.get(ip)?.sendGroupKick(groupId) ?? false
+  }
+
   // 按用户号找对端的 IP，群发消息要按成员的用户号逐个投递
   peerIpByUserId(userId: string): string | null {
     for (const [ip, readyId] of this.peerUserIds) {

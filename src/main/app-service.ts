@@ -27,6 +27,8 @@ import type {
   AppSnapshot,
   ConversationInfo,
   FileTaskInfo,
+  GroupInfo,
+  GroupMemberInfo,
   MessageInfo,
   MessagesPage,
   SendTextResult,
@@ -70,11 +72,13 @@ import {
   createRepositories,
   directConversationId,
   groupConversationId,
+  type QGroupInfo,
   type Repositories
 } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
+import { groupInfoNotices } from './groups/info-notice'
 import { logStartup } from './startup-log'
 
 function engineConfig(settings: Settings): ConstructorParameters<typeof ProtocolEngine>[0] {
@@ -666,6 +670,7 @@ export class AppService {
   private handleGroupInfo(ip: string, info: PrivateGroupInfo): void {
     try {
       logStartup(`私有群资料 ${ip} 群=${info.name} 群号=${info.id} 版本=${info.infoVersion}`)
+      const previous = this.repos.groups.get(info.id)
       this.repos.groups.upsert({
         id: info.id,
         name: info.name,
@@ -681,9 +686,29 @@ export class AppService {
       const conversation = this.repos.conversations.ensureGroup(info.id, info.name || '群聊')
       this.repos.conversations.setTitle(conversation.id, info.name || '群聊')
       this.emitConversation(conversation.id)
+      this.emitGroup(info.id)
+      if (previous !== null) {
+        this.recordGroupNotices(conversation.id, previous, info)
+      }
     } catch (error) {
       logStartup(`私有群资料处理失败：${(error as Error).message}`)
     }
+  }
+
+  // 群资料被改过就在群会话里留一条系统提示；协议里没有操作者，只写改了哪个字段
+  private recordGroupNotices(
+    conversationId: string,
+    previous: { name: string; topic: string; announcement: string },
+    next: { name: string; topic: string; announcement: string }
+  ): void {
+    const notices = groupInfoNotices(previous, next)
+    if (notices.length === 0) return
+    for (const text of notices) {
+      const message = this.repos.messages.insertIncoming(conversationId, text, 0, 'system')
+      this.emit({ type: 'message', message })
+    }
+    this.repos.conversations.touch(conversationId, Date.now(), 0)
+    this.emitConversation(conversationId)
   }
 
   // 成员列表推送：建群或成员变动时整份下发，收到就以这份为准
@@ -694,8 +719,8 @@ export class AppService {
   ): void {
     try {
       logStartup(`私有群成员 ${ip} 群=${info.name} 群号=${info.id} 成员=${members.length}`)
-      this.handleGroupInfo(ip, info)
       this.repos.groups.replaceMembers(info.id, members)
+      this.handleGroupInfo(ip, info)
       this.emitConversation(groupConversationId(info.id))
     } catch (error) {
       logStartup(`私有群成员处理失败：${(error as Error).message}`)
@@ -942,11 +967,8 @@ export class AppService {
 
   // 群被解散或本端被踢：整段会话连消息一起移除
   private handleGroupRemoved(ip: string, groupId: string, reason: string): void {
-    logStartup(`私有群${reason} ${ip} 群=${groupId}`)
-    const conversationId = groupConversationId(groupId)
-    this.repos.groups.remove(groupId)
-    this.repos.conversations.remove(conversationId)
-    this.emit({ type: 'conversation-removed', conversationId })
+    logStartup(`私有群 ${ip} 收到${reason}`)
+    this.removeGroupLocally(groupId, reason)
   }
 
   // 其它成员退群：从成员表里去掉他
@@ -957,6 +979,7 @@ export class AppService {
       .filter((member) => member.userId !== senderId)
     logStartup(`私有群成员退群 ${ip} 群=${groupId} 剩余=${members.length}`)
     this.repos.groups.replaceMembers(groupId, members)
+    this.emitGroup(groupId)
     this.emitConversation(groupConversationId(groupId))
   }
 
@@ -1114,6 +1137,7 @@ export class AppService {
   snapshot(): AppSnapshot {
     const settings = this.settings.get()
     const conversations = this.repos.conversations.list()
+    const service = this.privateService
     return {
       local: {
         name: settings.identity.displayName,
@@ -1121,10 +1145,16 @@ export class AppService {
         host: settings.identity.hostName,
         status: settings.identity.status,
         online: this.started,
-        version: this.appInfo.version
+        version: this.appInfo.version,
+        privateUserId: privateUserId(settings)
       },
-      peers: this.repos.peers.list(),
+      peers: this.repos.peers.list().map((peer) => ({
+        ...peer,
+        ready: service?.isReady(peer.ip) ?? peer.ready,
+        privateUserId: service?.peerUserId(peer.ip) ?? ''
+      })),
       conversations,
+      groups: this.repos.groups.list().map((group) => this.groupInfoOf(group.id)),
       files: this.repos.files.list(),
       staged: this.staged.all(),
       unread: conversations.reduce((total, item) => total + item.unread, 0)
@@ -1352,6 +1382,236 @@ export class AppService {
       this.emitConversation(conversationId)
     }
     this.emit({ type: 'peers', peers: this.repos.peers.list() })
+  }
+
+  // 建群：群号由本机生成，群主是本机的私有用户号，成员表整份推给每个成员
+  createGroup(name: string, memberUserIds: string[]): GroupInfo {
+    const title = name.trim()
+    if (title === '') throw new Error('群名称不能为空')
+    const service = this.privateService
+    if (service === null) throw new Error('内网通私有会话未就绪')
+    const selfId = privateUserId(this.settings.get())
+    const targets = this.resolveGroupTargets(service, memberUserIds, selfId)
+    if (targets.length === 0) throw new Error('至少选择一个在线的成员')
+    const members: PrivateGroupMember[] = [
+      { userId: selfId, name: this.settings.get().identity.displayName },
+      ...targets.map((target) => ({ userId: target.userId, name: target.name }))
+    ]
+    const groupId = randomBytes(16).toString('hex')
+    const info: PrivateGroupInfo = {
+      id: groupId,
+      name: title,
+      master: selfId,
+      topic: '',
+      announcement: '',
+      infoVersion: 1,
+      userVersion: 1,
+      allowOtherAdd: 0,
+      photoMd5: ''
+    }
+    for (const target of targets) {
+      service.sendGroupPushUser(target.ip, info, members)
+    }
+    this.storeGroup(info, members)
+    const conversation = this.repos.conversations.ensureGroup(groupId, title)
+    this.repos.conversations.setTitle(conversation.id, title)
+    this.emitConversation(conversation.id)
+    this.emitGroup(groupId)
+    logStartup(`私有群新建 ${title} 群号=${groupId} 成员=${members.length}`)
+    return this.groupInfoOf(groupId)
+  }
+
+  // 拉人：成员表整份重推，版本号加一
+  inviteToGroup(groupId: string, memberUserIds: string[]): void {
+    const service = this.privateService
+    if (service === null) throw new Error('内网通私有会话未就绪')
+    const group = this.requireGroup(groupId)
+    const selfId = privateUserId(this.settings.get())
+    if (group.master !== selfId) {
+      throw new Error('只有群主可以邀请成员')
+    }
+    const members = this.repos.groups.members(groupId)
+    const known = new Set(members.map((member) => member.userId))
+    const candidates = memberUserIds.filter((userId) => !known.has(userId))
+    const targets = this.resolveGroupTargets(service, candidates, selfId)
+    if (targets.length === 0) throw new Error('成员已经在群里或不在线')
+    for (const target of targets) {
+      members.push({ userId: target.userId, name: target.name })
+    }
+    const info = this.privateInfoOf(group)
+    info.userVersion += 1
+    for (const member of members) {
+      if (member.userId === selfId) continue
+      const ip = service.peerIpByUserId(member.userId)
+      if (ip === null) continue
+      service.sendGroupPushUser(ip, info, members)
+    }
+    this.storeGroup(info, members)
+    this.emitGroup(groupId)
+    this.emitConversation(groupConversationId(groupId))
+    logStartup(`私有群拉人 群号=${groupId} 新增=${targets.length}`)
+  }
+
+  // 踢人：被踢的人收到 3010，剩下的成员收到新的成员表
+  kickFromGroup(groupId: string, userId: string): void {
+    const service = this.privateService
+    if (service === null) throw new Error('内网通私有会话未就绪')
+    const group = this.requireGroup(groupId)
+    const selfId = privateUserId(this.settings.get())
+    if (group.master !== selfId) throw new Error('只有群主可以移出成员')
+    if (userId === selfId) throw new Error('不能把自己移出群')
+    const targetIp = service.peerIpByUserId(userId)
+    if (targetIp === null || !service.isReady(targetIp)) throw new Error('该成员不在线')
+    const members = this.repos.groups.members(groupId).filter((member) => member.userId !== userId)
+    const info = this.privateInfoOf(group)
+    info.userVersion += 1
+    service.sendGroupKick(targetIp, groupId)
+    for (const member of members) {
+      if (member.userId === selfId) continue
+      const ip = service.peerIpByUserId(member.userId)
+      if (ip === null) continue
+      service.sendGroupPushUser(ip, info, members)
+    }
+    this.storeGroup(info, members)
+    this.emitGroup(groupId)
+    this.emitConversation(groupConversationId(groupId))
+    logStartup(`私有群移出成员 群号=${groupId} 用户=${userId}`)
+  }
+
+  // 退群：本机不是群主时才允许，其余成员收到 3009
+  leaveGroup(groupId: string): void {
+    const service = this.privateService
+    const group = this.requireGroup(groupId)
+    const selfId = privateUserId(this.settings.get())
+    if (group.master === selfId) throw new Error('群主不能退群，请改为解散群')
+    const members = this.repos.groups.members(groupId)
+    for (const member of members) {
+      if (member.userId === selfId) continue
+      const ip = service?.peerIpByUserId(member.userId) ?? null
+      if (ip === null) continue
+      service?.sendGroupExit(ip, groupId)
+    }
+    this.removeGroupLocally(groupId, '退群')
+  }
+
+  // 解散：群主把 3008 发给其余成员，然后本地删掉整个群
+  dismissGroup(groupId: string): void {
+    const service = this.privateService
+    const group = this.requireGroup(groupId)
+    const selfId = privateUserId(this.settings.get())
+    if (group.master !== selfId) throw new Error('只有群主可以解散群')
+    const members = this.repos.groups.members(groupId)
+    for (const member of members) {
+      if (member.userId === selfId) continue
+      const ip = service?.peerIpByUserId(member.userId) ?? null
+      if (ip === null) continue
+      service?.sendGroupDismiss(ip, groupId)
+    }
+    this.removeGroupLocally(groupId, '解散')
+  }
+
+  // 群成员只能是在线的私有对端；离线的人收不到 3003
+  private resolveGroupTargets(
+    service: PrivateService,
+    memberUserIds: string[],
+    selfId: string
+  ): Array<{ ip: string; userId: string; name: string }> {
+    const targets: Array<{ ip: string; userId: string; name: string }> = []
+    for (const userId of new Set(memberUserIds)) {
+      if (userId === '' || userId === selfId) continue
+      const ip = service.peerIpByUserId(userId)
+      if (ip === null || !service.isReady(ip)) {
+        throw new Error('成员不在线')
+      }
+      targets.push({ ip, userId, name: this.peerNameByUserId(userId) })
+    }
+    return targets
+  }
+
+  private peerNameByUserId(userId: string): string {
+    const ip = this.privateService?.peerIpByUserId(userId) ?? null
+    if (ip === null) return userId.slice(0, 8)
+    const peer = this.peerForIp(ip)
+    return peer.name || ip
+  }
+
+  private requireGroup(groupId: string): QGroupInfo {
+    const group = this.repos.groups.get(groupId)
+    if (group === null) throw new Error('群不存在')
+    return group
+  }
+
+  private privateInfoOf(group: {
+    id: string
+    name: string
+    master: string
+    topic: string
+    announcement: string
+    infoVersion: number
+    userVersion: number
+    allowOtherAdd: number
+    photoMd5: string
+  }): PrivateGroupInfo {
+    return {
+      id: group.id,
+      name: group.name,
+      master: group.master,
+      topic: group.topic,
+      announcement: group.announcement,
+      infoVersion: group.infoVersion,
+      userVersion: group.userVersion,
+      allowOtherAdd: group.allowOtherAdd,
+      photoMd5: group.photoMd5
+    }
+  }
+
+  private storeGroup(info: PrivateGroupInfo, members: PrivateGroupMember[]): void {
+    this.repos.groups.upsert({ ...info, updatedAt: Date.now() })
+    this.repos.groups.replaceMembers(info.id, members)
+  }
+
+  private groupInfoOf(groupId: string): GroupInfo {
+    const group = this.repos.groups.get(groupId)
+    const members = this.repos.groups.members(groupId)
+    const list: GroupMemberInfo[] = members.map((member) => ({
+      userId: member.userId,
+      name: member.name
+    }))
+    if (group === null) {
+      return {
+        id: groupId,
+        name: '群聊',
+        master: '',
+        topic: '',
+        announcement: '',
+        infoVersion: 0,
+        userVersion: 0,
+        members: list
+      }
+    }
+    return {
+      id: group.id,
+      name: group.name,
+      master: group.master,
+      topic: group.topic,
+      announcement: group.announcement,
+      infoVersion: group.infoVersion,
+      userVersion: group.userVersion,
+      members: list
+    }
+  }
+
+  private emitGroup(groupId: string): void {
+    this.emit({ type: 'group', group: this.groupInfoOf(groupId) })
+  }
+
+  private removeGroupLocally(groupId: string, reason: string): void {
+    const conversationId = groupConversationId(groupId)
+    const group = this.repos.groups.get(groupId)
+    logStartup(`私有群${reason} 群号=${groupId} 群=${group?.name ?? ''}`)
+    this.repos.groups.remove(groupId)
+    this.repos.conversations.remove(conversationId)
+    this.emit({ type: 'conversation-removed', conversationId })
   }
 
   listFiles(conversationId?: string): AppSnapshot['files'] {

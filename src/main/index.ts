@@ -42,6 +42,12 @@ function localId(url: string): string {
 app.disableHardwareAcceleration()
 app.commandLine.appendSwitch('disable-gpu-sandbox')
 
+// 自动化联调时用 LANPOST_DEBUG_PORT 打开 DevTools 协议，平时不启用
+const debugPort = process.env['LANPOST_DEBUG_PORT']
+if (debugPort) {
+  app.commandLine.appendSwitch('remote-debugging-port', debugPort)
+}
+
 function writableDir(dir: string): { ok: boolean; error?: string } {
   try {
     mkdirSync(dir, { recursive: true })

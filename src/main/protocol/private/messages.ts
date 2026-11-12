@@ -558,6 +558,14 @@ export function groupExitXml(groupId: string): string {
   return `<X_QGROUP_EXIT docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID></X_QGROUP_EXIT>`
 }
 
+export function groupDismissXml(groupId: string): string {
+  return `<X_QGROUP_DISMISS docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID></X_QGROUP_DISMISS>`
+}
+
+export function groupKickXml(groupId: string): string {
+  return `<X_QGROUP_KICK docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID></X_QGROUP_KICK>`
+}
+
 export function groupSendXml(groupId: string, msgId: number, text: string): string {
   const body = textJsonBody(text)
     .replace(/&/g, '&amp;')
@@ -828,6 +836,17 @@ function tagText(xml: string, tag: string): string | null {
   return match === null ? null : match[1]
 }
 
+// 真实客户端的群资料把空格写成 &nbsp;，其余实体按标准还原
+function unescapeXmlText(value: string): string {
+  return value
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
+}
+
 // 群资料的版本位线上闭合标签少一个 Q，单独按前缀匹配
 export function groupInfoFromXml(xml: string): PrivateGroupInfo | null {
   const id = tagText(xml, 'QGROUP_ID')
@@ -835,10 +854,10 @@ export function groupInfoFromXml(xml: string): PrivateGroupInfo | null {
   const version = /<QGROUP_INFO_VER>(\d+)<\/GROUP_INFO_VER>/.exec(xml)
   return {
     id,
-    name: tagText(xml, 'QGROUP_NAME') ?? '',
+    name: unescapeXmlText(tagText(xml, 'QGROUP_NAME') ?? ''),
     master: tagText(xml, 'QGROUP_MASTER') ?? '',
-    topic: tagText(xml, 'QGROUP_INTR') ?? '',
-    announcement: tagText(xml, 'QGROUP_ANN') ?? '',
+    topic: unescapeXmlText(tagText(xml, 'QGROUP_INTR') ?? ''),
+    announcement: unescapeXmlText(tagText(xml, 'QGROUP_ANN') ?? ''),
     infoVersion: version === null ? 0 : Number(version[1]),
     userVersion: Number(tagText(xml, 'QGROUP_USER_VER') ?? '0'),
     allowOtherAdd: Number(tagText(xml, 'QGROUP_ALLOW_OTHER_ADD') ?? '0'),
@@ -852,7 +871,7 @@ export function groupMembersFromXml(xml: string): PrivateGroupMember[] {
   for (;;) {
     const match = pattern.exec(xml)
     if (match === null) break
-    members.push({ name: match[1], userId: match[2] })
+    members.push({ name: unescapeXmlText(match[1]), userId: match[2] })
   }
   return members
 }

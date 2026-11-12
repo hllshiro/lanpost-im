@@ -37,6 +37,8 @@ import {
   groupInfoRspXml,
   groupReqInfoXml,
   groupExitXml,
+  groupDismissXml,
+  groupKickXml,
   shareDownloadXml,
   shareDownloadRspXml,
   remindFileXml,
@@ -80,7 +82,9 @@ const CMD_QGROUP_SEND_MSG = 3011
 const CMD_QGROUP_PUSH_USER = 3003
 const CMD_QGROUP_REQ_INFO = 3004
 const CMD_QGROUP_REQ_INFO_RSP = 3005
+const CMD_QGROUP_DISMISS = 3008
 const CMD_QGROUP_EXIT = 3009
+const CMD_QGROUP_KICK = 3010
 const CMD_SHARE_DOWNLOAD = 5004
 const CMD_SHARE_DOWNLOAD_RSP = 5005
 const CMD_REMIND_FILE = 1025
@@ -435,6 +439,18 @@ export class PrivateSession {
   sendGroupReqInfo(groupId: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_QGROUP_REQ_INFO, groupReqInfoXml(groupId)))
+    return true
+  }
+
+  sendGroupDismiss(groupId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_DISMISS, groupDismissXml(groupId)))
+    return true
+  }
+
+  sendGroupKick(groupId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_KICK, groupKickXml(groupId)))
     return true
   }
 

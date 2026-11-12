@@ -10,6 +10,7 @@ import ChatPane from './components/ChatPane.vue'
 import ContactsPage from './components/ContactsPage.vue'
 import ConversationList from './components/ConversationList.vue'
 import FilesPage from './components/FilesPage.vue'
+import GroupPicker from './components/GroupPicker.vue'
 import NavRail from './components/NavRail.vue'
 import SettingsOverlay from './components/SettingsOverlay.vue'
 
@@ -17,6 +18,7 @@ const store = useAppStore()
 
 const settingsOpen = ref(false)
 const view = ref<'chat' | 'contacts' | 'files'>('chat')
+const groupPicker = ref<null | { mode: 'create' } | { mode: 'invite'; groupId: string }>(null)
 const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standard' })
 const dragActive = ref(false)
 let dragDepth = 0
@@ -140,6 +142,51 @@ function handleViewSelect(next: 'chat' | 'contacts' | 'files'): void {
   settingsOpen.value = false
 }
 
+const groupPickerTitle = computed(() => store.currentGroup?.name ?? '')
+
+const groupPickerExcluded = computed(() => {
+  const action = groupPicker.value
+  if (action === null || action.mode !== 'invite') return []
+  return store.currentGroup?.members.map((member) => member.userId) ?? []
+})
+
+function openCreateGroup(): void {
+  groupPicker.value = { mode: 'create' }
+}
+
+function openInvite(): void {
+  const group = store.currentGroup
+  if (group === null) return
+  groupPicker.value = { mode: 'invite', groupId: group.id }
+}
+
+async function handleGroupConfirm(name: string, userIds: string[]): Promise<void> {
+  const action = groupPicker.value
+  if (action === null) return
+  groupPicker.value = null
+  try {
+    if (action.mode === 'create') await store.createGroup(name, userIds)
+    else await store.inviteMembers(action.groupId, userIds)
+  } catch {
+    // 错误已经进 store.error
+  }
+}
+
+function handleKick(userId: string): void {
+  const group = store.currentGroup
+  if (group !== null) void store.kickMember(group.id, userId)
+}
+
+function handleLeaveGroup(): void {
+  const group = store.currentGroup
+  if (group !== null) void store.leaveGroup(group.id)
+}
+
+function handleDismissGroup(): void {
+  const group = store.currentGroup
+  if (group !== null) void store.dismissGroup(group.id)
+}
+
 function handleOpenContact(conversationId: string): void {
   view.value = 'chat'
   settingsOpen.value = false
@@ -228,11 +275,13 @@ onBeforeUnmount(() => {
             @refresh="store.refreshPeers"
             @select="store.selectConversation($event)"
             @pin="store.setPinned"
+            @create-group="openCreateGroup"
           />
 
           <ChatPane
             :conversation="store.currentConversation"
             :peer="store.currentPeer"
+            :group="store.currentGroup"
             :messages="store.currentMessages"
             :files="store.currentFiles"
             :staged="store.currentStaged"
@@ -244,6 +293,10 @@ onBeforeUnmount(() => {
             @draft="handleDraft"
             @remove-staged="handleRemoveStaged"
             @read="handleRead"
+            @invite="openInvite"
+            @kick="handleKick"
+            @leave="handleLeaveGroup"
+            @dismiss="handleDismissGroup"
           />
         </template>
 
@@ -253,6 +306,16 @@ onBeforeUnmount(() => {
       </template>
 
       <SettingsOverlay v-else @close="settingsOpen = false" @saved="handleSettingsSaved" />
+
+      <GroupPicker
+        v-if="groupPicker"
+        :mode="groupPicker.mode"
+        :title="groupPickerTitle"
+        :peers="store.peers"
+        :exclude-user-ids="groupPickerExcluded"
+        @close="groupPicker = null"
+        @confirm="handleGroupConfirm"
+      />
 
       <div v-if="dragActive" class="drop-zone">
         <span>松开添加到待发区</span>

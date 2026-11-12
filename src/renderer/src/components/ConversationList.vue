@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
-import { MessageSquare, Pin, RefreshCw, Search, X } from '@lucide/vue'
+import { MessageSquare, Pin, RefreshCw, Search, Users, X } from '@lucide/vue'
 import type { ConversationInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
@@ -18,6 +18,7 @@ const emit = defineEmits<{
   select: [id: string]
   refresh: []
   pin: [id: string, pinned: boolean]
+  'create-group': []
 }>()
 
 const MENU_WIDTH = 148
@@ -159,6 +160,14 @@ function badgeOf(count: number): string {
             <X :size="13" />
           </button>
         </div>
+        <button
+          class="refresh"
+          title="新建群聊"
+          aria-label="新建群聊"
+          @click="emit('create-group')"
+        >
+          <Users :size="15" :stroke-width="1.9" />
+        </button>
         <button
           class="refresh"
           :class="{ spinning: refreshing }"

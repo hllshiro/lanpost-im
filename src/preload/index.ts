@@ -50,6 +50,13 @@ const api: Api = {
     setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias),
     refresh: () => ipcRenderer.invoke(IPC.peersRefresh)
   },
+  groups: {
+    create: (name, memberUserIds) => ipcRenderer.invoke(IPC.groupCreate, name, memberUserIds),
+    invite: (groupId, memberUserIds) => ipcRenderer.invoke(IPC.groupInvite, groupId, memberUserIds),
+    kick: (groupId, userId) => ipcRenderer.invoke(IPC.groupKick, groupId, userId),
+    leave: (groupId) => ipcRenderer.invoke(IPC.groupLeave, groupId),
+    dismiss: (groupId) => ipcRenderer.invoke(IPC.groupDismiss, groupId)
+  },
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
