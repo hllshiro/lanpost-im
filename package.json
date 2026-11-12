@@ -17,6 +17,7 @@
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "dev:no-sandbox": "electron-vite dev --noSandbox",
+    "firewall:dev": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/firewall-dev.ps1",
     "build": "pnpm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "pnpm run build && electron-builder --dir",

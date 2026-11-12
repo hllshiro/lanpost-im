@@ -20,4 +20,6 @@ export function registerIpc(handlers: Handlers): void {
   ipcMain.handle(IPC.shortcutsAvailable, (_event, accelerator: string) =>
     handlers.shortcutsAvailable(accelerator)
   )
+  ipcMain.handle(IPC.firewallCheck, () => handlers.firewallCheck())
+  ipcMain.handle(IPC.firewallRepair, () => handlers.firewallRepair())
 }

@@ -3074,6 +3074,18 @@ export class AppService {
     }
   }
 
+  firewallPorts(): { udp: number[]; tcp: number[] } {
+    const settings = this.settings.get()
+    const udp = [settings.network.privatePort]
+    const enetPort = this.privateService?.localEnetPort ?? settings.network.privateEnetPort
+    if (enetPort > 0) udp.push(enetPort)
+    const tcp = [settings.network.privateFilePort, settings.network.privateFolderPort]
+    return {
+      udp: udp.filter((port) => port > 0),
+      tcp: tcp.filter((port) => port > 0)
+    }
+  }
+
   setStatus(status: number): void {
     if (!isPresenceStatus(status)) {
       throw new Error('在线状态无效')

@@ -26,6 +26,8 @@ const networkSchema = z.object({
   seeds: z.array(z.string()).default([]),
   broadcastInterval: z.number().int().min(5).max(3600).default(30),
   privatePort: z.number().int().min(1).max(65535).default(9011),
+  // ENet 会话监听端口；0 表示由系统分配
+  privateEnetPort: z.number().int().min(0).max(65535).default(9012),
   // 私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点，对端据此连过来
   privateFilePort: z.number().int().min(1).max(65535).default(9013),
   // 私有文件夹通道的 TCP 监听端口；置 0 表示不接收文件夹

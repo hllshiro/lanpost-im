@@ -99,6 +99,10 @@ const api: Api = {
     setRecording: (active) => ipcRenderer.invoke(IPC.shortcutsRecording, active),
     available: (accelerator) => ipcRenderer.invoke(IPC.shortcutsAvailable, accelerator)
   },
+  firewall: {
+    check: () => ipcRenderer.invoke(IPC.firewallCheck),
+    repair: () => ipcRenderer.invoke(IPC.firewallRepair)
+  },
   identity: {
     pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),
     clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar),

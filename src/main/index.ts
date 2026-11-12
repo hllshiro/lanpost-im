@@ -7,6 +7,7 @@ import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
 import { AppService } from './app-service'
 import { applyStartAtLogin, type AutostartContext } from './autostart'
+import { checkFirewall, repairFirewall } from './firewall'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
 import { currentIdentityDefaults } from './identity'
@@ -203,7 +204,9 @@ if (!gotLock) {
         },
         setStartAtLogin: applyLoginItem,
         shortcutsSetRecording: setShortcutRecording,
-        shortcutsAvailable: shortcutAvailable
+        shortcutsAvailable: shortcutAvailable,
+        firewallCheck: () => checkFirewall(appService.firewallPorts()),
+        firewallRepair: () => repairFirewall(appService.firewallPorts())
       })
       registerIpc(handlers)
       registerAppIpc(appService)
@@ -280,6 +283,10 @@ if (!gotLock) {
           `协议服务启动失败：\n${friendlyMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
         )
       }
+
+      void checkFirewall(appService.firewallPorts()).then((status) => {
+        logStartup(`firewall: ${status.state} (${status.executable})`)
+      })
 
       const checkIdle = (): void => {
         try {

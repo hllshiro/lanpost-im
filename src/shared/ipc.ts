@@ -18,6 +18,8 @@ export const IPC = {
   settingsStartAtLogin: 'settings:start-at-login',
   shortcutsRecording: 'shortcuts:recording',
   shortcutsAvailable: 'shortcuts:available',
+  firewallCheck: 'firewall:check',
+  firewallRepair: 'firewall:repair',
   identityPickAvatar: 'identity:pick-avatar',
   identityClearAvatar: 'identity:clear-avatar',
   identityStatus: 'identity:status',
@@ -71,6 +73,20 @@ export interface AppInfo {
   appId: string
 }
 
+export type FirewallState =
+  | 'allowed'
+  | 'blocked'
+  | 'missing'
+  | 'manual'
+  | 'unsupported'
+  | 'unknown'
+
+export interface FirewallStatus {
+  state: FirewallState
+  executable: string
+  detail: string
+}
+
 export interface NotifyPayload {
   conversationId: string
   title: string
@@ -118,6 +134,10 @@ export type Api = {
   shortcuts: {
     setRecording(active: boolean): Promise<void>
     available(accelerator: string): Promise<boolean>
+  }
+  firewall: {
+    check(): Promise<FirewallStatus>
+    repair(): Promise<FirewallStatus>
   }
   identity: {
     pickAvatar(): Promise<void>

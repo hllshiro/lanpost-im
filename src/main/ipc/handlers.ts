@@ -1,4 +1,4 @@
-import type { AppInfo } from '../../shared/ipc'
+import type { AppInfo, FirewallStatus } from '../../shared/ipc'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import type { SettingsStore } from '../settings/store'
 
@@ -10,6 +10,8 @@ export interface Handlers {
   settingsStartAtLogin(enabled: boolean): Settings
   shortcutsSetRecording(active: boolean): void
   shortcutsAvailable(accelerator: string): boolean
+  firewallCheck(): Promise<FirewallStatus>
+  firewallRepair(): Promise<FirewallStatus>
 }
 
 function assertPatch(value: unknown): asserts value is SettingsPatch {
@@ -25,6 +27,8 @@ export function createHandlers(ctx: {
   setStartAtLogin?: (enabled: boolean) => { ok: boolean; error?: string }
   shortcutsSetRecording?: (active: boolean) => void
   shortcutsAvailable?: (accelerator: string) => boolean
+  firewallCheck?: () => Promise<FirewallStatus>
+  firewallRepair?: () => Promise<FirewallStatus>
 }): Handlers {
   return {
     appInfo: () => ({ ...ctx.appInfo }),
@@ -61,6 +65,12 @@ export function createHandlers(ctx: {
     shortcutsAvailable: (accelerator) =>
       typeof accelerator === 'string' && ctx.shortcutsAvailable !== undefined
         ? ctx.shortcutsAvailable(accelerator)
-        : false
+        : false,
+    firewallCheck: () =>
+      ctx.firewallCheck?.() ??
+      Promise.resolve({ state: 'unsupported', executable: '', detail: '防火墙检查不可用' }),
+    firewallRepair: () =>
+      ctx.firewallRepair?.() ??
+      Promise.resolve({ state: 'unsupported', executable: '', detail: '防火墙修复不可用' })
   }
 }

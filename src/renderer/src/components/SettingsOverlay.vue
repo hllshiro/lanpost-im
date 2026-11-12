@@ -16,7 +16,7 @@ import {
   UserRound,
   X
 } from '@lucide/vue'
-import type { AppInfo } from '../../../shared/ipc'
+import type { AppInfo, FirewallStatus } from '../../../shared/ipc'
 import {
   DEFAULT_SHORTCUTS,
   defaultSettings,
@@ -82,6 +82,8 @@ const recordTip = ref('')
 const startAtLoginBusy = ref(false)
 const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
+const firewall = ref<FirewallStatus | null>(null)
+const firewallBusy = ref(false)
 let savedTimer: number | undefined
 
 const currentLabel = computed(
@@ -93,6 +95,33 @@ const versionText = computed(() => {
   if (appInfoError.value) return '版本信息不可用'
   return '正在读取版本…'
 })
+const firewallLabel = computed(() => {
+  switch (firewall.value?.state) {
+    case 'allowed':
+      return '已放行'
+    case 'blocked':
+      return '被阻止'
+    case 'missing':
+      return '未放行'
+    case 'manual':
+      return '需确认'
+    case 'unsupported':
+      return '无需配置'
+    case 'unknown':
+      return '未知'
+    default:
+      return '检测中…'
+  }
+})
+const firewallHint = computed(
+  () => firewall.value?.detail ?? '正在检测防火墙规则，其他设备需要连接到本机'
+)
+const showFirewallRepair = computed(
+  () =>
+    firewall.value !== null &&
+    firewall.value.state !== 'allowed' &&
+    firewall.value.state !== 'unsupported'
+)
 
 function syncTextFields(): void {
   subnetsText.value = settings.value.network.subnets.join('\n')
@@ -137,6 +166,27 @@ async function loadAppInfo(): Promise<void> {
     appInfo.value = await window.api.app.info()
   } catch (reason) {
     appInfoError.value = errorMessage(reason)
+  }
+}
+
+async function loadFirewall(): Promise<void> {
+  try {
+    firewall.value = await window.api.firewall.check()
+  } catch (reason) {
+    firewall.value = { state: 'unknown', executable: '', detail: errorMessage(reason) }
+  }
+}
+
+async function repairFirewall(): Promise<void> {
+  if (firewallBusy.value) return
+  firewallBusy.value = true
+  error.value = ''
+  try {
+    firewall.value = await window.api.firewall.repair()
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    firewallBusy.value = false
   }
 }
 
@@ -315,6 +365,7 @@ useEventListener(
 onMounted(() => {
   void loadSettings()
   void loadAppInfo()
+  void loadFirewall()
 })
 
 onBeforeUnmount(() => {
@@ -547,6 +598,23 @@ onBeforeUnmount(() => {
                 aria-label="监听地址"
                 @change="saveField('network', { bindAddr: settings.network.bindAddr })"
               />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">防火墙</span>
+              <p class="hint">{{ firewallHint }}</p>
+            </div>
+            <div class="control control-auto">
+              <span class="firewall-state" :class="firewall?.state">{{ firewallLabel }}</span>
+              <button
+                v-if="showFirewallRepair"
+                class="reset"
+                :disabled="firewallBusy"
+                @click="repairFirewall"
+              >
+                {{ firewallBusy ? '处理中…' : '修复' }}
+              </button>
             </div>
           </div>
           <div class="row">
@@ -1435,6 +1503,25 @@ select.input {
   gap: 8px;
   padding: 0 28px;
   border-top: 1px solid var(--divider);
+}
+
+.firewall-state {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.firewall-state.allowed {
+  color: var(--accent);
+}
+
+.firewall-state.blocked,
+.firewall-state.missing {
+  color: var(--danger);
+}
+
+.firewall-state.manual,
+.firewall-state.unknown {
+  color: var(--warning);
 }
 
 .reset {
