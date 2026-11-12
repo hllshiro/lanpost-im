@@ -1,4 +1,5 @@
-import catalog from '../assets/emotion/catalog.json'
+import builtinCatalog from '../assets/emotion/catalog.json'
+import extraCatalog from '../assets/emotion/catalog-extra.json'
 
 export interface EmotionItem {
   group: string
@@ -6,32 +7,38 @@ export interface EmotionItem {
   id: number | null
   image: string
   thumb: string
+  // emotion：内网通内置表情，按 Id 发卡片；image：微信/QQ 表情，按图片文件发送
+  kind: 'emotion' | 'image'
 }
 
 // 表情图在打包时由 Vite 处理成静态资源地址
-const gifs = import.meta.glob('../assets/emotion/*.gif', {
+const gifs = import.meta.glob('../assets/emotion/**/*.gif', {
   eager: true,
   query: '?url',
   import: 'default'
 }) as Record<string, string>
-const thumbs = import.meta.glob('../assets/emotion/*.png', {
+const images = import.meta.glob('../assets/emotion/**/*.png', {
   eager: true,
   query: '?url',
   import: 'default'
 }) as Record<string, string>
 
-export const emotions = catalog as EmotionItem[]
+const builtin = builtinCatalog as EmotionItem[]
+const extra = extraCatalog as EmotionItem[]
 
-export const emotionGroups = [...new Set(emotions.map((item) => item.group))]
+export const emotions: EmotionItem[] = [...builtin, ...extra]
 
-// 收到的表情节点是 Id（1251–1334）或「班车小子」组的文件名（2001.gif）
+const order = ['微信', 'QQ', '内网通']
+export const emotionGroups = order.filter((group) => emotions.some((item) => item.group === group))
+
+// 内网通表情节点是 Id（1251–1334）或「班车小子」组的文件名（2001.gif）
 export function emotionByKey(key: string): EmotionItem | null {
   if (/^\d+$/.test(key)) {
     const id = Number(key)
-    return emotions.find((item) => item.id === id) ?? null
+    return builtin.find((item) => item.id === id) ?? null
   }
   const name = key.toLowerCase()
-  return emotions.find((item) => item.image.toLowerCase() === name) ?? null
+  return builtin.find((item) => item.image.toLowerCase() === name) ?? null
 }
 
 export function emotionUrl(item: EmotionItem): string {
@@ -39,5 +46,6 @@ export function emotionUrl(item: EmotionItem): string {
 }
 
 export function emotionThumb(item: EmotionItem): string {
-  return thumbs[`../assets/emotion/${item.thumb}`] ?? ''
+  const key = `../assets/emotion/${item.thumb}`
+  return images[key] ?? gifs[key] ?? ''
 }

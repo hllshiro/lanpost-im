@@ -5,7 +5,13 @@ import { FileText, Folder, Paperclip, Send, Smile, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
-import { emotionGroups, emotionThumb, emotions, type EmotionItem } from '../utils/emotion'
+import {
+  emotionGroups,
+  emotionThumb,
+  emotionUrl,
+  emotions,
+  type EmotionItem
+} from '../utils/emotion'
 
 const props = defineProps<{
   draft: string
@@ -37,7 +43,25 @@ onClickOutside(stickerAnchor, () => {
 function sendSticker(item: EmotionItem): void {
   if (props.sending) return
   stickersOpen.value = false
-  emit('sticker', item.id === null ? item.image : String(item.id))
+  if (item.kind === 'emotion') {
+    emit('sticker', item.id === null ? item.image : String(item.id))
+    return
+  }
+  // 微信/QQ 的表情对端没有同一张表，按图片发出去
+  void runImageSticker(item)
+}
+
+async function runImageSticker(item: EmotionItem): Promise<void> {
+  try {
+    const response = await fetch(emotionUrl(item))
+    if (!response.ok) throw new Error('表情资源不可用')
+    const data = await response.arrayBuffer()
+    const name = item.image.split('/').pop() ?? 'sticker.gif'
+    await window.api.files.stageBytes(props.conversationId, name, data)
+    await window.api.files.sendStaged(props.conversationId)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  }
 }
 
 function stagedUrl(id: string): string {

@@ -18,11 +18,12 @@ for (const group of xml.matchAll(/<EmotionGroup Name="([^"]*)"[^>]*>([\s\S]*?)<\
     )
     if (!attrs.Image) continue
     entries.push({
-      group: name,
+      group: '内网通',
       tips: attrs.Tips ?? '',
       id: attrs.Id ? Number(attrs.Id) : null,
       image: attrs.Image,
-      thumb: attrs.Thumb ?? attrs.Image.replace(/\.gif$/i, '.png')
+      thumb: attrs.Thumb ?? attrs.Image.replace(/\.gif$/i, '.png'),
+      kind: 'emotion'
     })
   }
 }

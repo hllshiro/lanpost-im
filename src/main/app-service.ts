@@ -2112,7 +2112,7 @@ export class AppService {
   // 拖进来但拿不到磁盘路径的内容（网页里直接拖出的图）先落盘再进待发区
   stageBytes(conversationId: string, name: string, data: ArrayBuffer): StagedAttachment[] {
     const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null || conversation.peerKey === null) {
+    if (conversation === null) {
       throw new Error('会话不存在')
     }
     const dir = join(app.getPath('userData'), 'clipboard')
