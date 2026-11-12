@@ -2,7 +2,13 @@ import { createSocket, type RemoteInfo, type Socket } from 'node:dgram'
 import { networkInterfaces } from 'node:os'
 import { decodeBeacon } from './beacon'
 import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
-import type { PrivateFileOffer, PrivateImageRef, PrivateProfile, RemoteProfile } from './messages'
+import type {
+  PrivateFileOffer,
+  PrivateFolderOffer,
+  PrivateImageRef,
+  PrivateProfile,
+  RemoteProfile
+} from './messages'
 import { PrivateSession, type SessionCallbacks, type SessionState } from './session'
 
 const COMMAND_MASK = 0x7f
@@ -20,17 +26,29 @@ export interface PrivateServiceOptions {
   seeds: Array<{ ip: string; port?: number }>
   // 本机私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
   filePort?: number
+  // 本机私有文件夹通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
+  folderPort?: number
   callbacks: {
     onText(ip: string, msgId: number, text: string, images: PrivateImageRef[]): void
     onUnsupported(ip: string, msgId: number): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
     // 对端的 X_HANDSHARK 解析出新资料时触发，与状态推进无关
-    onProfile(ip: string, profile: RemoteProfile, filePort: number, reversePort: number): void
+    onProfile(
+      ip: string,
+      profile: RemoteProfile,
+      filePort: number,
+      reversePort: number,
+      folderPort: number,
+      folderReversePort: number
+    ): void
     onFileOffer(ip: string, offer: PrivateFileOffer): void
     onFileOperate(ip: string, cmd: number, taskId: string, op: number): void
     onFileProgress(ip: string, taskId: string, totalSize: number, recvdSize: number): void
     onFileReverse(ip: string, taskId: string): void
+    onFolderOffer(ip: string, offer: PrivateFolderOffer): void
+    onFolderOperate(ip: string, cmd: number, taskId: string, op: number): void
+    onFolderReverse(ip: string, taskId: string): void
     // 已经交给 ENet 的文字重传耗尽，本条消息没有送达
     onSendFailed(ip: string, msgId: number): void
     onState(ip: string, state: SessionState, profile: RemoteProfile | null): void
@@ -110,6 +128,8 @@ export class PrivateService {
   // 对端 X_HANDSHARK 里公布的私有文件通道 TCP 端口
   private readonly peerFilePorts = new Map<string, number>()
   private readonly peerReversePorts = new Map<string, number>()
+  private readonly peerFolderPorts = new Map<string, number>()
+  private readonly peerFolderReversePorts = new Map<string, number>()
 
   constructor(options: PrivateServiceOptions) {
     this.options = options
@@ -237,6 +257,14 @@ export class PrivateService {
     this.sessions.get(ip)?.sendOperateRecvFile(taskId, op)
   }
 
+  sendOperateSendFolder(ip: string, taskId: string, op: number): void {
+    this.sessions.get(ip)?.sendOperateSendFolder(taskId, op)
+  }
+
+  sendOperateRecvFolder(ip: string, taskId: string, op: number): void {
+    this.sessions.get(ip)?.sendOperateRecvFolder(taskId, op)
+  }
+
   sendProgressRecvFile(ip: string, taskId: string, totalSize: number, recvdSize: number): void {
     this.sessions.get(ip)?.sendProgressRecvFile(taskId, totalSize, recvdSize)
   }
@@ -261,6 +289,15 @@ export class PrivateService {
   // 对端公布的反向文件端口，直连不通时发送方按它反过来连接
   peerReversePort(ip: string): number {
     return this.peerReversePorts.get(ip) ?? 0
+  }
+
+  // 对端公布的文件夹通道端口；0 表示对端不接收文件夹
+  peerFolderPort(ip: string): number {
+    return this.peerFolderPorts.get(ip) ?? 0
+  }
+
+  peerFolderReversePort(ip: string): number {
+    return this.peerFolderReversePorts.get(ip) ?? 0
   }
 
   peerUserId(ip: string): string {
@@ -375,7 +412,7 @@ export class PrivateService {
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
       onAck: (msgId) => this.options.callbacks.onAck(ip, msgId),
       onReceipt: (msgId) => this.options.callbacks.onReceipt(ip, msgId),
-      onProfile: (profile, filePort, reversePort) => {
+      onProfile: (profile, filePort, reversePort, folderPort, folderReversePort) => {
         this.peerProfiles.set(ip, profile)
         if (filePort > 0) {
           this.peerFilePorts.set(ip, filePort)
@@ -383,13 +420,30 @@ export class PrivateService {
         if (reversePort > 0) {
           this.peerReversePorts.set(ip, reversePort)
         }
-        this.options.callbacks.onProfile(ip, profile, filePort, reversePort)
+        if (folderPort > 0) {
+          this.peerFolderPorts.set(ip, folderPort)
+        }
+        if (folderReversePort > 0) {
+          this.peerFolderReversePorts.set(ip, folderReversePort)
+        }
+        this.options.callbacks.onProfile(
+          ip,
+          profile,
+          filePort,
+          reversePort,
+          folderPort,
+          folderReversePort
+        )
       },
       onFileOffer: (offer) => this.options.callbacks.onFileOffer(ip, offer),
       onFileOperate: (cmd, taskId, op) => this.options.callbacks.onFileOperate(ip, cmd, taskId, op),
       onFileProgress: (taskId, totalSize, recvdSize) =>
         this.options.callbacks.onFileProgress(ip, taskId, totalSize, recvdSize),
       onFileReverse: (taskId) => this.options.callbacks.onFileReverse(ip, taskId),
+      onFolderOffer: (offer) => this.options.callbacks.onFolderOffer(ip, offer),
+      onFolderOperate: (cmd, taskId, op) =>
+        this.options.callbacks.onFolderOperate(ip, cmd, taskId, op),
+      onFolderReverse: (taskId) => this.options.callbacks.onFolderReverse(ip, taskId),
       onSendFailed: (msgId) => this.options.callbacks.onSendFailed(ip, msgId),
       onState: (state) => this.handleState(ip, state, session),
       onLog: (message) => this.options.callbacks.onLog(message)
@@ -404,6 +458,7 @@ export class PrivateService {
         identity: this.options.identity,
         profile: this.profile,
         filePort: this.options.filePort,
+        folderPort: this.options.folderPort,
         send: (data) => this.sendRaw(ip, remotePort, data),
         callbacks
       })

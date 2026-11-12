@@ -7,7 +7,9 @@ import {
   encodeChatReceipt,
   encodeHandshake,
   encodeOperateRecvFile,
+  encodeOperateRecvFolder,
   encodeOperateSendFile,
+  encodeOperateSendFolder,
   encodeProgressRecvFile,
   encodeReady,
   encodeSendFile
@@ -27,7 +29,11 @@ const CMD = {
   HEARTBEAT: 1016,
   QUIT: 1017,
   READY: 1018,
-  REVERSE_FILE_REQ: 1019
+  REVERSE_FILE_REQ: 1019,
+  SEND_FOLDER: 1013,
+  OPERATE_SEND_FOLDER: 1014,
+  OPERATE_RECV_FOLDER: 1015,
+  REVERSE_FOLDER_REQ: 1020
 } as const
 
 const HELLO_TYPE = 4
@@ -61,17 +67,35 @@ export interface PrivateFileOffer {
   lastModify: string
 }
 
+export interface PrivateFolderOffer {
+  taskId: string
+  name: string
+  size: number
+  maxItemPath: number
+  maxItemSize: number
+}
+
 export type IncomingPrivate =
   | { kind: 'text'; msgId: number; text: string; images: PrivateImageRef[] }
   | { kind: 'text-unsupported'; msgId: number }
   | { kind: 'ack'; msgId: number }
   | { kind: 'receipt'; msgId: number }
-  | { kind: 'handshake'; profile: RemoteProfile; filePort: number; reversePort: number }
+  | {
+      kind: 'handshake'
+      profile: RemoteProfile
+      filePort: number
+      reversePort: number
+      folderPort: number
+      folderReversePort: number
+    }
   | { kind: 'ready'; userId: string }
   | { kind: 'file-offer'; offer: PrivateFileOffer }
   | { kind: 'file-operate'; cmd: number; taskId: string; op: number }
   | { kind: 'file-progress'; taskId: string; totalSize: number; recvdSize: number }
   | { kind: 'file-reverse'; taskId: string }
+  | { kind: 'folder-offer'; offer: PrivateFolderOffer }
+  | { kind: 'folder-operate'; cmd: number; taskId: string; op: number }
+  | { kind: 'folder-reverse'; taskId: string }
   | { kind: 'heartbeat' }
   | { kind: 'quit' }
   | { kind: 'other'; cmd: number }
@@ -110,16 +134,16 @@ function featureNode(): Feature {
   }
 }
 
-function netPorts(filePort: number): NetPorts {
+function netPorts(filePort: number, folderPort: number): NetPorts {
   return {
     FileTranTCPPort: filePort,
     FileTranEnetPort: 0,
-    FolderTranTCPPort: 0,
+    FolderTranTCPPort: folderPort,
     FolderTranEnetPort: 0,
     // 反向端口指回同一个监听端口：对端直连不通时会按这个地址反过来连
     FileTranTCPReversePort: filePort,
     FileTranEnetReversePort: 0,
-    FolderTranTCPReversePort: 0,
+    FolderTranTCPReversePort: folderPort,
     FolderTranEnetReversePort: 0,
     LanUpdateHTTPPort: 0
   }
@@ -150,12 +174,17 @@ function userInfo(profile: PrivateProfile, userId: string): UserInfo {
   }
 }
 
-export function handshakeXml(profile: PrivateProfile, userId: string, filePort = 0): string {
+export function handshakeXml(
+  profile: PrivateProfile,
+  userId: string,
+  filePort = 0,
+  folderPort = 0
+): string {
   return encodeHandshake({
     Docver: DOCVER,
     Feature: featureNode(),
     Info: userInfo(profile, userId),
-    Net: netPorts(filePort)
+    Net: netPorts(filePort, folderPort)
   })
 }
 
@@ -359,6 +388,14 @@ export function reverseFileReqXml(taskId: string): string {
   return `<X_REVERSE_FILE_REQ docver="1"><TASK_ID>${taskId}</TASK_ID></X_REVERSE_FILE_REQ>`
 }
 
+export function operateRecvFolderXml(taskId: string, op: number): string {
+  return encodeOperateRecvFolder({ Docver: DOCVER, TaskID: taskId, Op: op })
+}
+
+export function operateSendFolderXml(taskId: string, op: number): string {
+  return encodeOperateSendFolder({ Docver: DOCVER, TaskID: taskId, Op: op })
+}
+
 // Windows FILETIME：100 纳秒为单位，起点 1601-01-01；超过 2^53，必须用字符串
 export function fileTimeFromMs(ms: number): string {
   return ((BigInt(Math.trunc(ms)) + 11644473600000n) * 10000n).toString()
@@ -499,7 +536,9 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
             kind: 'handshake',
             profile: remoteProfile(handshake),
             filePort: handshake.Net.FileTranTCPPort,
-            reversePort: handshake.Net.FileTranTCPReversePort
+            reversePort: handshake.Net.FileTranTCPReversePort,
+            folderPort: handshake.Net.FolderTranTCPPort,
+            folderReversePort: handshake.Net.FolderTranTCPReversePort
           }
     }
     case CMD.SEND_MSG: {
@@ -558,6 +597,38 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
             totalSize: value.TotalSize,
             recvdSize: value.RecvdSize
           }
+    }
+    case CMD.SEND_FOLDER: {
+      const offer = decodePrivate('X_SEND_FOLDER', xml)
+      if (offer === null) {
+        return unrecognized(cmd)
+      }
+      return {
+        kind: 'folder-offer',
+        offer: {
+          taskId: offer.TaskID,
+          name: offer.FolderName,
+          size: offer.FolderSize,
+          maxItemPath: offer.MaxItemPath,
+          maxItemSize: offer.MaxItemSize
+        }
+      }
+    }
+    case CMD.OPERATE_SEND_FOLDER: {
+      const value = decodePrivate('X_OPERATE_SEND_FOLDER', xml)
+      return value === null
+        ? unrecognized(cmd)
+        : { kind: 'folder-operate', cmd, taskId: value.TaskID, op: value.Op }
+    }
+    case CMD.OPERATE_RECV_FOLDER: {
+      const value = decodePrivate('X_OPERATE_RECV_FOLDER', xml)
+      return value === null
+        ? unrecognized(cmd)
+        : { kind: 'folder-operate', cmd, taskId: value.TaskID, op: value.Op }
+    }
+    case CMD.REVERSE_FOLDER_REQ: {
+      const value = decodePrivate('X_REVERSE_FOLDER_REQ', xml)
+      return value === null ? unrecognized(cmd) : { kind: 'folder-reverse', taskId: value.TaskID }
     }
     case CMD.HEARTBEAT:
       return decodePrivate('X_HEARTBEAT', xml) === null ? unrecognized(cmd) : { kind: 'heartbeat' }

@@ -25,6 +25,8 @@ const networkSchema = z.object({
   privatePort: z.number().int().min(1).max(65535).default(9011),
   // 私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点，对端据此连过来
   privateFilePort: z.number().int().min(1).max(65535).default(9013),
+  // 私有文件夹通道的 TCP 监听端口；置 0 表示不接收文件夹
+  privateFolderPort: z.number().int().min(0).max(65535).default(9014),
   privateSeeds: z.array(z.string()).default([])
 })
 

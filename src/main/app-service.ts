@@ -52,6 +52,7 @@ import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
 import { FileManager } from './files/manager'
+import { FolderProbe } from './files/folder-probe'
 import { PrivateFileTransfer } from './files/private-transfer'
 import { StagedStore, type StagedSource } from './files/staged'
 import { sanitizeFileName, uniqueName } from './files/names'
@@ -210,6 +211,8 @@ export class AppService {
   private readonly privateImageMessages = new Map<number, number>()
   // 只发了卡片的图片：等对端发 1019 来要，再用窗口通道推过去
   private readonly privateImagePushes = new Map<number, { ip: string; taskId: string }>()
+  // 文件夹通道的研究探针：只记录收到的帧结构
+  private privateFolders: FolderProbe | null = null
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<number>()
@@ -339,6 +342,10 @@ export class AppService {
       })
       await transfer.start()
       this.privateFiles = transfer
+      const folderPort = await this.startFolderProbe(
+        settings.network.privateFolderPort,
+        settings.network.bindAddr
+      )
       const service = new PrivateService({
         identity: { userId, peerId: randomBytes(16) },
         profile,
@@ -346,6 +353,7 @@ export class AppService {
         beaconPort: settings.network.privatePort,
         enetPort: 0,
         filePort,
+        folderPort,
         seeds: privateSeeds(settings),
         callbacks: {
           onText: (ip, msgId, text, images) => this.handlePrivateText(ip, msgId, text, images),
@@ -358,13 +366,22 @@ export class AppService {
             this.privateOutstanding.delete(msgId)
             this.handlePrivateStatus(ip, msgId, 'read')
           },
-          onProfile: (ip, remote, filePort) => {
+          onProfile: (ip, remote, filePort, _reversePort, folderPort, folderReversePort) => {
             this.upsertPrivatePeer(ip, remote)
             // 对端可能先探测“同号文件端口”再决定是否发图，握手后就把它的端口号也监听起来
             if (filePort > 0) {
               void this.privateFiles?.listenExtra(filePort)
             }
+            if (folderPort > 0 || folderReversePort > 0) {
+              logStartup(
+                `私有会话 ${ip} 对端文件夹端口 ${folderPort}，反向端口 ${folderReversePort}`
+              )
+            }
           },
+          onFolderOffer: (ip, offer) => this.handlePrivateFolderOffer(ip, offer),
+          onFolderOperate: (ip, cmd, taskId, op) =>
+            logStartup(`私有文件夹操作 ${ip} 命令 ${cmd} 任务 ${taskId} OP=${op}`),
+          onFolderReverse: (ip, taskId) => logStartup(`私有文件夹反向请求 ${ip} 任务 ${taskId}`),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
             this.handlePrivateFileOperate(ip, cmd, taskId, op),
@@ -383,6 +400,53 @@ export class AppService {
     } catch (error) {
       logStartup('private service start failed: ' + (error as Error).message)
     }
+  }
+
+  // 文件夹通道失败只影响文件夹，私有文字与文件照旧
+  private async startFolderProbe(port: number, bindAddr: string): Promise<number> {
+    if (port <= 0) {
+      logStartup('私有文件夹通道未启用（端口为 0）')
+      return 0
+    }
+    const probe = new FolderProbe({
+      bindAddr,
+      port,
+      log: (message) => logStartup('folder probe: ' + message)
+    })
+    try {
+      await probe.start()
+      this.privateFolders = probe
+      return port
+    } catch (error) {
+      logStartup('私有文件夹通道监听失败: ' + (error as Error).message)
+      return 0
+    }
+  }
+
+  // 对端发来文件夹邀请：先记录结构，再按接收方身份回 1015，
+  // 等 3 秒还没收到反向连接就主动拨对方的文件夹端口，两种方向都留日志
+  private handlePrivateFolderOffer(
+    ip: string,
+    offer: { taskId: string; name: string; size: number; maxItemPath: number; maxItemSize: number }
+  ): void {
+    logStartup(
+      `私有文件夹邀请 ${ip} 任务=${offer.taskId} 名称=${offer.name} 大小=${offer.size} ` +
+        `最长路径=${offer.maxItemPath} 最大文件=${offer.maxItemSize}`
+    )
+    const service = this.privateService
+    const probe = this.privateFolders
+    if (service === null || probe === null) return
+    service.sendOperateRecvFolder(ip, offer.taskId, 2)
+    const before = probe.inboundCount
+    setTimeout(() => {
+      if (probe.inboundCount > before) return
+      const port = service.peerFolderPort(ip)
+      if (port <= 0) {
+        logStartup('私有文件夹邀请：对端没有公布文件夹端口')
+        return
+      }
+      probe.dial(ip, port)
+    }, 3000)
   }
 
   private importLegacyHistory(): void {
@@ -420,6 +484,8 @@ export class AppService {
     this.privateService = null
     const privateFiles = this.privateFiles
     this.privateFiles = null
+    this.privateFolders?.stop()
+    this.privateFolders = null
     this.privateReceipts.clear()
     this.privateOutstanding.clear()
     this.privateFileTasks.clear()

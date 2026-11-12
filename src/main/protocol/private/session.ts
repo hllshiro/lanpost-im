@@ -21,7 +21,9 @@ import {
   heartbeatXml,
   helloFrame,
   operateRecvFileXml,
+  operateRecvFolderXml,
   operateSendFileXml,
+  operateSendFolderXml,
   parsePrivate,
   progressRecvFileXml,
   quitXml,
@@ -34,7 +36,13 @@ import {
   sendMsgXml,
   sendReceiptXml
 } from './messages'
-import type { PrivateFileOffer, PrivateImageRef, PrivateProfile, RemoteProfile } from './messages'
+import type {
+  PrivateFileOffer,
+  PrivateFolderOffer,
+  PrivateImageRef,
+  PrivateProfile,
+  RemoteProfile
+} from './messages'
 
 const CMD_HELLO = 4
 const CMD_HANDSHAKE = 1000
@@ -45,6 +53,8 @@ const CMD_SEND_FILE = 1009
 const CMD_OPERATE_SEND_FILE = 1010
 const CMD_OPERATE_RECV_FILE = 1011
 const CMD_PROGRESS_RECV_FILE = 1012
+const CMD_OPERATE_SEND_FOLDER = 1014
+const CMD_OPERATE_RECV_FOLDER = 1015
 const CMD_HEARTBEAT = 1016
 const CMD_QUIT = 1017
 const CMD_READY = 1018
@@ -75,11 +85,20 @@ export interface SessionCallbacks {
   onUnsupported(msgId: number): void
   onAck(msgId: number): void
   onReceipt(msgId: number): void
-  onProfile(profile: RemoteProfile, filePort: number, reversePort: number): void
+  onProfile(
+    profile: RemoteProfile,
+    filePort: number,
+    reversePort: number,
+    folderPort: number,
+    folderReversePort: number
+  ): void
   onFileOffer(offer: PrivateFileOffer): void
   onFileOperate(cmd: number, taskId: string, op: number): void
   onFileProgress(taskId: string, totalSize: number, recvdSize: number): void
   onFileReverse(taskId: string): void
+  onFolderOffer(offer: PrivateFolderOffer): void
+  onFolderOperate(cmd: number, taskId: string, op: number): void
+  onFolderReverse(taskId: string): void
   // 已经交给 ENet 的消息重传耗尽，本条消息没有送达
   onSendFailed(msgId: number): void
   onState(state: SessionState): void
@@ -96,6 +115,8 @@ interface PrivateSessionOptions {
   profile: PrivateProfile
   // 本机私有文件通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
   filePort?: number
+  // 本机私有文件夹通道的 TCP 监听端口，写进 X_HANDSHARK 的 NET 节点
+  folderPort?: number
   send: (data: Buffer) => void
   now?: () => number
   callbacks: SessionCallbacks
@@ -129,6 +150,7 @@ export class PrivateSession {
   private readonly identity: { userId: string; peerId: Buffer }
   private readonly profile: PrivateProfile
   private readonly filePort: number
+  private readonly folderPort: number
   private readonly sendRaw: (data: Buffer) => void
   private readonly now: () => number
   private readonly callbacks: SessionCallbacks
@@ -157,6 +179,7 @@ export class PrivateSession {
     this.identity = options.identity
     this.profile = options.profile
     this.filePort = options.filePort ?? 0
+    this.folderPort = options.folderPort ?? 0
     this.sendRaw = options.send
     this.now = options.now ?? Date.now
     this.callbacks = options.callbacks
@@ -260,6 +283,16 @@ export class PrivateSession {
   sendOperateRecvFile(taskId: string, op: number): void {
     if (this.currentState !== 'ready') return
     this.sendFrame(CMD_OPERATE_RECV_FILE, operateRecvFileXml(taskId, op))
+  }
+
+  sendOperateSendFolder(taskId: string, op: number): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_OPERATE_SEND_FOLDER, operateSendFolderXml(taskId, op))
+  }
+
+  sendOperateRecvFolder(taskId: string, op: number): void {
+    if (this.currentState !== 'ready') return
+    this.sendFrame(CMD_OPERATE_RECV_FOLDER, operateRecvFolderXml(taskId, op))
   }
 
   // 取图请求：把收到的 img 节点原样回给发送方，请它把原图推过来
@@ -493,7 +526,10 @@ export class PrivateSession {
   }
 
   private sendHandshake(): void {
-    this.sendFrame(CMD_HANDSHAKE, handshakeXml(this.profile, this.identity.userId, this.filePort))
+    this.sendFrame(
+      CMD_HANDSHAKE,
+      handshakeXml(this.profile, this.identity.userId, this.filePort, this.folderPort)
+    )
   }
 
   private sendFrame(cmd: number, xml: string): void {
@@ -531,10 +567,21 @@ export class PrivateSession {
         this.callbacks.onReceipt(incoming.msgId)
         return
       case 'handshake':
-        this.callbacks.onProfile(incoming.profile, incoming.filePort, incoming.reversePort)
+        this.callbacks.onProfile(
+          incoming.profile,
+          incoming.filePort,
+          incoming.reversePort,
+          incoming.folderPort,
+          incoming.folderReversePort
+        )
         if (incoming.filePort > 0 || incoming.reversePort > 0) {
           this.callbacks.onLog(
             `私有会话 ${this.remoteLabel} 对端文件端口 ${incoming.filePort}，反向端口 ${incoming.reversePort}`
+          )
+        }
+        if (incoming.folderPort > 0 || incoming.folderReversePort > 0) {
+          this.callbacks.onLog(
+            `私有会话 ${this.remoteLabel} 对端文件夹端口 ${incoming.folderPort}，反向端口 ${incoming.folderReversePort}`
           )
         }
         if (!this.readySent) {
@@ -553,6 +600,15 @@ export class PrivateSession {
         return
       case 'file-reverse':
         this.callbacks.onFileReverse(incoming.taskId)
+        return
+      case 'folder-offer':
+        this.callbacks.onFolderOffer(incoming.offer)
+        return
+      case 'folder-operate':
+        this.callbacks.onFolderOperate(incoming.cmd, incoming.taskId, incoming.op)
+        return
+      case 'folder-reverse':
+        this.callbacks.onFolderReverse(incoming.taskId)
         return
       case 'ready':
         if (this.currentState === 'handshaking') {

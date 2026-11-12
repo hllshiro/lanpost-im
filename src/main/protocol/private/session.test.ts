@@ -58,6 +58,9 @@ function makeSession(
       onFileProgress: (taskId, total, recvd) =>
         events.push(`file-progress:${taskId}:${total}:${recvd}`),
       onFileReverse: (taskId) => events.push(`file-reverse:${taskId}`),
+      onFolderOffer: (offer) => events.push(`folder-offer:${offer.taskId}`),
+      onFolderOperate: (cmd, taskId, op) => events.push(`folder-op:${cmd}:${taskId}:${op}`),
+      onFolderReverse: (taskId) => events.push(`folder-reverse:${taskId}`),
       onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),
       onLog: () => {}

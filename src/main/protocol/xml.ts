@@ -147,6 +147,34 @@ export interface ProgressRecvFile {
   Speed: string
 }
 
+// 文件夹邀请：TASK_ID 是 GUID 字符串，两个 MAX_* 是发送端扫描目录的准入阈值
+export interface SendFolder {
+  Docver: number
+  TaskID: string
+  FolderName: string
+  FolderSize: number
+  MaxItemPath: number
+  MaxItemSize: number
+  Offline: number
+}
+
+export interface OperateSendFolder {
+  Docver: number
+  TaskID: string
+  Op: number
+}
+
+export interface OperateRecvFolder {
+  Docver: number
+  TaskID: string
+  Op: number
+}
+
+export interface ReverseFolderReq {
+  Docver: number
+  TaskID: string
+}
+
 export interface XmlTypes {
   X_HANDSHARK: Handshake
   X_CHANGE_INFO: ChangeInfo
@@ -162,6 +190,10 @@ export interface XmlTypes {
   X_OPERATE_SEND_FILE: OperateSendFile
   X_OPERATE_RECV_FILE: OperateRecvFile
   X_PROGRESS_RECV_FILE: ProgressRecvFile
+  X_SEND_FOLDER: SendFolder
+  X_OPERATE_SEND_FOLDER: OperateSendFolder
+  X_OPERATE_RECV_FOLDER: OperateRecvFolder
+  X_REVERSE_FOLDER_REQ: ReverseFolderReq
 }
 
 export type XmlTag = keyof XmlTypes
@@ -374,6 +406,29 @@ const DECODERS: { [K in XmlTag]: (root: XmlNode) => XmlTypes[K] } = {
     TotalSize: num(root, 'TOTAL_SIZE'),
     RecvdSize: num(root, 'RECVD_SIZE'),
     Speed: str(root, 'SPEED')
+  }),
+  X_SEND_FOLDER: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    FolderName: str(root, 'FOLDER_NAME'),
+    FolderSize: num(root, 'FOLDER_SIZE'),
+    MaxItemPath: num(root, 'MAX_ITEM_PATH'),
+    MaxItemSize: num(root, 'MAX_ITEM_SIZE'),
+    Offline: num(root, 'OFFLINE')
+  }),
+  X_OPERATE_SEND_FOLDER: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    Op: num(root, 'OP')
+  }),
+  X_OPERATE_RECV_FOLDER: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID'),
+    Op: num(root, 'OP')
+  }),
+  X_REVERSE_FOLDER_REQ: (root) => ({
+    Docver: num(root, '@_docver'),
+    TaskID: str(root, 'TASK_ID')
   })
 }
 
@@ -506,6 +561,29 @@ const ENCODERS: { [K in XmlTag]: (value: XmlTypes[K]) => XmlNode } = {
     TOTAL_SIZE: value.TotalSize,
     RECVD_SIZE: value.RecvdSize,
     SPEED: value.Speed
+  }),
+  X_SEND_FOLDER: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    FOLDER_NAME: value.FolderName,
+    FOLDER_SIZE: value.FolderSize,
+    MAX_ITEM_PATH: value.MaxItemPath,
+    MAX_ITEM_SIZE: value.MaxItemSize,
+    OFFLINE: value.Offline
+  }),
+  X_OPERATE_SEND_FOLDER: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    OP: value.Op
+  }),
+  X_OPERATE_RECV_FOLDER: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID,
+    OP: value.Op
+  }),
+  X_REVERSE_FOLDER_REQ: (value) => ({
+    '@_docver': value.Docver,
+    TASK_ID: value.TaskID
   })
 }
 
@@ -568,4 +646,20 @@ export function encodeOperateRecvFile(value: OperateRecvFile): string {
 
 export function encodeProgressRecvFile(value: ProgressRecvFile): string {
   return encodeXml('X_PROGRESS_RECV_FILE', value)
+}
+
+export function encodeSendFolder(value: SendFolder): string {
+  return encodeXml('X_SEND_FOLDER', value)
+}
+
+export function encodeOperateSendFolder(value: OperateSendFolder): string {
+  return encodeXml('X_OPERATE_SEND_FOLDER', value)
+}
+
+export function encodeOperateRecvFolder(value: OperateRecvFolder): string {
+  return encodeXml('X_OPERATE_RECV_FOLDER', value)
+}
+
+export function encodeReverseFolderReq(value: ReverseFolderReq): string {
+  return encodeXml('X_REVERSE_FOLDER_REQ', value)
 }

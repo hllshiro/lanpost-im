@@ -6,6 +6,7 @@ import {
   helloFrame,
   messageTextJson,
   operateRecvFileXml,
+  operateRecvFolderXml,
   operateSendFileXml,
   parsePrivate,
   progressRecvFileXml,
@@ -121,7 +122,49 @@ describe('private messages round-trip', () => {
       kind: 'handshake',
       profile: { ...profile, userId },
       filePort: 9013,
-      reversePort: 9013
+      reversePort: 9013,
+      folderPort: 0,
+      folderReversePort: 0
+    })
+  })
+
+  it('round-trips the folder ports in the handshake', () => {
+    const profile: PrivateProfile = {
+      name: '本机',
+      group: '研发部',
+      corporation: '',
+      department: '',
+      sign: '',
+      status: 0
+    }
+    const xml = handshakeXml(profile, '0123456789abcdef0123456789abcdef', 9013, 9014)
+    expect(xml).toContain('<FOLDER_TRAN_TCP_PORT>9014</FOLDER_TRAN_TCP_PORT>')
+    expect(xml).toContain('<FOLDER_TRAN_TCP_REVERSE_PORT>9014</FOLDER_TRAN_TCP_REVERSE_PORT>')
+    expect(parsePrivate(1000, xml)).toMatchObject({ folderPort: 9014, folderReversePort: 9014 })
+  })
+
+  it('parses a folder invite and the receive-side operation', () => {
+    const xml =
+      '<X_SEND_FOLDER docver="1"><TASK_ID>fc8467cf</TASK_ID><FOLDER_NAME>资料</FOLDER_NAME>' +
+      '<FOLDER_SIZE>4372509</FOLDER_SIZE><MAX_ITEM_PATH>41</MAX_ITEM_PATH>' +
+      '<MAX_ITEM_SIZE>4073951</MAX_ITEM_SIZE><OFFLINE>0</OFFLINE></X_SEND_FOLDER>'
+    expect(parsePrivate(1013, xml)).toEqual({
+      kind: 'folder-offer',
+      offer: {
+        taskId: 'fc8467cf',
+        name: '资料',
+        size: 4372509,
+        maxItemPath: 41,
+        maxItemSize: 4073951
+      }
+    })
+
+    const operate = parsePrivate(1015, operateRecvFolderXml('fc8467cf', 2))
+    expect(operate).toEqual({
+      kind: 'folder-operate',
+      cmd: 1015,
+      taskId: 'fc8467cf',
+      op: 2
     })
   })
 
