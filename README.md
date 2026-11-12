@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-第一版核心功能已实现，当前正在修复主动向 NWT/飞秋发送文件时的入站 TCP 兼容问题。进展和待办见：
+第一版核心功能已实现：文字、文件与图片都能与真实内网通走私有通道收发。进展和待办见：
 
 - 开发交接与环境切换：`docs/handoff.md`
 - 文件发送兼容 TODO：`docs/TODO-file-send-compat.md`
@@ -14,6 +14,11 @@
 
 - 文件传输状态机：`docs/file-transfer.md`
 - NWT/飞秋兼容矩阵：`docs/nwt-compatibility.md`
+- 内网通私有协议（文字、文件、图片）：`docs/nwt-private-protocol.md`
+- 内网通私有文件与文件夹数据通道：`docs/nwt-file-channel.md`
+- 内网通私有命令号与 XML 模板：`docs/nwt-command-map.md`
+- 内网通真机抓包结论：`docs/nwt-live-findings.md`
+- 内网通功能清单（对端静态盘点）：`docs/nwt-feature-inventory.md`
 - 抓包与协议调试：`docs/protocol-debugging.md`
 - 已知限制：`docs/known-limits.md`
 

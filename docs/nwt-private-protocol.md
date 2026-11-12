@@ -5,6 +5,7 @@
 - 对端：内网通 3.4.3055（Windows）
 - 状态：文字、文件和图片都已与真实客户端联调通过
 - 不在本文范围：文件夹、群组、共享文件柜、远程协助、离线消息
+- 文件夹的控制命令与数据通道已经还原，见 [nwt-file-channel.md](nwt-file-channel.md)，尚未实现
 
 ## 1. 两套通道的分工
 
@@ -138,12 +139,18 @@ d529c5439de045c9 d3dc11866769e1fe dfa896e8e704a553 2f3e
 | 1010 | X_OPERATE_SEND_FILE | 发→收 | 开始发送，`OP=2` |
 | 1011 | X_OPERATE_RECV_FILE | 收→发 | 接收方确认，`OP=1/2` 都出现过，不代表传输完成 |
 | 1012 | X_PROGRESS_RECV_FILE | 收→发 | 接收进度，带 `TOTAL_SIZE`、`RECVD_SIZE` |
+| 1013 | X_SEND_FOLDER | 发→收 | 文件夹邀请，带 `TASK_ID`（GUID）、`FOLDER_NAME`、`FOLDER_SIZE`、`MAX_ITEM_PATH`、`MAX_ITEM_SIZE`、`OFFLINE` |
+| 1014 | X_OPERATE_SEND_FOLDER | 发→收 | 文件夹发送操作，`TASK_ID`、`OP` |
+| 1015 | X_OPERATE_RECV_FOLDER | 收→发 | 文件夹接收操作，`TASK_ID`、`OP` |
 | 1019 | X_REVERSE_FILE_REQ | 收→发 | 请对方反过来连接自己的文件端口；图片取回也用它 |
+| 1020 | X_REVERSE_FOLDER_REQ | 收→发 | 请对方反向推送文件夹 |
 | 1016 | X_HEARTBEAT | 双向 | 心跳 |
 | 1017 | X_QUIT | 双向 | 退出 |
 | 1018 | X_READY | 双向 | `USER_ID` 为本机 32 位十六进制标识 |
 
-`X_HANDSHARK` 的 `FEATURE` 必须和真实客户端一致（`MAJOR=3`、`MINOR=4`、`BUILD=3055`、`APP=1`、`MSG=2:1`，其余能力位按真实客户端填写）；版本或能力位为 0 会被对端当成旧客户端，图片只发卡片、不发文件。`NET` 里的 `FILE_TRAN_TCP_PORT` 与 `FILE_TRAN_TCP_REVERSE_PORT` 填本机文件通道端口；`<INFO><GROUP>` 不能为空或纯空白，空值按 `Default` 发送，否则对端回 DISCONNECT。
+`X_HANDSHARK` 的 `FEATURE` 必须和真实客户端一致（`MAJOR=3`、`MINOR=4`、`BUILD=3055`、`APP=1`、`MSG=2:1`、`FILE_TRAN=1`、`FOLDER_TRAN=2:1`，其余能力位按真实客户端填写）；版本或能力位为 0 会被对端当成旧客户端，图片只发卡片、不发文件。`NET` 里填本机文件与文件夹通道端口：只做文件时 `FOLDER_TRAN_TCP_PORT` 留 0，对端就不会发起文件夹传输；`FILE_TRAN_TCP_PORT` 与 `FILE_TRAN_TCP_REVERSE_PORT` 填本机文件通道端口。`<INFO><GROUP>` 不能为空或纯空白，空值按 `Default` 发送，否则对端回 DISCONNECT。
+
+私有命令号不是连续段：文字与文件在 1000–1025，群组在 3000–3012，远程协助在 4000–4001，共享文件柜在 5000–5009，完整映射见 [nwt-command-map.md](nwt-command-map.md)。
 
 ### 6.1 文字 JSON
 
@@ -287,7 +294,7 @@ src/main/protocol/private/
 
 ## 12. 已知限制
 
-- 文件夹、群组、共享文件柜、远程协助、离线消息未实现。
+- 文件夹、群组、共享文件柜、远程协助、离线消息未实现；文件夹的控制命令与数据通道已还原，见 [nwt-file-channel.md](nwt-file-channel.md)。
 - 图片依赖对端发 `1019`；对端不主动来要时不会退化成文件发送。
 - 客户端不发送 9011 通告，只监听；对端必须自己广播发现报文，或者用 `privateSeeds` 直连。
 - 私有一对一会话的失败重发只在本通道内进行，不跨通道重发。
@@ -297,6 +304,10 @@ src/main/protocol/private/
 ## 13. 参考
 
 - 逆向记录与抓包原文：`../../nwt-re/docs/private-protocol.md`
+- 命令号与 XML 模板：`docs/nwt-command-map.md`
+- 文件与文件夹数据通道：`docs/nwt-file-channel.md`
+- 真机抓包验证：`docs/nwt-live-findings.md`
+- 对端功能清单：`docs/nwt-feature-inventory.md`
 - 兼容矩阵：`docs/nwt-compatibility.md`
 - 抓包与协议调试：`docs/protocol-debugging.md`
 - 实现分支：`feat/private-channel`，协议模块在 `src/main/protocol/private/`
