@@ -68,7 +68,7 @@ const imageUrl = computed(() => {
 
 const imageBroken = ref(false)
 watch(
-  () => props.file?.id,
+  () => [props.file?.id, props.file?.state],
   () => {
     imageBroken.value = false
   }

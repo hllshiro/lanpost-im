@@ -1,10 +1,14 @@
 import { randomBytes, createHash } from 'node:crypto'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
+  readSync,
+  renameSync,
   rmSync,
   statSync,
   writeFileSync
@@ -177,6 +181,24 @@ function imageMimeOf(name: string): string {
 
 function isImagePath(path: string): boolean {
   return IMAGE_PATH.test(path)
+}
+
+// 收到图片先按编号存成 .png，这里按文件头还原真实格式，GIF 才能保持动画
+function imageExtensionFromMagic(header: Buffer): string {
+  if (header.length >= 6) {
+    const signature = header.toString('ascii', 0, 6)
+    if (signature === 'GIF87a' || signature === 'GIF89a') return 'gif'
+  }
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8) return 'jpg'
+  if (
+    header.length >= 12 &&
+    header.toString('ascii', 0, 4) === 'RIFF' &&
+    header.toString('ascii', 8, 12) === 'WEBP'
+  ) {
+    return 'webp'
+  }
+  if (header.length >= 2 && header.toString('ascii', 0, 2) === 'BM') return 'bmp'
+  return ''
 }
 
 // 图片卡片里的 md5 用于对端判断缓存命中；只对图片计算，且限制大小
@@ -2366,23 +2388,6 @@ export class AppService {
       )
       this.fileLinks.set(fileTaskId, { conversationId: conversation.id, messageId: message.id })
       this.repos.messages.setStatus(message.id, 'sent')
-      this.repos.conversations.touch(conversation.id, message.createdAt, 0)
-      this.emit({ type: 'message', message: { ...message, status: 'sent' } })
-      this.emitConversation(conversation.id)
-      const pushes = targets.map((target) => ({
-        ip: target.ip,
-        taskId: this.nextPrivateTaskId(target.ip)
-      }))
-      for (const push of pushes) {
-        service.sendGroupImage(push.ip, groupId, message.id, value)
-      }
-      this.privateImagePushes.set(fileId, pushes)
-      this.privateFileTasks.set(fileId, {
-        fileTaskId,
-        direction: 'out',
-        taskId: pushes[0]?.taskId ?? '',
-        ip: pushes[0]?.ip ?? ''
-      })
       const now = Date.now()
       const task: FileTaskInfo = {
         id: fileTaskId,
@@ -2401,9 +2406,26 @@ export class AppService {
         createdAt: now,
         updatedAt: now
       }
+      // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
       this.repos.files.upsert(task)
-      // 群任务没有 peerKey，handleFileUpdate 会直接返回，这里直接推给渲染进程
       this.emit({ type: 'file', file: task })
+      this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+      this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+      this.emitConversation(conversation.id)
+      const pushes = targets.map((target) => ({
+        ip: target.ip,
+        taskId: this.nextPrivateTaskId(target.ip)
+      }))
+      for (const push of pushes) {
+        service.sendGroupImage(push.ip, groupId, message.id, value)
+      }
+      this.privateImagePushes.set(fileId, pushes)
+      this.privateFileTasks.set(fileId, {
+        fileTaskId,
+        direction: 'out',
+        taskId: pushes[0]?.taskId ?? '',
+        ip: pushes[0]?.ip ?? ''
+      })
       logStartup(`群图片已发卡片 ${name} 文件号=${fileId} 成员=${pushes.length}`)
     }
   }
@@ -2567,6 +2589,9 @@ export class AppService {
         )
         this.fileLinks.set(fileTaskId, { conversationId, messageId: message.id })
         task.messageId = message.id
+        // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
+        this.repos.files.upsert(task)
+        this.handleFileUpdate(task)
         this.repos.conversations.touch(conversationId, message.createdAt, 0)
         this.emitConversation(conversationId)
         service.sendImageCard(peer.ip, message.id, value)
@@ -2579,9 +2604,9 @@ export class AppService {
           throw new Error('内网通私有会话未就绪')
         }
         service.sendOperateSendFile(peer.ip, taskId, 2)
+        this.repos.files.upsert(task)
+        this.handleFileUpdate(task)
       }
-      this.repos.files.upsert(task)
-      this.handleFileUpdate(task)
     }
   }
 
@@ -3264,6 +3289,7 @@ export class AppService {
     logStartup(`私有文件${entry.direction === 'in' ? '接收' : '发送'}完成 ${fileId}（${path}）`)
     const task = this.repos.files.get(entry.fileTaskId)
     if (task === null) return
+    const saved = entry.direction === 'in' ? this.normalizeReceivedImage(path) : path
     const total = Math.max(task.size, task.received)
     if (entry.direction === 'in') {
       this.privateService?.sendOperateRecvFile(entry.ip, entry.taskId, 2)
@@ -3274,9 +3300,32 @@ export class AppService {
       'done',
       Math.max(task.size, task.received),
       '',
-      path
+      saved
     )
     this.privateFileTasks.delete(fileId)
+  }
+
+  // 收到的图片存成 image-<编号>.png；按文件头把扩展名改回真实格式，GIF 才能动
+  private normalizeReceivedImage(path: string): string {
+    if (!path.toLowerCase().endsWith('.png') || !existsSync(path)) return path
+    let handle: number | null = null
+    try {
+      handle = openSync(path, 'r')
+      const header = Buffer.alloc(12)
+      const read = readSync(handle, header, 0, 12, 0)
+      const extension = imageExtensionFromMagic(header.subarray(0, read))
+      if (extension === '' || extension === 'png') return path
+      const dir = dirname(path)
+      const target = join(dir, uniqueName(dir, basename(path).replace(/\.png$/i, `.${extension}`)))
+      renameSync(path, target)
+      logStartup(`图片格式 ${extension}，改存为 ${basename(target)}`)
+      return target
+    } catch (error) {
+      logStartup(`图片扩展名还原失败：${(error as Error).message}`)
+      return path
+    } finally {
+      if (handle !== null) closeSync(handle)
+    }
   }
 
   private handlePrivateFileError(fileId: number, error: Error): void {

@@ -11,7 +11,7 @@ mkdirSync(target, { recursive: true })
 
 const entries = []
 for (const group of xml.matchAll(/<EmotionGroup Name="([^"]*)"[^>]*>([\s\S]*?)<\/EmotionGroup>/g)) {
-  const [, name, body] = group
+  const body = group[2]
   for (const item of body.matchAll(/<Emotion ([^>]*)\/>/g)) {
     const attrs = Object.fromEntries(
       [...item[1].matchAll(/(\w+)="([^"]*)"/g)].map(([, key, value]) => [key, value])
