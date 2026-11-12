@@ -83,6 +83,8 @@ const api: Api = {
       ipcRenderer.invoke(IPC.fileStagedRemove, conversationId, id),
     sendStaged: (conversationId, text) =>
       ipcRenderer.invoke(IPC.fileStagedSend, conversationId, text),
+    sendRich: (conversationId, parts) =>
+      ipcRenderer.invoke(IPC.fileSendRich, conversationId, parts),
     sendFolder: (conversationId, path) =>
       ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path)
   },

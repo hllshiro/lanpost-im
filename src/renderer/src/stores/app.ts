@@ -13,6 +13,7 @@ import type {
   StagedAttachment
 } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
+import type { RichPart } from '../../../shared/ipc'
 
 const PREVIEW_PAGE_SIZE = 10
 const DRAFT_SAVE_DELAY = 400
@@ -339,6 +340,24 @@ export const useAppStore = defineStore('app', () => {
     await markRead(id)
   }
 
+  // 发送输入框里的图文内容；剩余的文件、文件夹再单独发
+  async function sendRich(conversationId: string, parts: RichPart[]): Promise<void> {
+    if (sending.value) return
+    sending.value = true
+    try {
+      await window.api.files.sendRich(conversationId, parts)
+      if (
+        staged.value.some((item) => item.conversationId === conversationId && item.kind !== 'image')
+      ) {
+        await window.api.files.sendStaged(conversationId)
+      }
+    } catch (reason) {
+      reportError(reason)
+    } finally {
+      sending.value = false
+    }
+  }
+
   // 发送：待发区的附件按顺序先发出去，再发文字
   async function sendText(text: string): Promise<boolean> {
     const conversationId = currentConversationId.value
@@ -545,6 +564,7 @@ export const useAppStore = defineStore('app', () => {
     selectConversation,
     loadMessages,
     sendText,
+    sendRich,
     saveDraft,
     removeStaged,
     markRead,

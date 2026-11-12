@@ -70,6 +70,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileStagedSend, (_event, conversationId: string, text?: string) =>
     service.sendStaged(conversationId, text)
   )
+  ipcMain.handle(IPC.fileSendRich, (_event, conversationId: string, parts) =>
+    service.sendRich(conversationId, parts)
+  )
   ipcMain.handle(IPC.fileSendFolder, (_event, conversationId: string, path: string) =>
     service.sendFolder(conversationId, path)
   )

@@ -53,6 +53,7 @@ export const IPC = {
   fileStageBytes: 'files:stage-bytes',
   fileStagedRemove: 'files:staged-remove',
   fileStagedSend: 'files:staged-send',
+  fileSendRich: 'files:send-rich',
   fileSendFolder: 'files:send-folder'
 } as const
 
@@ -86,6 +87,9 @@ export interface StagePathsResult {
   attachments: StagedAttachment[]
   skipped: string[]
 }
+
+// 富文本输入里的一项：文字，或者待发区里的一张图片
+export type RichPart = { kind: 'text'; text: string } | { kind: 'image'; stagedId: string }
 
 export type Api = {
   app: {
@@ -160,6 +164,8 @@ export type Api = {
     pathFor(file: File): string
     removeStaged(conversationId: string, id: string): Promise<void>
     sendStaged(conversationId: string, text?: string): Promise<void>
+    // 按输入框里的顺序发送文字与图片
+    sendRich(conversationId: string, parts: RichPart[]): Promise<void>
     // 发送文件夹：先发 1013 邀请，对端接受后由文件夹通道推送
     sendFolder(conversationId: string, path: string): Promise<void>
   }

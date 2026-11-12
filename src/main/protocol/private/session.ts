@@ -32,6 +32,8 @@ import {
   reverseFolderReqXml,
   groupPushUserXml,
   groupImageXml,
+  groupRichCardXml,
+  richCardXml,
   groupFileXml,
   groupSendXml,
   groupInfoRspXml,
@@ -53,6 +55,7 @@ import {
   sendReceiptXml
 } from './messages'
 import type {
+  PrivateCardNode,
   PrivateContentSegment,
   PrivateFileOffer,
   PrivateFolderOffer,
@@ -507,6 +510,18 @@ export class PrivateSession {
   sendImageCard(msgId: number, values: string[], text = ''): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_SEND_MSG, imageCardXml(msgId, values, text)))
+    return true
+  }
+
+  sendRichCard(msgId: number, nodes: PrivateCardNode[]): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_SEND_MSG, richCardXml(msgId, nodes)))
+    return true
+  }
+
+  sendGroupRichCard(groupId: string, msgId: number, nodes: PrivateCardNode[]): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_SEND_MSG, groupRichCardXml(groupId, msgId, nodes)))
     return true
   }
 

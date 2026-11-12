@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import { FileText, Folder, Paperclip, Send, Smile, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
+import type { RichPart } from '../../../shared/ipc'
 import { errorMessage } from '../utils/errors'
 import { formatSize } from '../utils/format'
 import { useAppStore } from '../stores/app'
@@ -30,9 +31,8 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:draft': [value: string]
-  send: [text: string]
+  'send-rich': [parts: RichPart[]]
   'remove-staged': [id: string]
-  sticker: [key: string]
 }>()
 
 const fileBusy = ref(false)
@@ -62,41 +62,108 @@ function favoriteUrl(id: string): string {
   return `lanpost-emotion:///${encodeURIComponent(id)}`
 }
 
-function sendFavorite(id: string): void {
-  if (props.sending) return
-  stickersOpen.value = false
-  void store.stageFavorite(props.conversationId, id)
-}
-
 onClickOutside(stickerAnchor, () => {
   stickersOpen.value = false
 })
+
+// ---- 富文本输入：文字和图片在同一个输入框里按顺序混排 ----
+
+const editor = ref<HTMLElement | null>(null)
+const hasContent = ref(false)
+const stagedImages = computed(() => props.staged.filter((item) => item.kind === 'image'))
+const stagedFiles = computed(() => props.staged.filter((item) => item.kind !== 'image'))
+
+function stagedUrl(id: string): string {
+  return `lanpost-staged:///${encodeURIComponent(id)}`
+}
+
+function imageNode(attachment: StagedAttachment): HTMLElement {
+  const image = document.createElement('img')
+  image.src = stagedUrl(attachment.id)
+  image.alt = attachment.name
+  image.title = attachment.name
+  image.className = 'editor-image'
+  image.dataset.staged = attachment.id
+  image.setAttribute('contenteditable', 'false')
+  return image
+}
+
+function insertAtCaret(node: Node): void {
+  const element = editor.value
+  if (element === null) return
+  element.focus()
+  const selection = window.getSelection()
+  if (selection === null || selection.rangeCount === 0 || !element.contains(selection.anchorNode)) {
+    element.appendChild(node)
+    return
+  }
+  const range = selection.getRangeAt(0)
+  range.deleteContents()
+  range.insertNode(node)
+  range.setStartAfter(node)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function insertImages(attachments: StagedAttachment[]): void {
+  for (const attachment of attachments) {
+    if (attachment.kind !== 'image') continue
+    insertAtCaret(imageNode(attachment))
+  }
+  refreshContent()
+}
+
+// 等待主进程把附件放进待发区，再把新增的图片插到光标位置
+async function stageAndInsert(
+  work: () => Promise<StagedAttachment[]>,
+  before: Set<string>
+): Promise<void> {
+  const list = await work()
+  insertImages(list.filter((item) => !before.has(item.id)))
+}
+
+function currentStagedIds(): Set<string> {
+  return new Set(props.staged.map((item) => item.id))
+}
 
 async function sendSticker(item: EmotionItem): Promise<void> {
   if (props.sending) return
   rememberUsage(item)
   stickersOpen.value = false
+  const before = currentStagedIds()
   try {
     const url = emotionUrl(item)
     if (url === '') throw new Error('表情资源不可用')
     const data = await (await fetch(url)).arrayBuffer()
     const name = item.image.split('/').pop() ?? 'sticker.gif'
-    await window.api.files.stageBytes(props.conversationId, name, data, true)
+    await stageAndInsert(
+      () => window.api.files.stageBytes(props.conversationId, name, data, true),
+      before
+    )
   } catch (reason) {
     fileError.value = errorMessage(reason)
   }
 }
 
-function stagedUrl(id: string): string {
-  return `lanpost-staged:///${encodeURIComponent(id)}`
+async function sendFavorite(id: string): Promise<void> {
+  if (props.sending) return
+  stickersOpen.value = false
+  const before = currentStagedIds()
+  try {
+    await stageAndInsert(() => window.api.emotions.stage(props.conversationId, id), before)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  }
 }
 
 async function pickFile(): Promise<void> {
   if (fileBusy.value || props.conversationId === '') return
   fileBusy.value = true
   fileError.value = ''
+  const before = currentStagedIds()
   try {
-    await window.api.files.pick(props.conversationId)
+    await stageAndInsert(() => window.api.files.pick(props.conversationId), before)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   } finally {
@@ -104,7 +171,7 @@ async function pickFile(): Promise<void> {
   }
 }
 
-// 输入框里粘贴的图片先落盘进待发区，点发送才发出去
+// 粘贴图片直接插到光标处，和文字一起发
 async function onPaste(event: ClipboardEvent): Promise<void> {
   if (props.conversationId === '' || fileBusy.value) return
   const items = event.clipboardData?.items
@@ -114,8 +181,9 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
   event.preventDefault()
   fileBusy.value = true
   fileError.value = ''
+  const before = currentStagedIds()
   try {
-    await window.api.files.paste(props.conversationId)
+    await stageAndInsert(() => window.api.files.paste(props.conversationId), before)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   } finally {
@@ -123,31 +191,93 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
   }
 }
 
-const INPUT_HEIGHT = 132
-const textarea = ref<HTMLTextAreaElement | null>(null)
-const text = computed({
-  get: () => props.draft,
-  set: (value: string) => emit('update:draft', value)
-})
-const canSend = computed(
-  () => !props.sending && (props.draft.trim().length > 0 || props.staged.length > 0)
-)
+function refreshContent(): void {
+  const element = editor.value
+  const text = element?.innerText ?? ''
+  hasContent.value = text.trim() !== '' || element?.querySelector('img[data-staged]') !== null
+  emit('update:draft', text)
+}
 
-function resize(): void {
-  const element = textarea.value
-  if (!element) return
-  element.style.height = `${INPUT_HEIGHT}px`
+// 退格删掉输入框里的图片后，把对应的待发附件也移除
+let pruneTimer: number | undefined
+function schedulePrune(): void {
+  if (pruneTimer !== undefined) window.clearTimeout(pruneTimer)
+  pruneTimer = window.setTimeout(() => {
+    const element = editor.value
+    if (element === null) return
+    const alive = new Set(
+      Array.from(element.querySelectorAll('img[data-staged]')).map(
+        (image) => (image as HTMLImageElement).dataset.staged ?? ''
+      )
+    )
+    for (const attachment of stagedImages.value) {
+      if (!alive.has(attachment.id)) {
+        void window.api.files.removeStaged(props.conversationId, attachment.id)
+      }
+    }
+  }, 300)
 }
 
 function onInput(): void {
-  void nextTick(resize)
+  refreshContent()
+  schedulePrune()
 }
+
+function collectParts(): RichPart[] {
+  const element = editor.value
+  if (element === null) return []
+  const parts: RichPart[] = []
+  const pushText = (value: string): void => {
+    if (value === '') return
+    const last = parts[parts.length - 1]
+    if (last !== undefined && last.kind === 'text') last.text += value
+    else parts.push({ kind: 'text', text: value })
+  }
+  const walk = (node: Node): void => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      pushText(node.textContent ?? '')
+      return
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return
+    const entry = node as HTMLElement
+    if (entry.tagName === 'IMG') {
+      const stagedId = entry.dataset.staged
+      if (stagedId !== undefined) parts.push({ kind: 'image', stagedId })
+      return
+    }
+    if (entry.tagName === 'BR') {
+      pushText('\n')
+      return
+    }
+    const block = entry.tagName === 'DIV' || entry.tagName === 'P'
+    if (block && parts.length > 0) pushText('\n')
+    for (const child of Array.from(entry.childNodes)) walk(child)
+  }
+  for (const child of Array.from(element.childNodes)) walk(child)
+  return parts
+}
+
+const canSend = computed(() => !props.sending && (hasContent.value || stagedFiles.value.length > 0))
 
 function submit(): void {
   if (props.sending) return
-  const body = props.draft.trim()
-  if (!body && props.staged.length === 0) return
-  emit('send', body)
+  const parts = collectParts()
+  const hasImage = parts.some((part) => part.kind === 'image')
+  const text = parts
+    .filter((part) => part.kind === 'text')
+    .map((part) => part.text)
+    .join('')
+    .trim()
+  if (!hasImage && text === '' && stagedFiles.value.length === 0) return
+  emit('send-rich', parts)
+  clearEditor()
+}
+
+function clearEditor(): void {
+  const element = editor.value
+  if (element !== null) element.innerHTML = ''
+  hasContent.value = false
+  emit('update:draft', '')
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -156,11 +286,21 @@ function onKeydown(event: KeyboardEvent): void {
   submit()
 }
 
+// 会话切换或首次进入时，把草稿文字和已经在待发区的图片放回输入框
+function loadEditor(): void {
+  const element = editor.value
+  if (element === null) return
+  element.innerHTML = ''
+  if (props.draft !== '') element.appendChild(document.createTextNode(props.draft))
+  for (const attachment of stagedImages.value) element.appendChild(imageNode(attachment))
+  refreshContent()
+}
+
 watch(
-  () => props.draft,
+  () => props.conversationId,
   async () => {
     await nextTick()
-    resize()
+    loadEditor()
   }
 )
 
@@ -169,27 +309,21 @@ watch(
   async (sending) => {
     if (sending) return
     await nextTick()
-    textarea.value?.focus()
+    editor.value?.focus()
   }
 )
 
 onMounted(async () => {
   await nextTick()
-  resize()
+  loadEditor()
 })
 </script>
 
 <template>
   <footer class="composer">
-    <div v-if="staged.length > 0" class="staged">
-      <div v-for="item in staged" :key="item.id" class="staged-item" :title="item.name">
-        <img
-          v-if="item.kind === 'image'"
-          class="staged-thumb"
-          :src="stagedUrl(item.id)"
-          :alt="item.name"
-        />
-        <div v-else class="staged-file">
+    <div v-if="stagedFiles.length > 0" class="staged">
+      <div v-for="item in stagedFiles" :key="item.id" class="staged-item" :title="item.name">
+        <div class="staged-file">
           <Folder v-if="item.kind === 'folder'" :size="16" :stroke-width="1.6" />
           <FileText v-else :size="16" :stroke-width="1.6" />
           <span class="staged-name">{{ item.name }}</span>
@@ -206,13 +340,12 @@ onMounted(async () => {
       </div>
     </div>
 
-    <textarea
-      ref="textarea"
-      v-model="text"
-      class="input"
-      rows="1"
-      :placeholder="`发送给 ${conversationTitle}`"
+    <div
+      ref="editor"
+      class="input rich-input"
+      contenteditable="plaintext-only"
       spellcheck="false"
+      :data-placeholder="`发送给 ${conversationTitle}`"
       @input="onInput"
       @keydown="onKeydown"
       @paste="onPaste"
@@ -396,6 +529,28 @@ onMounted(async () => {
   line-height: 1.6;
   color: var(--text);
   overflow-y: auto;
+}
+
+/* 富文本输入：图片作为原子元素夹在文字之间 */
+.rich-input {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rich-input:empty::before {
+  content: attr(data-placeholder);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.editor-image {
+  display: inline-block;
+  height: 28px;
+  max-width: 96px;
+  margin: 0 2px;
+  border-radius: 4px;
+  object-fit: contain;
+  vertical-align: middle;
 }
 
 .toolbar {

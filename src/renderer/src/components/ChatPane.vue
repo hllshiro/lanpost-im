@@ -12,6 +12,7 @@ import type {
   PeerInfo,
   StagedAttachment
 } from '../../../shared/domain'
+import type { RichPart } from '../../../shared/ipc'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import Composer from './Composer.vue'
@@ -31,7 +32,7 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  send: [text: string]
+  'send-rich': [parts: RichPart[]]
   draft: [value: string]
   'remove-staged': [id: string]
   read: []
@@ -133,10 +134,6 @@ function confirmPending(): void {
 
 function handleDraft(value: string): void {
   emit('draft', value)
-}
-
-function handleSend(text: string): void {
-  emit('send', text)
 }
 
 async function copyAddress(): Promise<void> {
@@ -325,7 +322,7 @@ onBeforeUnmount(() => {
         :conversation-id="conversation.id"
         :staged="staged"
         @update:draft="handleDraft"
-        @send="handleSend"
+        @send-rich="emit('send-rich', $event)"
         @remove-staged="emit('remove-staged', $event)"
       />
     </template>

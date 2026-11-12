@@ -43,6 +43,7 @@ import type {
   AppInfo,
   MessagesListRequest,
   MessagesSendRequest,
+  RichPart,
   StagePathsResult
 } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
@@ -51,6 +52,7 @@ import { ProtocolEngine, toPeerInfo, type ProtocolPeer } from './protocol/discov
 import { FILE_ATTR_REGULAR, type Attachment } from './protocol/attach'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
+  PrivateCardNode,
   PrivateContentSegment,
   PrivateGroupFileRef,
   PrivateGroupInfo,
@@ -1924,6 +1926,137 @@ export class AppService {
     this.favorites.remove(id)
   }
 
+  // 富文本发送：按输入框里的顺序把文字和待发区图片合成一条消息
+  sendRich(conversationId: string, parts: RichPart[]): void {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null) throw new Error('会话不存在')
+    const service = this.privateService
+    const transfer = this.privateFiles
+    if (service === null || transfer === null) throw new Error('内网通私有文件通道未启动')
+    const isGroup = conversation.kind === 'group'
+    const groupId = isGroup && conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const targets: Array<{ ip: string; key: string }> = []
+    if (isGroup) {
+      const selfId = privateUserId(this.settings.get())
+      for (const member of this.repos.groups.members(groupId)) {
+        if (member.userId === selfId) continue
+        const ip = service.peerIpByUserId(member.userId)
+        if (ip !== null && service.isReady(ip)) targets.push({ ip, key: '' })
+      }
+      if (targets.length === 0) throw new Error('群成员都不在线')
+    } else {
+      if (conversation.peerKey === null) throw new Error('会话不存在')
+      const peer = this.repos.peers.get(conversation.peerKey)
+      if (peer === null) throw new Error('联系人不在线')
+      if (!service.isReady(peer.ip)) throw new Error('内网通私有会话未就绪')
+      targets.push({ ip: peer.ip, key: peer.key })
+    }
+    const seq = this.nextPrivateMessageId()
+    const nodes: PrivateCardNode[] = []
+    const segments: Array<{ kind: 'text'; text: string } | { kind: 'image'; value: string }> = []
+    const tasks: FileTaskInfo[] = []
+    const usedStaged: string[] = []
+    const textParts: string[] = []
+    let allStickers = true
+    let imageCount = 0
+    for (const part of parts) {
+      if (part.kind === 'text') {
+        if (part.text === '') continue
+        nodes.push({ kind: 'text', text: part.text })
+        segments.push({ kind: 'text', text: part.text })
+        textParts.push(part.text)
+        continue
+      }
+      const staged = this.staged.file(part.stagedId)
+      if (staged === undefined || !existsSync(staged.path)) continue
+      const stats = statSync(staged.path)
+      if (!stats.isFile()) continue
+      const fileId = this.nextFileId()
+      const value = `${fileId}|${fileMd5(staged.path)}`
+      transfer.registerOutgoing({ fileId, path: staged.path, size: stats.size, window: value })
+      const fileTaskId = `pf${fileId}`
+      const pushes = targets.map((target) => ({
+        ip: target.ip,
+        taskId: this.nextPrivateTaskId(target.ip)
+      }))
+      this.privateImagePushes.set(fileId, pushes)
+      this.privateFileTasks.set(fileId, {
+        fileTaskId,
+        direction: 'out',
+        taskId: pushes[0]?.taskId ?? '',
+        ip: pushes[0]?.ip ?? ''
+      })
+      const now = Date.now()
+      tasks.push({
+        id: fileTaskId,
+        messageId: 0,
+        conversationId,
+        peerKey: conversation.peerKey ?? undefined,
+        direction: 'out',
+        name: basename(staged.path),
+        size: stats.size,
+        mtime: Math.floor(stats.mtimeMs / 1000),
+        fileId: String(fileId),
+        packetId: 0,
+        path: staged.path,
+        state: 'transferring',
+        received: 0,
+        error: '',
+        createdAt: now,
+        updatedAt: now
+      })
+      nodes.push({ kind: 'image', value })
+      segments.push({ kind: 'image', value })
+      usedStaged.push(part.stagedId)
+      imageCount += 1
+      if (staged.sticker !== true) allStickers = false
+    }
+    if (imageCount === 0) {
+      // 没有图片时退化成普通文字消息
+      const text = textParts.join('')
+      if (text !== '') this.sendText({ conversationId, text })
+      return
+    }
+    const message = this.repos.messages.insertOutgoing(
+      conversation.id,
+      textParts.join('') === '' ? '[图片]' : textParts.join(''),
+      seq,
+      'text',
+      JSON.stringify({
+        source: 'private-image',
+        files: tasks.map((task) => task.id),
+        segments,
+        ...(isGroup ? { groupId } : {}),
+        ...(allStickers ? { sticker: true } : {})
+      })
+    )
+    for (const task of tasks) {
+      task.messageId = message.id
+      this.fileLinks.set(task.id, { conversationId, messageId: message.id })
+      this.repos.files.upsert(task)
+      if (isGroup) {
+        this.emit({ type: 'file', file: task })
+      } else {
+        this.handleFileUpdate(task)
+      }
+    }
+    this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    if (isGroup) {
+      for (const target of targets) {
+        service.sendGroupRichCard(target.ip, groupId, message.id, nodes)
+      }
+    } else {
+      service.sendRichCard(targets[0].ip, message.id, nodes)
+    }
+    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emitConversation(conversation.id)
+    for (const id of usedStaged) {
+      this.staged.take(conversationId, id)
+    }
+    if (usedStaged.length > 0) this.emitStaged(conversationId)
+    logStartup(`富文本消息已发：${imageCount} 张图片，文字 ${textParts.join('').length} 字`)
+  }
   // 收藏的表情加进待发区，和图片一起发送
   stageFavorite(conversationId: string, id: string): StagedAttachment[] {
     const path = this.favorites.filePath(id)

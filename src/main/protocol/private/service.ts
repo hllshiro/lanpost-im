@@ -3,6 +3,7 @@ import { networkInterfaces } from 'node:os'
 import { decodeBeacon } from './beacon'
 import { ENET_CMD_CONNECT, decodeDatagram, parseConnectPayload } from './enet'
 import type {
+  PrivateCardNode,
   PrivateContentSegment,
   PrivateFileOffer,
   PrivateFolderOffer,
@@ -420,6 +421,14 @@ export class PrivateService {
 
   sendImageCard(ip: string, msgId: number, values: string[], text = ''): boolean {
     return this.sessions.get(ip)?.sendImageCard(msgId, values, text) ?? false
+  }
+
+  sendRichCard(ip: string, msgId: number, nodes: PrivateCardNode[]): boolean {
+    return this.sessions.get(ip)?.sendRichCard(msgId, nodes) ?? false
+  }
+
+  sendGroupRichCard(ip: string, groupId: string, msgId: number, nodes: PrivateCardNode[]): boolean {
+    return this.sessions.get(ip)?.sendGroupRichCard(groupId, msgId, nodes) ?? false
   }
 
   // 对端公布的文件通道端口；0 表示没收到或没公布

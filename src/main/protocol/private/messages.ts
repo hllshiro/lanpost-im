@@ -383,37 +383,35 @@ export function retrieveImagesXml(msgId: number, refs: PrivateImageRef[]): strin
 
 // 发图片时内网通先发 X_SEND_FILE，再发一条 img 卡片；v 是“文件号|md5”。
 // 一条消息可以带多张图片，dt 里就是多个 img 节点。
-function imageCardBody(values: string[], text = ''): string {
-  const nodes: string[] = []
-  if (text !== '') {
-    nodes.push(
-      [
-        '      {',
-        '         "txt" : {',
-        '            "t" : "normal",',
-        `            "v" : ${JSON.stringify(text)}`,
-        '         }',
-        '      }'
-      ].join('\n')
-    )
+export type PrivateCardNode = { kind: 'text'; text: string } | { kind: 'image'; value: string }
+
+function cardNodeJson(node: PrivateCardNode): string {
+  if (node.kind === 'text') {
+    return [
+      '      {',
+      '         "txt" : {',
+      '            "t" : "normal",',
+      `            "v" : ${JSON.stringify(node.text)}`,
+      '         }',
+      '      }'
+    ].join('\n')
   }
-  nodes.push(
-    ...values.map((value) =>
-      [
-        '      {',
-        '         "img" : {',
-        '            "t" : "feihu",',
-        `            "v" : ${JSON.stringify(value)}`,
-        '         }',
-        '      }'
-      ].join('\n')
-    )
-  )
+  return [
+    '      {',
+    '         "img" : {',
+    '            "t" : "feihu",',
+    `            "v" : ${JSON.stringify(node.value)}`,
+    '         }',
+    '      }'
+  ].join('\n')
+}
+
+function cardBodyFromNodes(nodes: PrivateCardNode[]): string {
   return [
     '{',
     '   "app" : "shiyeline",',
     '   "dt" : [',
-    nodes.join(',\n'),
+    nodes.map(cardNodeJson).join(',\n'),
     '   ],',
     '   "ft" : {',
     '      "b" : "0",',
@@ -431,11 +429,21 @@ function imageCardBody(values: string[], text = ''): string {
 }
 
 export function imageCardXml(msgId: number, values: string[], text = ''): string {
+  return richCardXml(
+    msgId,
+    values.map((value) => ({ kind: 'image', value })),
+    text
+  )
+}
+
+// 图文混排的消息：dt 里按传入顺序排列文字与图片
+export function richCardXml(msgId: number, nodes: PrivateCardNode[], text = ''): string {
+  const ordered: PrivateCardNode[] = text === '' ? nodes : [{ kind: 'text', text }, ...nodes]
   const xml = encodeChatMsg({
     Docver: DOCVER,
     MsgID: msgId,
     Receipt: 0,
-    Msg: imageCardBody(values, text),
+    Msg: cardBodyFromNodes(ordered),
     MsgTime: 0,
     Offline: 0,
     HideRecord: 0
@@ -445,8 +453,22 @@ export function imageCardXml(msgId: number, values: string[], text = ''): string
 
 // 群图片：dt 里只放 img 卡片，纯图片的群消息不需要额外的文本占位
 export function groupImageXml(groupId: string, msgId: number, values: string[], text = ''): string {
-  const body = imageCardBody(values, text)
-  const escaped = body
+  return groupRichCardXml(
+    groupId,
+    msgId,
+    values.map((value) => ({ kind: 'image', value })),
+    text
+  )
+}
+
+export function groupRichCardXml(
+  groupId: string,
+  msgId: number,
+  nodes: PrivateCardNode[],
+  text = ''
+): string {
+  const ordered: PrivateCardNode[] = text === '' ? nodes : [{ kind: 'text', text }, ...nodes]
+  const escaped = cardBodyFromNodes(ordered)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

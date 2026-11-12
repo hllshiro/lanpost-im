@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
 import type { NotifyPayload } from '../../shared/ipc'
+import type { RichPart } from '../../shared/ipc'
 import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
 import { errorMessage } from './utils/errors'
@@ -66,8 +67,9 @@ function handleDraft(value: string): void {
   if (id) store.saveDraft(id, value)
 }
 
-function handleSend(text: string): void {
-  void store.sendText(text)
+function handleSendRich(parts: RichPart[]): void {
+  const id = store.currentConversationId
+  if (id) void store.sendRich(id, parts)
 }
 
 function handleRemoveStaged(id: string): void {
@@ -289,7 +291,7 @@ onBeforeUnmount(() => {
             :loading-messages="currentLoadingMessages"
             :sending="store.sending"
             :unread-after-id="currentUnreadAfterId"
-            @send="handleSend"
+            @send-rich="handleSendRich"
             @draft="handleDraft"
             @remove-staged="handleRemoveStaged"
             @read="handleRead"
