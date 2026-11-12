@@ -172,6 +172,15 @@ export const useAppStore = defineStore('app', () => {
           ...event.attachments
         ]
         break
+      case 'conversation-removed': {
+        conversations.value = conversations.value.filter((item) => item.id !== event.conversationId)
+        delete messages.value[event.conversationId]
+        delete previews.value[event.conversationId]
+        if (currentConversationId.value === event.conversationId) {
+          currentConversationId.value = null
+        }
+        break
+      }
       case 'settings':
         break
     }

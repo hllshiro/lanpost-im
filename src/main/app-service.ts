@@ -453,6 +453,11 @@ export class AppService {
             this.handleGroupShareResponse(ip, reqId, err, fileId, fileSize, lastModify),
           onRemindFile: (ip, groupId, name, size) =>
             this.handleGroupFileRemind(ip, groupId, name, size),
+          onGroupReqInfo: (ip, groupId) => this.handleGroupReqInfo(ip, groupId),
+          onGroupInfoRsp: (ip, info) => this.handleGroupInfo(ip, info),
+          onGroupDismiss: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '解散'),
+          onGroupKick: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '被移出'),
+          onGroupExit: (ip, groupId) => this.handleGroupMemberExit(ip, groupId),
           onReady: (ip, userId) => logStartup(`私有会话 ${ip} 用户号 ${userId}`),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
@@ -900,6 +905,43 @@ export class AppService {
     } catch (error) {
       logStartup(`群文件回执处理失败：${(error as Error).message}`)
     }
+  }
+
+  // 群被解散或本端被踢：整段会话连消息一起移除
+  private handleGroupRemoved(ip: string, groupId: string, reason: string): void {
+    logStartup(`私有群${reason} ${ip} 群=${groupId}`)
+    const conversationId = groupConversationId(groupId)
+    this.repos.groups.remove(groupId)
+    this.repos.conversations.remove(conversationId)
+    this.emit({ type: 'conversation-removed', conversationId })
+  }
+
+  // 其它成员退群：从成员表里去掉他
+  private handleGroupMemberExit(ip: string, groupId: string): void {
+    const senderId = this.privateService?.peerUserId(ip) ?? ''
+    const members = this.repos.groups
+      .members(groupId)
+      .filter((member) => member.userId !== senderId)
+    logStartup(`私有群成员退群 ${ip} 群=${groupId} 剩余=${members.length}`)
+    this.repos.groups.replaceMembers(groupId, members)
+    this.emitConversation(groupConversationId(groupId))
+  }
+
+  // 成员来拉群资料：把本机保存的群资料回给他
+  private handleGroupReqInfo(ip: string, groupId: string): void {
+    const info = this.repos.groups.get(groupId)
+    if (info === null) return
+    this.privateService?.sendGroupInfoRsp(ip, {
+      id: info.id,
+      name: info.name,
+      master: info.master,
+      topic: info.topic,
+      announcement: info.announcement,
+      infoVersion: info.infoVersion,
+      userVersion: info.userVersion,
+      allowOtherAdd: info.allowOtherAdd,
+      photoMd5: info.photoMd5
+    })
   }
 
   private updateGroupFileTask(

@@ -69,6 +69,11 @@ function makeSession(
       onShareDownloadRsp: (reqId, err, fileId, size) =>
         events.push(`share-rsp:${reqId}:${err}:${fileId}:${size}`),
       onRemindFile: (groupId, name, size) => events.push(`remind:${groupId}:${name}:${size}`),
+      onGroupReqInfo: (groupId) => events.push(`group-req:${groupId}`),
+      onGroupInfoRsp: (info) => events.push(`group-info-rsp:${info.id}`),
+      onGroupDismiss: (groupId) => events.push(`group-dismiss:${groupId}`),
+      onGroupExit: (groupId) => events.push(`group-exit:${groupId}`),
+      onGroupKick: (groupId) => events.push(`group-kick:${groupId}`),
       onReady: (userId) => events.push(`ready-user:${userId}`),
       onSendFailed: (id) => events.push(`send-failed:${id}`),
       onState: (state) => events.push(`state:${state}`),

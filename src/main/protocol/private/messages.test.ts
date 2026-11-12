@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   fileTimeFromMs,
   groupPushUserXml,
+  groupInfoRspXml,
   groupSendXml,
   handshakeXml,
   heartbeatXml,
@@ -343,5 +344,36 @@ describe('private group messages', () => {
     )
     expect(xml).toContain('<QGROUP_INFO_VER>1</GROUP_INFO_VER>')
     expect(parsePrivate(3003, xml)).toMatchObject({ kind: 'group-user' })
+  })
+
+  it('parses dismiss, exit and kick frames with only the group id', () => {
+    expect(
+      parsePrivate(
+        3008,
+        '<X_QGROUP_DISMISS docver="1"><QGROUP_ID>g1</QGROUP_ID></X_QGROUP_DISMISS>'
+      )
+    ).toEqual({ kind: 'group-dismiss', groupId: 'g1' })
+    expect(
+      parsePrivate(3009, '<X_QGROUP_EXIT docver="1"><QGROUP_ID>g2</QGROUP_ID></X_QGROUP_EXIT>')
+    ).toEqual({ kind: 'group-exit', groupId: 'g2' })
+    expect(
+      parsePrivate(3010, '<X_QGROUP_KICK docver="1"><QGROUP_ID>g3</QGROUP_ID></X_QGROUP_KICK>')
+    ).toEqual({ kind: 'group-kick', groupId: 'g3' })
+  })
+
+  it('parses a group info response and answers with the same shape', () => {
+    const info = {
+      id: '7ad4b2b4f0213b4a832fc807632bc23b',
+      name: '上网机 笔记本',
+      master: '3d2f84b92bd3d542839590568661971c',
+      topic: '',
+      announcement: '',
+      infoVersion: 2,
+      userVersion: 2,
+      allowOtherAdd: 0,
+      photoMd5: ''
+    }
+    const parsed = parsePrivate(3005, groupInfoRspXml(info))
+    expect(parsed).toEqual({ kind: 'group-info-rsp', ret: 20, info })
   })
 })

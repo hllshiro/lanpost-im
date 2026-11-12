@@ -241,6 +241,11 @@ export class QGroupRepository {
       .all() as unknown as QGroupRow[]
     return rows.map(mapQGroup)
   }
+
+  remove(groupId: string): void {
+    this.db.prepare('DELETE FROM qgroup_members WHERE group_id = ?').run(groupId)
+    this.db.prepare('DELETE FROM qgroups WHERE id = ?').run(groupId)
+  }
 }
 
 interface QGroupRow {
@@ -318,6 +323,13 @@ export class ConversationRepository {
 
   saveDraft(id: string, draft: string): void {
     this.db.prepare('UPDATE conversations SET draft = ? WHERE id = ?').run(draft, id)
+  }
+
+  // 退群或解散后整段会话连同消息一起删除
+  remove(id: string): void {
+    this.db.prepare('DELETE FROM messages WHERE conversation_id = ?').run(id)
+    this.db.prepare('DELETE FROM file_tasks WHERE conversation_id = ?').run(id)
+    this.db.prepare('DELETE FROM conversations WHERE id = ?').run(id)
   }
 
   setTitle(id: string, title: string): void {

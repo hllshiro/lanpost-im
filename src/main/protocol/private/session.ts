@@ -34,6 +34,8 @@ import {
   groupImageXml,
   groupFileXml,
   groupSendXml,
+  groupInfoRspXml,
+  groupExitXml,
   shareDownloadXml,
   shareDownloadRspXml,
   remindFileXml,
@@ -75,6 +77,8 @@ const CMD_REVERSE_FILE_REQ = 1019
 const CMD_REVERSE_FOLDER_REQ = 1020
 const CMD_QGROUP_SEND_MSG = 3011
 const CMD_QGROUP_PUSH_USER = 3003
+const CMD_QGROUP_REQ_INFO_RSP = 3005
+const CMD_QGROUP_EXIT = 3009
 const CMD_SHARE_DOWNLOAD = 5004
 const CMD_SHARE_DOWNLOAD_RSP = 5005
 const CMD_REMIND_FILE = 1025
@@ -127,6 +131,11 @@ export interface SessionCallbacks {
     images: PrivateImageRef[],
     files: PrivateGroupFileRef[]
   ): void
+  onGroupReqInfo(groupId: string): void
+  onGroupInfoRsp(info: PrivateGroupInfo): void
+  onGroupDismiss(groupId: string): void
+  onGroupExit(groupId: string): void
+  onGroupKick(groupId: string): void
   onShareDownload(reqId: number, shareId: string): void
   onShareDownloadRsp(
     reqId: number,
@@ -406,6 +415,18 @@ export class PrivateSession {
   sendRemindFile(groupId: string, size: number, name: string): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
     this.reliable.send(encodeFrame(CMD_REMIND_FILE, remindFileXml(groupId, size, name)))
+    return true
+  }
+
+  sendGroupInfoRsp(info: PrivateGroupInfo): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_REQ_INFO_RSP, groupInfoRspXml(info)))
+    return true
+  }
+
+  sendGroupExit(groupId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    this.reliable.send(encodeFrame(CMD_QGROUP_EXIT, groupExitXml(groupId)))
     return true
   }
 
@@ -733,6 +754,21 @@ export class PrivateSession {
         return
       case 'group-user':
         this.callbacks.onGroupUsers(incoming.info, incoming.members)
+        return
+      case 'group-req-info':
+        this.callbacks.onGroupReqInfo(incoming.groupId)
+        return
+      case 'group-info-rsp':
+        this.callbacks.onGroupInfoRsp(incoming.info)
+        return
+      case 'group-dismiss':
+        this.callbacks.onGroupDismiss(incoming.groupId)
+        return
+      case 'group-exit':
+        this.callbacks.onGroupExit(incoming.groupId)
+        return
+      case 'group-kick':
+        this.callbacks.onGroupKick(incoming.groupId)
         return
       case 'group-message':
         this.callbacks.onGroupMessage(

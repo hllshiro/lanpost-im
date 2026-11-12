@@ -38,6 +38,11 @@ const CMD = {
   REVERSE_FOLDER_REQ: 1020,
   QGROUP_PUSH_INFO: 3002,
   QGROUP_PUSH_USER: 3003,
+  QGROUP_REQ_INFO: 3004,
+  QGROUP_REQ_INFO_RSP: 3005,
+  QGROUP_DISMISS: 3008,
+  QGROUP_EXIT: 3009,
+  QGROUP_KICK: 3010,
   QGROUP_SEND_MSG: 3011,
   SHARE_DOWNLOAD: 5004,
   SHARE_DOWNLOAD_RSP: 5005,
@@ -134,6 +139,11 @@ export type IncomingPrivate =
   | { kind: 'folder-reverse'; taskId: string }
   | { kind: 'group-info'; info: PrivateGroupInfo }
   | { kind: 'group-user'; info: PrivateGroupInfo; members: PrivateGroupMember[] }
+  | { kind: 'group-req-info'; groupId: string }
+  | { kind: 'group-info-rsp'; ret: number; info: PrivateGroupInfo }
+  | { kind: 'group-dismiss'; groupId: string }
+  | { kind: 'group-exit'; groupId: string }
+  | { kind: 'group-kick'; groupId: string }
   | {
       kind: 'group-message'
       groupId: string
@@ -528,6 +538,19 @@ export function groupPushUserXml(info: PrivateGroupInfo, members: PrivateGroupMe
 
 export function groupPushInfoXml(info: PrivateGroupInfo): string {
   return `<X_QGROUP_PUSH_INFO docver="1"><INFO>${groupInfoXml(info)}</INFO></X_QGROUP_PUSH_INFO>`
+}
+
+// 成员来拉群资料时的应答；真实客户端的 RET 固定为 20
+export function groupInfoRspXml(info: PrivateGroupInfo): string {
+  return (
+    `<X_QGROUP_REQ_INFO_RSP docver="1"><RET>20</RET>` +
+    `<QGROUP_ID>${escapeXmlText(info.id)}</QGROUP_ID>` +
+    `<INFO>${groupInfoXml(info)}</INFO></X_QGROUP_REQ_INFO_RSP>`
+  )
+}
+
+export function groupExitXml(groupId: string): string {
+  return `<X_QGROUP_EXIT docver="1"><QGROUP_ID>${escapeXmlText(groupId)}</QGROUP_ID></X_QGROUP_EXIT>`
 }
 
 export function groupSendXml(groupId: string, msgId: number, text: string): string {
@@ -941,6 +964,28 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       const info = groupInfoFromXml(xml)
       if (info === null) return unrecognized(cmd)
       return { kind: 'group-user', info, members: groupMembersFromXml(xml) }
+    }
+    case CMD.QGROUP_REQ_INFO: {
+      const groupId = tagText(xml, 'QGROUP_ID')
+      return groupId === null ? unrecognized(cmd) : { kind: 'group-req-info', groupId }
+    }
+    case CMD.QGROUP_REQ_INFO_RSP: {
+      const info = groupInfoFromXml(xml)
+      if (info === null) return unrecognized(cmd)
+      return { kind: 'group-info-rsp', ret: Number(tagText(xml, 'RET') ?? '0'), info }
+    }
+    case CMD.QGROUP_DISMISS:
+    case CMD.QGROUP_EXIT:
+    case CMD.QGROUP_KICK: {
+      const groupId = tagText(xml, 'QGROUP_ID')
+      if (groupId === null) return unrecognized(cmd)
+      const kind =
+        cmd === CMD.QGROUP_DISMISS
+          ? ('group-dismiss' as const)
+          : cmd === CMD.QGROUP_EXIT
+            ? ('group-exit' as const)
+            : ('group-kick' as const)
+      return { kind, groupId }
     }
     case CMD.QGROUP_SEND_MSG: {
       const groupId = tagText(xml, 'QGROUP_ID')

@@ -100,6 +100,7 @@ export type AppEvent =
   | { type: 'peers'; peers: PeerInfo[] }
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
+  | { type: 'conversation-removed'; conversationId: string }
   | { type: 'file'; file: FileTaskInfo }
   | { type: 'staged'; conversationId: string; attachments: StagedAttachment[] }
   | { type: 'settings'; settings: Settings }
