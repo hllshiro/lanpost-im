@@ -1439,7 +1439,7 @@ export class AppService {
       const result = importLegacyHistory(this.db, dir)
       logStartup(`legacy import ${dir}: ${result.imported} imported, ${result.skipped} skipped`)
       if (result.imported > 0) {
-        this.emit({ type: 'peers', peers: this.repos.peers.list() })
+        this.emit({ type: 'peers', peers: this.peerList() })
       }
       break
     }
@@ -1489,7 +1489,7 @@ export class AppService {
         privateUserId: privateUserId(settings),
         avatarMd5: settings.identity.avatarMd5
       },
-      peers: this.repos.peers.list().map((peer) => ({
+      peers: this.peerList().map((peer) => ({
         ...peer,
         ready: service?.isReady(peer.ip) ?? peer.ready,
         privateUserId: service?.peerUserId(peer.ip) ?? ''
@@ -1500,6 +1500,14 @@ export class AppService {
       staged: this.staged.all(),
       unread: conversations.reduce((total, item) => total + item.unread, 0)
     }
+  }
+
+  // 头像文件还没取回来时不把 md5 发给界面，避免渲染出坏图
+  private peerList(): PeerInfo[] {
+    return this.repos.peers.list().map((peer) => {
+      const md5 = peer.avatarMd5 ?? ''
+      return { ...peer, avatarMd5: md5 !== '' && this.avatars.has(md5) ? md5 : '' }
+    })
   }
 
   listMessages(request: MessagesListRequest): MessagesPage {
@@ -1722,7 +1730,7 @@ export class AppService {
       )
       this.emitConversation(conversationId)
     }
-    this.emit({ type: 'peers', peers: this.repos.peers.list() })
+    this.emit({ type: 'peers', peers: this.peerList() })
   }
 
   // 建群：群号由本机生成，群主是本机的私有用户号，成员表整份推给每个成员
@@ -3116,7 +3124,7 @@ export class AppService {
           throw new Error('取到的头像与公布的 md5 不一致')
         }
         logStartup(`对端头像已缓存 ${md5}`)
-        this.emit({ type: 'peers', peers: this.repos.peers.list() })
+        this.emit({ type: 'peers', peers: this.peerList() })
       } catch (error) {
         logStartup(`取对端头像失败 ${ip} md5=${md5}: ${(error as Error).message}`)
       } finally {
@@ -3232,7 +3240,7 @@ export class AppService {
         this.emitConversation(conversationId)
       }
     }
-    this.emit({ type: 'peers', peers: this.repos.peers.list() })
+    this.emit({ type: 'peers', peers: this.peerList() })
   }
 
   private handleIncoming(
@@ -3526,7 +3534,7 @@ export class AppService {
     const previous = this.repos.peers.get(key)
     this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
     if (previous?.avatarMd5 !== profile.avatarMd5) {
-      this.emit({ type: 'peers', peers: this.repos.peers.list() })
+      this.emit({ type: 'peers', peers: this.peerList() })
     }
     this.fetchPeerAvatar(ip, profile.avatarId, profile.avatarMd5)
   }
