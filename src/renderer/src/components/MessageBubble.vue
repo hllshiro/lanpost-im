@@ -373,6 +373,14 @@ async function revealFolder(): Promise<void> {
   word-break: break-word;
 }
 
+/* 群成员变动等系统提示按公告样式显示成灰底圆角 */
+.system span {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: #e9e9e9;
+}
+
 .row {
   display: flex;
   align-items: flex-start;

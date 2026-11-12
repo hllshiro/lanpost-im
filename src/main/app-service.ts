@@ -87,6 +87,12 @@ import { importLegacyHistory } from './store/import'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
 import { groupInfoNotices } from './groups/info-notice'
+import {
+  memberChangeNotices,
+  memberExitNotice,
+  memberJoinNotice,
+  memberKickNotice
+} from './groups/member-notice'
 import { FavoriteStore } from './emotion/favorites'
 import { logStartup } from './startup-log'
 
@@ -790,14 +796,27 @@ export class AppService {
     previous: { name: string; topic: string; announcement: string },
     next: { name: string; topic: string; announcement: string }
   ): void {
-    const notices = groupInfoNotices(previous, next)
-    if (notices.length === 0) return
-    for (const text of notices) {
+    this.recordSystemNotices(conversationId, groupInfoNotices(previous, next))
+  }
+
+  // 群公告式的系统提示：居中显示在消息流里，和真实客户端的样式一致
+  private recordSystemNotices(conversationId: string, texts: string[]): void {
+    if (texts.length === 0) return
+    for (const text of texts) {
       const message = this.repos.messages.insertIncoming(conversationId, text, 0, 'system')
       this.emit({ type: 'message', message })
     }
     this.repos.conversations.touch(conversationId, Date.now(), 0)
     this.emitConversation(conversationId)
+  }
+
+  // 成员表整份推送时按差集写成员变动提示
+  private recordMemberNotices(
+    conversationId: string,
+    previous: PrivateGroupMember[],
+    next: PrivateGroupMember[]
+  ): void {
+    this.recordSystemNotices(conversationId, memberChangeNotices(previous, next))
   }
 
   // 成员列表推送：建群或成员变动时整份下发，收到就以这份为准
@@ -808,8 +827,14 @@ export class AppService {
   ): void {
     try {
       logStartup(`私有群成员 ${ip} 群=${info.name} 群号=${info.id} 成员=${members.length}`)
+      const known = this.repos.groups.get(info.id) !== null
+      const previous = known ? this.repos.groups.members(info.id) : []
       this.repos.groups.replaceMembers(info.id, members)
       this.handleGroupInfo(ip, info)
+      if (known) {
+        const conversation = this.repos.conversations.ensureGroup(info.id, info.name || '群聊')
+        this.recordMemberNotices(conversation.id, previous, members)
+      }
       this.emitConversation(groupConversationId(info.id))
     } catch (error) {
       logStartup(`私有群成员处理失败：${(error as Error).message}`)
@@ -1265,14 +1290,19 @@ export class AppService {
     })
   }
 
-  // 其它成员退群：从成员表里去掉他
+  // 其它成员退群：从成员表里去掉他，并留一条公告
   private handleGroupMemberExit(ip: string, groupId: string): void {
     const senderId = this.privateService?.peerUserId(ip) ?? ''
-    const members = this.repos.groups
-      .members(groupId)
-      .filter((member) => member.userId !== senderId)
+    const previous = this.repos.groups.members(groupId)
+    const leaver = previous.find((member) => member.userId === senderId)
+    const members = previous.filter((member) => member.userId !== senderId)
     logStartup(`私有群成员退群 ${ip} 群=${groupId} 剩余=${members.length}`)
     this.repos.groups.replaceMembers(groupId, members)
+    if (leaver !== undefined) {
+      const group = this.repos.groups.get(groupId)
+      const conversation = this.repos.conversations.ensureGroup(groupId, group?.name || '群聊')
+      this.recordSystemNotices(conversation.id, [memberExitNotice(leaver)])
+    }
     this.emitGroup(groupId)
     this.emitConversation(groupConversationId(groupId))
   }
@@ -1741,6 +1771,11 @@ export class AppService {
       service.sendGroupPushUser(ip, info, members)
     }
     this.storeGroup(info, members)
+    this.repos.conversations.ensureGroup(groupId, group.name || '群聊')
+    this.recordSystemNotices(
+      groupConversationId(groupId),
+      targets.map((target) => memberJoinNotice(target))
+    )
     this.emitGroup(groupId)
     this.emitConversation(groupConversationId(groupId))
     logStartup(`私有群拉人 群号=${groupId} 新增=${targets.length}`)
@@ -1756,7 +1791,9 @@ export class AppService {
     if (userId === selfId) throw new Error('不能把自己移出群')
     const targetIp = service.peerIpByUserId(userId)
     if (targetIp === null || !service.isReady(targetIp)) throw new Error('该成员不在线')
-    const members = this.repos.groups.members(groupId).filter((member) => member.userId !== userId)
+    const previous = this.repos.groups.members(groupId)
+    const removed = previous.find((member) => member.userId === userId)
+    const members = previous.filter((member) => member.userId !== userId)
     const info = this.privateInfoOf(group)
     info.userVersion += 1
     service.sendGroupKick(targetIp, groupId)
@@ -1767,6 +1804,10 @@ export class AppService {
       service.sendGroupPushUser(ip, info, members)
     }
     this.storeGroup(info, members)
+    if (removed !== undefined) {
+      this.repos.conversations.ensureGroup(groupId, group.name || '群聊')
+      this.recordSystemNotices(groupConversationId(groupId), [memberKickNotice(removed)])
+    }
     this.emitGroup(groupId)
     this.emitConversation(groupConversationId(groupId))
     logStartup(`私有群移出成员 群号=${groupId} 用户=${userId}`)
