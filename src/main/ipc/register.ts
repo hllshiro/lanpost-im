@@ -11,6 +11,9 @@ export function registerIpc(handlers: Handlers): void {
   ipcMain.handle(IPC.settingsGet, () => handlers.settingsGet())
   ipcMain.handle(IPC.settingsUpdate, (_event, patch: unknown) => handlers.settingsUpdate(patch))
   ipcMain.handle(IPC.settingsDefaults, () => handlers.settingsDefaults())
+  ipcMain.handle(IPC.settingsStartAtLogin, (_event, enabled: boolean) =>
+    handlers.settingsStartAtLogin(enabled)
+  )
   ipcMain.handle(IPC.shortcutsRecording, (_event, active: boolean) =>
     handlers.shortcutsSetRecording(active)
   )

@@ -6,6 +6,7 @@ import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
 import { IPC } from '../shared/ipc'
 import { AppService } from './app-service'
+import { applyStartAtLogin, type AutostartContext } from './autostart'
 import { openDatabase } from './store/db'
 import { SettingsStore } from './settings/store'
 import { currentIdentityDefaults } from './identity'
@@ -137,6 +138,33 @@ if (!gotLock) {
       logStartup(`loading settings: ${settingsFile}`)
       const settings = new SettingsStore(settingsFile, currentIdentityDefaults())
 
+      const autostartContext: AutostartContext = {
+        platform: process.platform,
+        execPath:
+          process.platform === 'linux' && process.env['APPIMAGE']
+            ? process.env['APPIMAGE']
+            : process.execPath,
+        appPath: app.getAppPath(),
+        isPackaged: app.isPackaged,
+        configDir: app.getPath('appData'),
+        appName: APP_NAME,
+        loginItem: {
+          set: (options) => app.setLoginItemSettings(options)
+        }
+      }
+      let startAtLoginState = settings.get().general.startAtLogin
+      const applyLoginItem = (enabled: boolean): { ok: boolean; error?: string } => {
+        const result = applyStartAtLogin(enabled, autostartContext)
+        if (!result.ok) {
+          logStartup('start at login apply failed: ' + (result.error ?? 'unknown'))
+        } else {
+          startAtLoginState = enabled
+        }
+        return result
+      }
+      // 启动时总是与系统同步一次：开启时补齐登录项，关闭时清理遗留项。
+      applyLoginItem(startAtLoginState)
+
       const databaseFile = join(app.getPath('userData'), 'lanpost.db')
       logStartup(`opening database: ${databaseFile}`)
       database = openDatabase(databaseFile)
@@ -168,7 +196,11 @@ if (!gotLock) {
         onSettingsChanged: (next) => {
           appService.applySettings(next)
           applyGlobalShortcuts(next, shortcutHandlers)
+          if (next.general.startAtLogin !== startAtLoginState) {
+            applyLoginItem(next.general.startAtLogin)
+          }
         },
+        setStartAtLogin: applyLoginItem,
         shortcutsSetRecording: setShortcutRecording,
         shortcutsAvailable: shortcutAvailable
       })
@@ -218,10 +250,11 @@ if (!gotLock) {
         return net.fetch(pathToFileURL(path).toString())
       })
 
-      createMainWindow(settings)
+      const startHidden = settings.get().general.startMinimized
+      createMainWindow(settings, startHidden)
       appService.attachWindow(getMainWindow())
       applyGlobalShortcuts(settings.get(), shortcutHandlers)
-      logStartup('main window created')
+      logStartup(`main window created${startHidden ? ' (hidden)' : ''}`)
 
       createTray({
         onShow: showMainWindow,

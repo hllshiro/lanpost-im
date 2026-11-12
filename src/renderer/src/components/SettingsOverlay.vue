@@ -79,6 +79,7 @@ const saved = ref(false)
 const confirmingReset = ref(false)
 const recording = ref<ShortcutAction | null>(null)
 const recordTip = ref('')
+const startAtLoginBusy = ref(false)
 const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 let savedTimer: number | undefined
@@ -183,6 +184,21 @@ function saveSeeds(): void {
 function setDensity(density: Settings['appearance']['density']): void {
   settings.value.appearance.density = density
   saveField('appearance', { density })
+}
+
+async function setStartAtLogin(enabled: boolean): Promise<void> {
+  if (startAtLoginBusy.value) return
+  startAtLoginBusy.value = true
+  error.value = ''
+  try {
+    const next = await window.api.settings.setStartAtLogin(enabled)
+    applySettings(next)
+    emit('saved', next)
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    startAtLoginBusy.value = false
+  }
 }
 
 function startRecording(action: ShortcutAction): void {
@@ -825,15 +841,16 @@ onBeforeUnmount(() => {
             <div class="row-text"><span class="label">开机启动</span></div>
             <div class="control control-auto">
               <ToggleSwitch
-                v-model="settings.general.startAtLogin"
-                @update:model-value="saveField('general', { startAtLogin: $event })"
+                :model-value="settings.general.startAtLogin"
+                :disabled="startAtLoginBusy"
+                @update:model-value="setStartAtLogin($event)"
               />
             </div>
           </div>
           <div class="row">
             <div class="row-text">
               <span class="label">启动时隐藏窗口</span>
-              <p class="hint">开机启动后不显示主界面</p>
+              <p class="hint">启动后不显示主界面，可从托盘或快捷键唤出</p>
             </div>
             <div class="control control-auto">
               <ToggleSwitch
