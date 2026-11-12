@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { Check, CheckCheck, CircleAlert, FileText, Folder, LoaderCircle } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { formatClock, formatSize, statusLabel } from '../utils/format'
+import { errorMessage } from '../utils/errors'
+import { useAppStore } from '../stores/app'
 import FileCard from './FileCard.vue'
 
 const props = defineProps<{
@@ -13,6 +15,8 @@ const props = defineProps<{
   ownInitial: string
   otherInitial: string
 }>()
+
+const store = useAppStore()
 
 const statusIcon = computed(() => {
   switch (props.message.status) {
@@ -96,6 +100,25 @@ const folderMeta = computed(() => {
   }
   return parts.join(' · ')
 })
+
+// 文件夹卡片上的“打开文件夹”，路径来自消息 meta
+const folderPath = computed(() => {
+  try {
+    const meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return typeof meta.dir === 'string' ? meta.dir : ''
+  } catch {
+    return ''
+  }
+})
+
+async function openFolder(): Promise<void> {
+  if (folderPath.value === '') return
+  try {
+    await window.api.files.openPath(folderPath.value)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
 </script>
 
 <template>
@@ -119,6 +142,9 @@ const folderMeta = computed(() => {
               <p class="folder-name">{{ message.text || '文件夹' }}</p>
               <p class="folder-meta">{{ folderMeta }}</p>
             </div>
+            <button v-if="folderPath !== ''" class="folder-open" @click="openFolder">
+              打开文件夹
+            </button>
           </div>
         </div>
 
@@ -324,6 +350,19 @@ const folderMeta = computed(() => {
   margin: 0;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.folder-open {
+  flex: 0 0 auto;
+  padding: 3px 8px;
+  border-radius: var(--radius-button);
+  background: var(--hover);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.folder-open:hover {
+  color: var(--accent);
 }
 
 .file-bubble :deep(.file-card) {

@@ -29,6 +29,7 @@ export const IPC = {
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
   fileOpen: 'files:open',
+  fileOpenPath: 'files:open-path',
   fileReveal: 'files:reveal',
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
@@ -107,6 +108,8 @@ export type Api = {
     accept(id: string): Promise<void>
     reject(id: string): Promise<void>
     open(id: string): Promise<void>
+    // 用系统文件管理器打开任意已存在的目录（文件夹消息用）
+    openPath(path: string): Promise<void>
     reveal(id: string): Promise<void>
     saveAs(id: string): Promise<void>
     // 选中与粘贴都只进待发区，返回当前会话最新的待发列表

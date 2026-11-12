@@ -53,6 +53,7 @@ const api: Api = {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
     open: (id) => ipcRenderer.invoke(IPC.fileOpen, id),
+    openPath: (path) => ipcRenderer.invoke(IPC.fileOpenPath, path),
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pick: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),

@@ -616,7 +616,8 @@ export class AppService {
         source: 'private-folder',
         taskId,
         size: info.totalSize,
-        count: info.items.length
+        count: info.items.length,
+        dir: path
       })
     )
     this.folderLinks.set(taskId, { conversationId, messageId: message.id })
@@ -1325,6 +1326,17 @@ export class AppService {
       throw new Error('文件已被移动或删除')
     }
     const error = await shell.openPath(task.path)
+    if (error !== '') {
+      throw new Error(error)
+    }
+  }
+
+  // 文件夹消息里的“打开文件夹”：只接受真实存在的目录
+  async openPath(path: string): Promise<void> {
+    if (path === '' || !existsSync(path) || !statSync(path).isDirectory()) {
+      throw new Error('文件夹已被移动或删除')
+    }
+    const error = await shell.openPath(path)
     if (error !== '') {
       throw new Error(error)
     }
