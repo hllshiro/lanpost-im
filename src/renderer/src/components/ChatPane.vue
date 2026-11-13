@@ -43,6 +43,7 @@ const emit = defineEmits<{
   kick: [userId: string]
   leave: []
   dismiss: []
+  'delete-group': []
 }>()
 
 const search = ref('')
@@ -75,7 +76,11 @@ async function changeGroupAvatar(): Promise<void> {
 const copied = ref(false)
 const copyError = ref('')
 const pending = ref<
-  null | { kind: 'kick'; member: GroupMemberInfo } | { kind: 'leave' } | { kind: 'dismiss' }
+  | null
+  | { kind: 'kick'; member: GroupMemberInfo }
+  | { kind: 'leave' }
+  | { kind: 'dismiss' }
+  | { kind: 'delete' }
 >(null)
 let copyTimer: number | undefined
 
@@ -92,6 +97,7 @@ const pendingText = computed(() => {
   if (action === null) return ''
   if (action.kind === 'kick') return `把「${action.member.name}」移出群聊？`
   if (action.kind === 'leave') return '退出这个群聊？'
+  if (action.kind === 'delete') return '从本机删除这个群聊？能通知到的成员会收到退群或解散。'
   return '解散这个群聊？成员将全部被移出。'
 })
 
@@ -166,6 +172,7 @@ function confirmPending(): void {
   infoOpen.value = false
   if (action.kind === 'kick') emit('kick', action.member.userId)
   else if (action.kind === 'leave') emit('leave')
+  else if (action.kind === 'delete') emit('delete-group')
   else emit('dismiss')
 }
 
@@ -359,6 +366,7 @@ onBeforeUnmount(() => {
                   <button v-else class="danger" @click="pending = { kind: 'leave' }">
                     退出群聊
                   </button>
+                  <button class="danger" @click="pending = { kind: 'delete' }">删除群聊</button>
                 </div>
                 <div v-else class="confirm">
                   <span>{{ pendingText }}</span>

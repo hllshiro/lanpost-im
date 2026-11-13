@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ChevronRight, Merge, Search, Users, X } from '@lucide/vue'
-import type { PeerInfo } from '../../../shared/domain'
+import type { GroupInfo, PeerInfo } from '../../../shared/domain'
 import type { PeerMergeResult } from '../../../shared/ipc'
 import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
+import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import GroupMark from './GroupMark.vue'
+import ConfirmDialog from './ConfirmDialog.vue'
 import MergePeersDialog from './MergePeersDialog.vue'
 import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
 
@@ -21,6 +23,12 @@ const boxText = ref('')
 const boxError = ref('')
 const boxBusy = ref(false)
 const selected = ref<Set<string>>(new Set())
+const tab = ref<'contacts' | 'groups'>('contacts')
+const deleteTarget = ref<
+  { kind: 'peer'; peer: PeerInfo } | { kind: 'group'; group: GroupInfo } | null
+>(null)
+const deleteBusy = ref(false)
+const deleteError = ref('')
 const mergeOpen = ref(false)
 const mergeNote = ref('')
 let mergeTimer: ReturnType<typeof setTimeout> | undefined
@@ -155,6 +163,36 @@ onBeforeUnmount(() => {
   if (mergeTimer !== undefined) clearTimeout(mergeTimer)
 })
 
+function askDeletePeer(peer: PeerInfo): void {
+  deleteError.value = ''
+  deleteTarget.value = { kind: 'peer', peer }
+}
+
+function askDeleteGroup(group: GroupInfo): void {
+  deleteError.value = ''
+  deleteTarget.value = { kind: 'group', group }
+}
+
+async function confirmDelete(): Promise<void> {
+  const target = deleteTarget.value
+  if (target === null || deleteBusy.value) return
+  deleteBusy.value = true
+  deleteError.value = ''
+  try {
+    if (target.kind === 'peer') {
+      await window.api.peers.remove(target.peer.key)
+    } else {
+      await window.api.groups.remove(target.group.id)
+    }
+    deleteTarget.value = null
+    await store.loadSnapshot()
+  } catch (reason) {
+    deleteError.value = errorMessage(reason)
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
 function toggleLetter(letter: string): void {
   activeLetter.value = activeLetter.value === letter ? null : letter
 }
@@ -230,7 +268,7 @@ async function sendBox(): Promise<void> {
           <template v-if="activeLetter !== null"> · {{ activeLetter }} 开头</template>
         </p>
       </div>
-      <div class="head-actions">
+      <div v-if="tab === 'contacts'" class="head-actions">
         <button class="broadcast" @click="openBox('broadcast')">广播</button>
         <button class="broadcast secondary" @click="openBox('multicast')">多选</button>
         <button class="broadcast secondary" @click="mergeOpen = true">
@@ -243,7 +281,7 @@ async function sendBox(): Promise<void> {
         <input
           v-model="query"
           type="text"
-          placeholder="搜索名称、账号、分组、IP 或拼音"
+          :placeholder="tab === 'contacts' ? '搜索名称、账号、分组、IP 或拼音' : '搜索群聊'"
           autocomplete="off"
           spellcheck="false"
           aria-label="搜索联系人"
@@ -263,63 +301,58 @@ async function sendBox(): Promise<void> {
       @merged="handleMerged"
     />
 
+    <ConfirmDialog
+      v-if="deleteTarget !== null"
+      :title="deleteTarget.kind === 'peer' ? '删除联系人' : '删除群'"
+      :message="
+        deleteTarget.kind === 'peer'
+          ? `将从本机删除「${displayName(deleteTarget.peer)}」的聊天记录与文件记录。在线联系人下次广播会被重新发现。`
+          : `将从本机删除群「${deleteTarget.group.name}」的群记录与聊天记录，能通知到的成员会收到退群或解散。`
+      "
+      :busy="deleteBusy"
+      :error="deleteError"
+      @cancel="deleteTarget = null"
+      @confirm="confirmDelete"
+    />
+
+    <div class="tabs" role="tablist" aria-label="联系人分类">
+      <button
+        role="tab"
+        :aria-selected="tab === 'contacts'"
+        :class="{ active: tab === 'contacts' }"
+        @click="tab = 'contacts'"
+      >
+        联系人<span class="tab-count">{{ store.peers.length }}</span>
+      </button>
+      <button
+        role="tab"
+        :aria-selected="tab === 'groups'"
+        :class="{ active: tab === 'groups' }"
+        @click="tab = 'groups'"
+      >
+        群聊<span class="tab-count">{{ store.groups.length }}</span>
+      </button>
+    </div>
+
     <div class="scroll">
       <div class="inner">
-        <div class="list">
-          <template v-if="groupRows.length > 0">
-            <div class="letter-head">群聊（{{ groupRows.length }}）</div>
-            <button
-              v-for="row in groupRows"
-              :key="row.group.id"
-              class="peer"
-              :class="{ unavailable: row.conversationId === '' }"
-              :disabled="row.conversationId === ''"
-              :title="row.conversationId === '' ? '群会话尚未建立' : '打开群聊'"
-              @click="emit('open', row.conversationId)"
-            >
-              <span class="avatar-wrap">
-                <span class="avatar">
-                  <img
-                    v-if="avatarUrl(row.group.photoMd5) !== ''"
-                    :src="avatarUrl(row.group.photoMd5)"
-                    alt=""
-                  />
-                  <template v-else>{{ initialOf(row.group.name) }}</template>
-                </span>
-                <GroupMark />
-              </span>
-
-              <span class="main">
-                <span class="line">
-                  <span class="name">{{ row.group.name }}</span>
-                  <span class="status online">{{ row.group.members.length }} 人</span>
-                </span>
-                <span v-if="row.group.topic.trim()" class="meta">
-                  <span class="sign">{{ row.group.topic }}</span>
-                </span>
-              </span>
-
-              <span class="address">
-                <span class="ip">群聊</span>
-              </span>
-              <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
-            </button>
-          </template>
-
+        <div v-if="tab === 'contacts'" class="list">
           <template v-for="group in groups" :key="group.letter">
             <div class="letter-head">{{ group.letter }}</div>
-            <button
+            <div
               v-for="peer in group.peers"
               :key="peer.key"
               class="peer"
+              role="button"
+              :tabindex="hasConversation(peer) ? 0 : -1"
               :class="{
                 current: isCurrent(peer),
                 unavailable: !hasConversation(peer),
                 selected: selected.has(peer.key)
               }"
-              :disabled="!hasConversation(peer)"
               :title="hasConversation(peer) ? '打开聊天' : '会话尚未建立'"
               @click="openPeer(peer)"
+              @keydown.enter="openPeer(peer)"
             >
               <span class="avatar-wrap">
                 <span class="avatar">
@@ -354,14 +387,69 @@ async function sendBox(): Promise<void> {
                 class="select-mark"
                 :class="{ checked: selected.has(peer.key) }"
               />
-              <ChevronRight v-else :size="16" :stroke-width="1.8" class="chevron" />
-            </button>
+              <template v-else>
+                <button class="row-delete" title="删除联系人" @click.stop="askDeletePeer(peer)">
+                  删除
+                </button>
+                <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+              </template>
+            </div>
           </template>
 
-          <div v-if="visible.length === 0 && groupRows.length === 0" class="empty">
+          <div v-if="visible.length === 0" class="empty">
             <Users :size="30" :stroke-width="1.4" />
             <p>{{ emptyText }}</p>
             <small v-if="store.peers.length === 0">局域网内发现对端后会显示在这里</small>
+          </div>
+        </div>
+
+        <div v-else class="list">
+          <div
+            v-for="row in groupRows"
+            :key="row.group.id"
+            class="peer"
+            role="button"
+            :tabindex="row.conversationId === '' ? -1 : 0"
+            :class="{ unavailable: row.conversationId === '' }"
+            :title="row.conversationId === '' ? '群会话尚未建立' : '打开群聊'"
+            @click="row.conversationId !== '' && emit('open', row.conversationId)"
+            @keydown.enter="row.conversationId !== '' && emit('open', row.conversationId)"
+          >
+            <span class="avatar-wrap">
+              <span class="avatar">
+                <img
+                  v-if="avatarUrl(row.group.photoMd5) !== ''"
+                  :src="avatarUrl(row.group.photoMd5)"
+                  alt=""
+                />
+                <template v-else>{{ initialOf(row.group.name) }}</template>
+              </span>
+              <GroupMark />
+            </span>
+
+            <span class="main">
+              <span class="line">
+                <span class="name">{{ row.group.name }}</span>
+                <span class="status online">{{ row.group.members.length }} 人</span>
+              </span>
+              <span v-if="row.group.topic.trim()" class="meta">
+                <span class="sign">{{ row.group.topic }}</span>
+              </span>
+            </span>
+
+            <span class="address">
+              <span class="ip">群聊</span>
+            </span>
+
+            <button class="row-delete" title="删除群" @click.stop="askDeleteGroup(row.group)">
+              删除
+            </button>
+            <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+          </div>
+
+          <div v-if="groupRows.length === 0" class="empty">
+            <Users :size="30" :stroke-width="1.4" />
+            <p>{{ query.trim() === '' ? '暂无群聊' : '没有匹配的群聊' }}</p>
           </div>
         </div>
       </div>
@@ -387,7 +475,7 @@ async function sendBox(): Promise<void> {
       </div>
     </div>
 
-    <nav v-if="letters.length > 1" class="letter-index" aria-label="拼音筛选">
+    <nav v-if="letters.length > 1 && tab === 'contacts'" class="letter-index" aria-label="拼音筛选">
       <button
         v-for="letter in letters"
         :key="letter"
@@ -507,6 +595,76 @@ async function sendBox(): Promise<void> {
   color: var(--text-muted);
 }
 
+.tabs {
+  flex: 0 0 40px;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--page-bg);
+}
+
+.tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+
+.tabs button:hover {
+  color: var(--text);
+}
+
+.tabs button.active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab-count {
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: #ececec;
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 400;
+  line-height: 16px;
+  text-align: center;
+}
+
+.tabs button.active .tab-count {
+  background: #e6f4ea;
+  color: #2f7a45;
+}
+
+.row-delete {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: #c0392b;
+  font-size: 11.5px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.peer:hover .row-delete,
+.peer:focus-within .row-delete {
+  opacity: 1;
+}
+
+.row-delete:hover {
+  background: #fdf0ee;
+}
+
 .peer {
   display: flex;
   align-items: center;
@@ -516,6 +674,11 @@ async function sendBox(): Promise<void> {
   padding: 12px 16px;
   border-bottom: 1px solid #f0f0f0;
   text-align: left;
+  cursor: pointer;
+}
+
+.peer.unavailable {
+  cursor: default;
 }
 
 .peer:last-of-type {

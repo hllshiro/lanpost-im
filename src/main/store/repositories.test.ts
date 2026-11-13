@@ -237,6 +237,17 @@ describe('MessageRepository', () => {
 })
 
 describe('PeerRepository', () => {
+  it('removes the peer together with its avatar record', () => {
+    const db = openMemory()
+    const peers = new PeerRepository(db)
+    peers.upsert(makePeer('alice'))
+    peers.setAvatar('alice', 7, 'avatar-md5')
+    peers.remove('alice')
+    expect(peers.get('alice')).toBeNull()
+    expect(db.prepare('SELECT COUNT(*) AS n FROM peer_avatars').get()).toEqual({ n: 0 })
+    db.close()
+  })
+
   it('preserves the local alias while refreshing peer details', () => {
     const db = openMemory()
     const conversations = new ConversationRepository(db)

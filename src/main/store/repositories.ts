@@ -600,6 +600,12 @@ export class PeerRepository {
       .run(key, key, name, lastSeen)
   }
 
+  // 删除联系人：头像缓存记录一并清掉
+  remove(key: string): void {
+    this.db.prepare('DELETE FROM peer_avatars WHERE peer_key = ?').run(key)
+    this.db.prepare('DELETE FROM peers WHERE key = ?').run(key)
+  }
+
   setAlias(key: string, alias: string): void {
     this.db.prepare('UPDATE peers SET alias = ? WHERE key = ?').run(alias, key)
   }

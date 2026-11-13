@@ -1894,6 +1894,46 @@ export class AppService {
   }
 
   // 退群：本机不是群主时才允许，其余成员收到 3009
+  // 从本机删除联系人：会话、消息、文件任务与头像记录一起清掉；
+  // 在线联系人下次广播会被重新发现，这是预期行为
+  deleteContact(peerKey: string): void {
+    const peer = this.repos.peers.get(peerKey)
+    if (peer === null) {
+      throw new Error('联系人不存在')
+    }
+    const conversationId = directConversationId(peerKey)
+    this.repos.conversations.remove(conversationId)
+    this.repos.peers.remove(peerKey)
+    this.registry.forget(peerKey)
+    this.emit({ type: 'conversation-removed', conversationId })
+    this.emit({ type: 'peers', peers: this.peerList() })
+    logStartup(`删除联系人 ${peerKey}`)
+  }
+
+  // 从本机删除群：群主发解散、成员发退群，能通知到的对端都会收到，
+  // 0 个成员或全部离线的群直接本地删除
+  deleteGroup(groupId: string): void {
+    const group = this.repos.groups.get(groupId)
+    if (group === null) {
+      // 只剩会话没有群资料的遗留群，也允许从本机删掉
+      this.removeGroupLocally(groupId, '删除')
+      return
+    }
+    const selfId = privateUserId(this.settings.get())
+    const service = this.privateService
+    for (const member of this.repos.groups.members(groupId)) {
+      if (member.userId === selfId) continue
+      const ip = service?.peerIpByUserId(member.userId) ?? null
+      if (ip === null) continue
+      if (group.master === selfId) {
+        service?.sendGroupDismiss(ip, groupId)
+      } else {
+        service?.sendGroupExit(ip, groupId)
+      }
+    }
+    this.removeGroupLocally(groupId, '删除')
+  }
+
   leaveGroup(groupId: string): void {
     const service = this.privateService
     const group = this.requireGroup(groupId)

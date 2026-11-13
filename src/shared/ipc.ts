@@ -43,6 +43,8 @@ export const IPC = {
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
   peerMerge: 'peers:merge',
+  peerDelete: 'peers:delete',
+  groupDelete: 'groups:delete',
   peersRefresh: 'peers:refresh',
   groupCreate: 'groups:create',
   groupAvatar: 'groups:avatar',
@@ -241,6 +243,8 @@ export type Api = {
     refresh(): Promise<void>
     // 把来源联系人的数据并入目标；来源会被移除
     merge(targetKey: string, originKeys: string[]): Promise<PeerMergeResult>
+    // 从本机删除联系人及其会话记录
+    remove(peerKey: string): Promise<void>
   }
   groups: {
     create(name: string, memberUserIds: string[]): Promise<GroupInfo>
@@ -249,6 +253,8 @@ export type Api = {
     kick(groupId: string, userId: string): Promise<void>
     leave(groupId: string): Promise<void>
     dismiss(groupId: string): Promise<void>
+    // 从本机删除群与群记录；能通知到的成员会收到退群/解散
+    remove(groupId: string): Promise<void>
   }
   emotions: {
     list(): Promise<FavoriteSticker[]>

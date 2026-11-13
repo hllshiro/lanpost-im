@@ -205,6 +205,17 @@ function handleLeaveGroup(): void {
   if (group !== null) void store.leaveGroup(group.id)
 }
 
+async function handleDeleteGroup(): Promise<void> {
+  const conversationId = store.currentConversationId
+  if (conversationId === null || !conversationId.startsWith('group:')) return
+  try {
+    await window.api.groups.remove(conversationId.slice('group:'.length))
+    await store.loadSnapshot()
+  } catch (reason) {
+    store.error = errorMessage(reason)
+  }
+}
+
 function handleDismissGroup(): void {
   const group = store.currentGroup
   if (group !== null) void store.dismissGroup(group.id)
@@ -324,6 +335,7 @@ onBeforeUnmount(() => {
             @kick="handleKick"
             @leave="handleLeaveGroup"
             @dismiss="handleDismissGroup"
+            @delete-group="handleDeleteGroup"
           />
         </template>
 

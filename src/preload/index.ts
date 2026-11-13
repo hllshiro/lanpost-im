@@ -56,7 +56,8 @@ const api: Api = {
   peers: {
     setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias),
     refresh: () => ipcRenderer.invoke(IPC.peersRefresh),
-    merge: (targetKey, originKeys) => ipcRenderer.invoke(IPC.peerMerge, targetKey, originKeys)
+    merge: (targetKey, originKeys) => ipcRenderer.invoke(IPC.peerMerge, targetKey, originKeys),
+    remove: (peerKey) => ipcRenderer.invoke(IPC.peerDelete, peerKey)
   },
   groups: {
     create: (name, memberUserIds) => ipcRenderer.invoke(IPC.groupCreate, name, memberUserIds),
@@ -64,7 +65,8 @@ const api: Api = {
     invite: (groupId, memberUserIds) => ipcRenderer.invoke(IPC.groupInvite, groupId, memberUserIds),
     kick: (groupId, userId) => ipcRenderer.invoke(IPC.groupKick, groupId, userId),
     leave: (groupId) => ipcRenderer.invoke(IPC.groupLeave, groupId),
-    dismiss: (groupId) => ipcRenderer.invoke(IPC.groupDismiss, groupId)
+    dismiss: (groupId) => ipcRenderer.invoke(IPC.groupDismiss, groupId),
+    remove: (groupId) => ipcRenderer.invoke(IPC.groupDelete, groupId)
   },
   emotions: {
     list: () => ipcRenderer.invoke(IPC.emotionList),
