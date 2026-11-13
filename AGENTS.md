@@ -50,7 +50,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 协议/文件测试使用真实 UDP/TCP 和随机高端口，禁止占用 9011/9012/9013/9014；文件用真实临时文件。
 - 用 `mkdtemp` 创建的目录必须在 `afterEach` 删除（`rmSync(..., { recursive: true, force: true, maxRetries: 5 })`），否则会污染系统临时目录。
 - 端到端验证用两个实例，各自设置 `LANPOST_DATA_DIR`，并使用不同的 `network.privatePort` / `privateEnetPort` / `privateFilePort` / `privateFolderPort`，互相写入 `privateSeeds`。
-- CI `.github/workflows/build.yml`：Windows x64 + Linux x64/ARM64（deb、rpm、AppImage）；只有 `v*` 标签或手动 dispatch 才打包，Release 只在标签触发。
+- CI `.github/workflows/build.yml`：Windows x64 + Linux x64/ARM64（deb、rpm、AppImage）；只有 `v*` 标签或手动 dispatch 才打包，Release 只在标签触发。标签必须用 annotated tag 写更新说明，见 `docs/release.md`。
 
 ## 参考
 
@@ -60,4 +60,5 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - 内网通私有协议：`docs/nwt-private-protocol.md`。
 - 内网通兼容矩阵：`docs/nwt-compatibility.md`。
 - 文件传输状态机与故障排查：`docs/file-transfer.md`。
+- 发布与标签说明：`docs/release.md`。
 - 已知限制：`docs/known-limits.md`。

@@ -73,6 +73,14 @@ jobs:
       - linux
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Read tag message
+        run: |
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = "tag" ]; then
+            git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
+          else
+            : > release-notes.md
+          fi
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
@@ -80,5 +88,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.RELEASE_TOKEN || github.token }}
+          body_path: release-notes.md
           files: artifacts/*
           generate_release_notes: true
