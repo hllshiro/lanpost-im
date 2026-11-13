@@ -76,7 +76,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: Read tag message
         run: |
-          if [ "$(git cat-file -t "$GITHUB_REF_NAME")" = "tag" ]; then
+          # checkout 用 fetch-depth 1 只拉提交，标签对象不会下载，这里补一次
+          git fetch --force --no-recurse-submodules origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          if [ "$(git cat-file -t "$GITHUB_REF_NAME" 2>/dev/null)" = "tag" ]; then
             git tag -l --format='%(contents)' "$GITHUB_REF_NAME" > release-notes.md
           else
             : > release-notes.md

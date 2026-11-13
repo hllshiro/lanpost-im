@@ -38,8 +38,8 @@ git push origin v0.6.0
 
 `release` job 的执行顺序：
 
-1. `actions/checkout@v4` 取出标签对象。
-2. `Read tag message` 用 `git tag -l --format='%(contents)' "$GITHUB_REF_NAME"` 把标签消息写入 `release-notes.md`；非 annotated tag 时写入空文件。
+1. `actions/checkout@v4` 取出标签提交；因为它用 `--depth=1 --no-tags`，annotated tag 对象本身不会下载，仓库里的 `refs/tags/vX` 只是一个指向提交的普通引用。
+2. `Read tag message` 先 `git fetch --force origin refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME` 把标签对象补下来，再用 `git tag -l --format='%(contents)'` 把标签消息写入 `release-notes.md`；非 annotated tag 时写入空文件。
 3. `actions/download-artifact@v4` 汇总三个平台的安装包。
 4. `softprops/action-gh-release@v2` 用 `body_path: release-notes.md` 提交手写内容，同时保留 `generate_release_notes: true`，GitHub 会把自动笔记（含 “Full Changelog” 对比链接）拼在正文后面。
 
