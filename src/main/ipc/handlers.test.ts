@@ -13,7 +13,13 @@ function context(): ReturnType<typeof createHandlers> {
   const file = join(dir, 'settings.json')
   return createHandlers({
     settings: new SettingsStore(file),
-    appInfo: { name: '内网传书', version: '0.1.0', platform: 'win32', appId: 'com.lanpost.im' }
+    appInfo: {
+      name: '内网传书',
+      version: '0.1.0',
+      platform: 'win32',
+      appId: 'com.lanpost.im',
+      defaultReceiveDir: ''
+    }
   })
 }
 

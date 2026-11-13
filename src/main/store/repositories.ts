@@ -377,15 +377,22 @@ export class MessageRepository {
 
   list(conversationId: string, beforeId?: number, limit = 50): MessagesPage {
     const size = Math.max(1, Math.floor(limit))
+    // 合并联系人或导入历史后，消息号不一定与时间同序，统一按时间排，时间相同再按消息号
     const rows = (beforeId === undefined
       ? this.db
-          .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?')
+          .prepare(
+            `SELECT * FROM messages WHERE conversation_id = ?
+             ORDER BY created_at DESC, id DESC LIMIT ?`
+          )
           .all(conversationId, size + 1)
       : this.db
           .prepare(
-            'SELECT * FROM messages WHERE conversation_id = ? AND id < ? ORDER BY id DESC LIMIT ?'
+            `SELECT * FROM messages WHERE conversation_id = ? AND (
+               created_at < (SELECT created_at FROM messages WHERE id = ?) OR
+               (created_at = (SELECT created_at FROM messages WHERE id = ?) AND id < ?)
+             ) ORDER BY created_at DESC, id DESC LIMIT ?`
           )
-          .all(conversationId, beforeId, size + 1)) as unknown as MessageRow[]
+          .all(conversationId, beforeId, beforeId, beforeId, size + 1)) as unknown as MessageRow[]
 
     const hasMore = rows.length > size
     const page = hasMore ? rows.slice(0, size) : rows
@@ -422,7 +429,7 @@ export class MessageRepository {
       .prepare(
         `SELECT * FROM messages
          WHERE conversation_id = ? AND direction = 'in' AND meta LIKE '%"source":"private"%'
-         ORDER BY id`
+         ORDER BY created_at, id`
       )
       .all(conversationId) as unknown as MessageRow[]
     return rows.map(mapMessage)
@@ -430,7 +437,7 @@ export class MessageRepository {
 
   listAll(conversationId: string): MessageInfo[] {
     const rows = this.db
-      .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY id')
+      .prepare('SELECT * FROM messages WHERE conversation_id = ? ORDER BY created_at, id')
       .all(conversationId) as unknown as MessageRow[]
     return rows.map(mapMessage)
   }

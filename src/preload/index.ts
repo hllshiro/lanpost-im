@@ -4,7 +4,9 @@ import type { AppEvent } from '../shared/domain'
 
 const api: Api = {
   app: {
-    info: () => ipcRenderer.invoke(IPC.appInfo)
+    info: () => ipcRenderer.invoke(IPC.appInfo),
+    quit: () => ipcRenderer.invoke(IPC.appQuit),
+    minimize: () => ipcRenderer.invoke(IPC.appMinimize)
   },
   state: {
     snapshot: () => ipcRenderer.invoke(IPC.snapshot),
@@ -50,7 +52,8 @@ const api: Api = {
   },
   peers: {
     setAlias: (peerKey, alias) => ipcRenderer.invoke(IPC.peerAlias, peerKey, alias),
-    refresh: () => ipcRenderer.invoke(IPC.peersRefresh)
+    refresh: () => ipcRenderer.invoke(IPC.peersRefresh),
+    merge: (targetKey, originKeys) => ipcRenderer.invoke(IPC.peerMerge, targetKey, originKeys)
   },
   groups: {
     create: (name, memberUserIds) => ipcRenderer.invoke(IPC.groupCreate, name, memberUserIds),
@@ -89,7 +92,8 @@ const api: Api = {
     sendRich: (conversationId, parts) =>
       ipcRenderer.invoke(IPC.fileSendRich, conversationId, parts),
     sendFolder: (conversationId, path) =>
-      ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path)
+      ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path),
+    pickReceiveDir: () => ipcRenderer.invoke(IPC.filePickReceiveDir)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

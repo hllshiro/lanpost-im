@@ -1,9 +1,8 @@
-import { app, BrowserWindow, Menu, shell } from 'electron'
+import { BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { logStartup } from './startup-log'
-import type { SettingsStore } from './settings/store'
 
 let mainWindow: BrowserWindow | null = null
 let quitting = false
@@ -12,7 +11,7 @@ export function setQuitting(value: boolean): void {
   quitting = value
 }
 
-export function createMainWindow(settings: SettingsStore, startHidden = false): BrowserWindow {
+export function createMainWindow(startHidden = false): BrowserWindow {
   const window = new BrowserWindow({
     width: 1080,
     height: 720,
@@ -66,17 +65,13 @@ export function createMainWindow(settings: SettingsStore, startHidden = false): 
       )
       .catch((error: unknown) => logStartup('renderer text failed: ' + String(error)))
   })
+  // 关闭窗口一律收到托盘，退出走托盘菜单或关于页的退出按钮
   window.on('close', (event) => {
     if (quitting) {
       return
     }
-    if (settings.get().general.closeToTray) {
-      event.preventDefault()
-      window.hide()
-      return
-    }
-    setQuitting(true)
-    app.quit()
+    event.preventDefault()
+    window.hide()
   })
   window.on('closed', () => {
     mainWindow = null

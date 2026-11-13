@@ -89,13 +89,16 @@ export class PeerRegistry {
     if (previousKey !== undefined && previousKey !== targetKey) {
       const previous = this.peers.get(previousKey)
       if (previous !== undefined && input.userId !== '' && previous.user === '') {
+        // 之前只按地址识别，现在拿到用户标识：整条记录换键
         this.peers.delete(previousKey)
         previous.key = targetKey
         this.peers.set(targetKey, previous)
         this.callbacks.onPeerKeyChanged?.(previousKey, targetKey)
-      } else {
+      } else if (previous !== undefined && input.userId === '') {
+        // 还没拿到标识时先沿用地址上的记录
         key = previousKey
       }
+      // 同一地址换成了另一个用户：按新的用户标识单独建一条，避免沿用上一个人的资料与头像
     }
     let peer = this.peers.get(key)
     if (peer === undefined) {
@@ -141,6 +144,15 @@ export class PeerRegistry {
     this.callbacks.onPeerKeyChanged?.(currentKey, userId)
     this.emit()
     return userId
+  }
+
+  // 联系人被并入别的联系人后从内存里移除，避免列表继续显示
+  forget(key: string): void {
+    if (!this.peers.delete(key)) return
+    for (const [ip, mapped] of this.ipIndex) {
+      if (mapped === key) this.ipIndex.delete(ip)
+    }
+    this.emit()
   }
 
   touchPrivatePeer(ip: string): void {

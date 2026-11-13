@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { ChevronRight, Search, Users, X } from '@lucide/vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
+import { ChevronRight, Merge, Search, Users, X } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
+import type { PeerMergeResult } from '../../../shared/ipc'
 import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import { initialOf } from '../utils/format'
+import GroupMark from './GroupMark.vue'
+import MergePeersDialog from './MergePeersDialog.vue'
 import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
 
 const emit = defineEmits<{ open: [conversationId: string] }>()
@@ -18,8 +21,27 @@ const boxText = ref('')
 const boxError = ref('')
 const boxBusy = ref(false)
 const selected = ref<Set<string>>(new Set())
+const mergeOpen = ref(false)
+const mergeNote = ref('')
+let mergeTimer: ReturnType<typeof setTimeout> | undefined
 
 const keyword = computed(() => query.value.trim().toLowerCase())
+
+const groupConversations = computed(() => {
+  const map = new Map<string, string>()
+  for (const conversation of store.conversations) {
+    if (conversation.kind === 'group')
+      map.set(conversation.id.slice('group:'.length), conversation.id)
+  }
+  return map
+})
+
+const groupRows = computed(() =>
+  store.groups
+    .map((group) => ({ group, conversationId: groupConversations.value.get(group.id) ?? '' }))
+    .filter(({ group }) => keyword.value === '' || group.name.toLowerCase().includes(keyword.value))
+    .sort((left, right) => comparePinyin(left.group.name, right.group.name))
+)
 
 const conversationByPeer = computed(() => {
   const map = new Map<string, string>()
@@ -110,6 +132,29 @@ const emptyText = computed(() => {
   return '没有匹配的联系人'
 })
 
+async function handleMerged(payload: {
+  targetKey: string
+  result: PeerMergeResult
+}): Promise<void> {
+  mergeOpen.value = false
+  await store.loadSnapshot()
+  const parts = [
+    `已把 ${payload.result.peers} 个联系人合并到目标`,
+    `转入消息 ${payload.result.messages} 条`
+  ]
+  if (payload.result.skipped > 0) parts.push(`跳过重复 ${payload.result.skipped} 条`)
+  if (payload.result.files > 0) parts.push(`文件记录 ${payload.result.files} 个`)
+  mergeNote.value = parts.join('，')
+  if (mergeTimer !== undefined) clearTimeout(mergeTimer)
+  mergeTimer = setTimeout(() => {
+    mergeNote.value = ''
+  }, 5000)
+}
+
+onBeforeUnmount(() => {
+  if (mergeTimer !== undefined) clearTimeout(mergeTimer)
+})
+
 function toggleLetter(letter: string): void {
   activeLetter.value = activeLetter.value === letter ? null : letter
 }
@@ -181,13 +226,17 @@ async function sendBox(): Promise<void> {
       <div class="title-block">
         <h1>联系人</h1>
         <p>
-          {{ onlineCount }} 位在线 · 共 {{ store.peers.length }} 位
+          {{ onlineCount }} 位在线 · 共 {{ store.peers.length }} 位 · {{ store.groups.length }} 个群
           <template v-if="activeLetter !== null"> · {{ activeLetter }} 开头</template>
         </p>
       </div>
       <div class="head-actions">
         <button class="broadcast" @click="openBox('broadcast')">广播</button>
         <button class="broadcast secondary" @click="openBox('multicast')">多选</button>
+        <button class="broadcast secondary" @click="mergeOpen = true">
+          <Merge :size="13" :stroke-width="1.9" />
+          合并
+        </button>
       </div>
       <div class="search">
         <Search :size="14" :stroke-width="1.8" />
@@ -205,9 +254,58 @@ async function sendBox(): Promise<void> {
       </div>
     </header>
 
+    <p v-if="mergeNote" class="merge-note">{{ mergeNote }}</p>
+
+    <MergePeersDialog
+      v-if="mergeOpen"
+      :peers="store.peers"
+      @close="mergeOpen = false"
+      @merged="handleMerged"
+    />
+
     <div class="scroll">
       <div class="inner">
         <div class="list">
+          <template v-if="groupRows.length > 0">
+            <div class="letter-head">群聊（{{ groupRows.length }}）</div>
+            <button
+              v-for="row in groupRows"
+              :key="row.group.id"
+              class="peer"
+              :class="{ unavailable: row.conversationId === '' }"
+              :disabled="row.conversationId === ''"
+              :title="row.conversationId === '' ? '群会话尚未建立' : '打开群聊'"
+              @click="emit('open', row.conversationId)"
+            >
+              <span class="avatar-wrap">
+                <span class="avatar">
+                  <img
+                    v-if="avatarUrl(row.group.photoMd5) !== ''"
+                    :src="avatarUrl(row.group.photoMd5)"
+                    alt=""
+                  />
+                  <template v-else>{{ initialOf(row.group.name) }}</template>
+                </span>
+                <GroupMark />
+              </span>
+
+              <span class="main">
+                <span class="line">
+                  <span class="name">{{ row.group.name }}</span>
+                  <span class="status online">{{ row.group.members.length }} 人</span>
+                </span>
+                <span v-if="row.group.topic.trim()" class="meta">
+                  <span class="sign">{{ row.group.topic }}</span>
+                </span>
+              </span>
+
+              <span class="address">
+                <span class="ip">群聊</span>
+              </span>
+              <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
+            </button>
+          </template>
+
           <template v-for="group in groups" :key="group.letter">
             <div class="letter-head">{{ group.letter }}</div>
             <button
@@ -260,7 +358,7 @@ async function sendBox(): Promise<void> {
             </button>
           </template>
 
-          <div v-if="visible.length === 0" class="empty">
+          <div v-if="visible.length === 0 && groupRows.length === 0" class="empty">
             <Users :size="30" :stroke-width="1.4" />
             <p>{{ emptyText }}</p>
             <small v-if="store.peers.length === 0">局域网内发现对端后会显示在这里</small>
@@ -593,12 +691,25 @@ async function sendBox(): Promise<void> {
 }
 
 .broadcast {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   height: 28px;
   padding: 0 12px;
   border-radius: var(--radius-button);
   background: var(--accent);
   color: #ffffff;
   font-size: 12px;
+}
+
+.merge-note {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 6px 24px;
+  background: #f2f8f4;
+  border-bottom: 1px solid #e3f0e7;
+  font-size: 12px;
+  color: #3d7a52;
 }
 
 .broadcast.secondary {

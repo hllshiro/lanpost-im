@@ -175,7 +175,8 @@ if (!gotLock) {
         name: APP_NAME,
         version: app.getVersion(),
         platform: process.platform,
-        appId: APP_ID
+        appId: APP_ID,
+        defaultReceiveDir: join(app.getPath('downloads'), '内网传书')
       }
       const appService = new AppService(database, settings, appInfo)
       service = appService
@@ -255,7 +256,7 @@ if (!gotLock) {
       })
 
       const startHidden = settings.get().general.startMinimized
-      createMainWindow(settings, startHidden)
+      createMainWindow(startHidden)
       appService.attachWindow(getMainWindow())
       applyGlobalShortcuts(settings.get(), shortcutHandlers)
       logStartup(`main window created${startHidden ? ' (hidden)' : ''}`)
@@ -301,7 +302,7 @@ if (!gotLock) {
 
       app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-          createMainWindow(settings)
+          createMainWindow()
           appService.attachWindow(getMainWindow())
         } else {
           showMainWindow()

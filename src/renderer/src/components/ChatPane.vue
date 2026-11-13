@@ -17,6 +17,7 @@ import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
+import GroupMark from './GroupMark.vue'
 import Composer from './Composer.vue'
 import MessageList from './MessageList.vue'
 
@@ -129,8 +130,15 @@ onClickOutside(infoAnchor, () => {
 
 useEventListener(window, 'keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Escape') return
-  if (infoOpen.value) infoOpen.value = false
-  else if (search.value) search.value = ''
+  if (infoOpen.value) {
+    infoOpen.value = false
+    event.preventDefault()
+    return
+  }
+  if (search.value) {
+    search.value = ''
+    event.preventDefault()
+  }
 })
 
 watch(
@@ -186,8 +194,12 @@ onBeforeUnmount(() => {
   <section class="chat" aria-label="聊天区">
     <template v-if="conversation">
       <header class="chat-head">
-        <span v-if="headAvatar !== ''" class="head-avatar">
-          <img :src="headAvatar" alt="" />
+        <span class="head-avatar">
+          <span class="head-avatar-image">
+            <img v-if="headAvatar !== ''" :src="headAvatar" alt="" />
+            <template v-else>{{ initialOf(conversation.title) }}</template>
+          </span>
+          <GroupMark v-if="conversation.kind === 'group'" />
         </span>
         <div class="title-block">
           <div class="title-line">
@@ -243,12 +255,15 @@ onBeforeUnmount(() => {
                 <template v-if="conversation.kind === 'group' && group">
                   <div class="group-face">
                     <span class="group-face-avatar">
-                      <img
-                        v-if="avatarUrl(group.photoMd5) !== ''"
-                        :src="avatarUrl(group.photoMd5)"
-                        alt=""
-                      />
-                      <template v-else>{{ initialOf(group.name) }}</template>
+                      <span class="group-face-image">
+                        <img
+                          v-if="avatarUrl(group.photoMd5) !== ''"
+                          :src="avatarUrl(group.photoMd5)"
+                          alt=""
+                        />
+                        <template v-else>{{ initialOf(group.name) }}</template>
+                      </span>
+                      <GroupMark />
                     </span>
                     <div class="group-face-main">
                       <strong :title="group.name">{{ group.name }}</strong>
@@ -421,12 +436,23 @@ onBeforeUnmount(() => {
 }
 
 .head-avatar {
+  position: relative;
   flex: 0 0 auto;
   width: 34px;
   height: 34px;
+}
+
+.head-avatar-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
   border-radius: var(--avatar-radius);
   overflow: hidden;
   background: #d9e2ea;
+  color: #4c5a68;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .head-avatar img {
@@ -445,16 +471,22 @@ onBeforeUnmount(() => {
 }
 
 .group-face-avatar {
-  display: grid;
-  place-items: center;
+  position: relative;
   flex: 0 0 auto;
   width: 48px;
   height: 48px;
+}
+
+.group-face-image {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
   border-radius: var(--avatar-radius);
+  overflow: hidden;
   background: #d9e2ea;
   color: #4c5a68;
   font-size: 18px;
-  overflow: hidden;
 }
 
 .group-face-avatar img {

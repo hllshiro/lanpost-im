@@ -28,8 +28,8 @@ function session(overrides: Partial<NwtHistorySession> = {}): NwtHistorySession 
     key: PEER,
     kind: 'direct',
     title: '上网机PC3',
-    firstAt: 1_793_000_000,
-    lastAt: 1_793_000_100,
+    firstAt: 1_793_000_000_000,
+    lastAt: 1_793_000_100_000,
     count: 2,
     messages: [
       {
@@ -37,7 +37,7 @@ function session(overrides: Partial<NwtHistorySession> = {}): NwtHistorySession 
         direction: 'in',
         kind: 'text',
         text: '你好',
-        time: 1_793_000_000,
+        time: 1_793_000_000_000,
         segments: [{ kind: 'text', text: '你好' }],
         file: null
       },
@@ -46,7 +46,7 @@ function session(overrides: Partial<NwtHistorySession> = {}): NwtHistorySession 
         direction: 'out',
         kind: 'text',
         text: '收到',
-        time: 1_793_000_100,
+        time: 1_793_000_100_000,
         segments: [
           { kind: 'text', text: '收到' },
           { kind: 'image', value: '2016.gif' }
@@ -73,7 +73,7 @@ describe('applyNwtHistory', () => {
 
     const conversation = repos.conversations.get(`direct:${PEER}`)
     expect(conversation?.title).toBe('上网机PC3')
-    expect(conversation?.lastMessageAt).toBe(1_793_000_100)
+    expect(conversation?.lastMessageAt).toBe(1_793_000_100_000)
     const messages = repos.messages.listAll(`direct:${PEER}`)
     expect(messages.map((message) => [message.direction, message.text])).toEqual([
       ['in', '你好'],
@@ -143,6 +143,7 @@ describe('applyNwtHistory', () => {
     ).run()
     repos.conversations.ensureDirect('192.168.2.125', '上网机PC3')
     repos.messages.insertIncoming('direct:192.168.2.125', '旧消息', 0, 'text', '{}')
+    db.prepare("UPDATE messages SET created_at = 1792000000000 WHERE text = '旧消息'").run()
 
     applyNwtHistory({ history: makeHistory([session()]), selected: [PEER], repos, db })
 
@@ -166,7 +167,7 @@ describe('applyNwtHistory', () => {
             direction: 'in',
             kind: 'file',
             text: 'present.txt',
-            time: 1_793_000_000,
+            time: 1_793_000_000_000,
             segments: [],
             file: { name: 'present.txt', path: present, size: 1 }
           },
@@ -175,7 +176,7 @@ describe('applyNwtHistory', () => {
             direction: 'out',
             kind: 'file',
             text: 'gone.txt',
-            time: 1_793_000_050,
+            time: 1_793_000_050_000,
             segments: [],
             file: { name: 'gone.txt', path: join(dir, 'gone.txt'), size: 42 }
           }

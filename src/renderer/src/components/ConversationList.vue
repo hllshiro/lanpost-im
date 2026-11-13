@@ -4,6 +4,7 @@ import { useEventListener } from '@vueuse/core'
 import { MessageSquare, Pin, RefreshCw, Search, Users, X } from '@lucide/vue'
 import type { ConversationInfo, GroupInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
 import { avatarUrl } from '../utils/avatar'
+import GroupMark from './GroupMark.vue'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
 
 const props = defineProps<{
@@ -210,8 +211,9 @@ function badgeOf(count: number): string {
               <img v-if="avatarOf(conversation) !== ''" :src="avatarOf(conversation)" alt="" />
               <template v-else>{{ initialOf(conversation.title) }}</template>
             </span>
+            <GroupMark v-if="conversation.kind === 'group'" />
             <span
-              v-if="peerOf(conversation)"
+              v-else-if="peerOf(conversation)"
               class="presence-dot"
               :class="presenceClass(conversation)"
               :title="presenceText(conversation)"

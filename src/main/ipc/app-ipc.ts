@@ -1,8 +1,16 @@
-import { ipcMain } from 'electron'
+import { app, ipcMain } from 'electron'
+import { getMainWindow } from '../window'
 import { IPC } from '../../shared/ipc'
 import type { AppService } from '../app-service'
 
 export function registerAppIpc(service: AppService): void {
+  ipcMain.handle(IPC.appQuit, () => {
+    app.quit()
+  })
+  ipcMain.handle(IPC.appMinimize, () => {
+    getMainWindow()?.hide()
+  })
+  ipcMain.handle(IPC.filePickReceiveDir, () => service.pickReceiveDir())
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
   ipcMain.handle(IPC.messagesList, (_event, request) => service.listMessages(request))
   ipcMain.handle(IPC.messagesAll, (_event, conversationId: string) =>
@@ -28,6 +36,9 @@ export function registerAppIpc(service: AppService): void {
     service.setAlias(peerKey, alias)
   )
   ipcMain.handle(IPC.peersRefresh, () => service.refreshPeers())
+  ipcMain.handle(IPC.peerMerge, (_event, targetKey: string, originKeys: string[]) =>
+    service.mergePeers(targetKey, originKeys)
+  )
   ipcMain.handle(IPC.identityPickAvatar, () => service.pickAvatar())
   ipcMain.handle(IPC.identityClearAvatar, () => service.clearAvatar())
   ipcMain.handle(IPC.identityStatus, (_event, status: number) => service.setStatus(status))

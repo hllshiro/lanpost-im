@@ -40,6 +40,7 @@ export const IPC = {
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
+  peerMerge: 'peers:merge',
   peersRefresh: 'peers:refresh',
   groupCreate: 'groups:create',
   groupAvatar: 'groups:avatar',
@@ -67,7 +68,10 @@ export const IPC = {
   fileStagedRemove: 'files:staged-remove',
   fileStagedSend: 'files:staged-send',
   fileSendRich: 'files:send-rich',
-  fileSendFolder: 'files:send-folder'
+  fileSendFolder: 'files:send-folder',
+  filePickReceiveDir: 'files:pick-receive-dir',
+  appQuit: 'app:quit',
+  appMinimize: 'app:minimize'
 } as const
 
 export interface AppInfo {
@@ -75,6 +79,7 @@ export interface AppInfo {
   version: string
   platform: string
   appId: string
+  defaultReceiveDir: string
 }
 
 export type FirewallState = 'allowed' | 'blocked' | 'missing' | 'manual' | 'unsupported' | 'unknown'
@@ -124,6 +129,14 @@ export interface NwtImportSummary {
   skipped: number
 }
 
+// 合并联系人的结果：来源的联系人、会话与文件会转到目标
+export interface PeerMergeResult {
+  peers: number
+  messages: number
+  skipped: number
+  files: number
+}
+
 export interface NotifyPayload {
   conversationId: string
   title: string
@@ -167,6 +180,9 @@ export type RichPart = { kind: 'text'; text: string } | { kind: 'image'; stagedI
 export type Api = {
   app: {
     info(): Promise<AppInfo>
+    quit(): Promise<void>
+    // 收到托盘：窗口隐藏，程序继续在后台运行
+    minimize(): Promise<void>
   }
   state: {
     snapshot(): Promise<AppSnapshot>
@@ -216,6 +232,8 @@ export type Api = {
   peers: {
     setAlias(peerKey: string, alias: string): Promise<void>
     refresh(): Promise<void>
+    // 把来源联系人的数据并入目标；来源会被移除
+    merge(targetKey: string, originKeys: string[]): Promise<PeerMergeResult>
   }
   groups: {
     create(name: string, memberUserIds: string[]): Promise<GroupInfo>
@@ -266,5 +284,7 @@ export type Api = {
     sendRich(conversationId: string, parts: RichPart[]): Promise<void>
     // 发送文件夹：先发 1013 邀请，对端接受后由文件夹通道推送
     sendFolder(conversationId: string, path: string): Promise<void>
+    // 选择接收目录；取消返回 null
+    pickReceiveDir(): Promise<string | null>
   }
 }

@@ -197,6 +197,25 @@ async function finishNwtImport(summary: NwtImportSummary): Promise<void> {
   nwtResult.value = `已导入 ${summary.displayName}（${summary.privateId.slice(0, 8)}）：${parts.join('，')}`
 }
 
+async function pickReceiveDir(): Promise<void> {
+  try {
+    const path = await window.api.files.pickReceiveDir()
+    if (path === null) return
+    settings.value.files.receiveDir = path
+    saveField('files', { receiveDir: path })
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  }
+}
+
+async function quitApp(): Promise<void> {
+  try {
+    await window.api.app.quit()
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  }
+}
+
 async function loadAppInfo(): Promise<void> {
   try {
     appInfo.value = await window.api.app.info()
@@ -840,16 +859,25 @@ onBeforeUnmount(() => {
               <label class="label" for="setting-receive-dir"
                 >接收目录<span class="restart">重启生效</span></label
               >
-              <p class="hint">留空使用默认目录</p>
+              <p class="hint">点击选择目录，留空使用默认目录</p>
             </div>
-            <div class="control">
+            <div class="control path-control">
               <input
                 id="setting-receive-dir"
-                v-model="settings.files.receiveDir"
-                class="input"
-                placeholder="默认接收目录"
-                @change="saveField('files', { receiveDir: settings.files.receiveDir })"
+                class="input path-input"
+                :value="settings.files.receiveDir"
+                :placeholder="appInfo?.defaultReceiveDir ?? '默认接收目录'"
+                readonly
+                title="点击选择接收目录"
+                @click="pickReceiveDir"
               />
+              <button
+                v-if="settings.files.receiveDir !== ''"
+                class="mini"
+                @click="saveField('files', { receiveDir: '' })"
+              >
+                默认
+              </button>
             </div>
           </div>
           <div class="row">
@@ -970,13 +998,10 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <span class="label">关闭窗口时最小化到托盘</span>
-              <p class="hint">关闭后程序继续在托盘运行</p>
+              <p class="hint">关闭窗口或按 Esc 都会收到托盘，退出请用托盘菜单或关于页的退出按钮</p>
             </div>
             <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.general.closeToTray"
-                @update:model-value="saveField('general', { closeToTray: $event })"
-              />
+              <span class="readonly">始终</span>
             </div>
           </div>
           <div class="row">
@@ -1145,6 +1170,9 @@ onBeforeUnmount(() => {
             </div>
           </dl>
           <p v-if="appInfoError" class="about-error">{{ appInfoError }}</p>
+          <div class="about-actions">
+            <button class="quit" @click="quitApp">退出内网传书</button>
+          </div>
         </div>
       </div>
 
@@ -1631,6 +1659,37 @@ select.input {
 
 .about {
   max-width: 560px;
+  display: flex;
+  flex-direction: column;
+}
+
+.about-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 22px;
+}
+
+.quit {
+  height: 32px;
+  padding: 0 16px;
+  border: 1px solid #e3c4c0;
+  border-radius: var(--radius-button);
+  background: #ffffff;
+  color: #b3403a;
+  font-size: 12px;
+}
+
+.quit:hover {
+  border-color: #c9605a;
+  background: #fdf4f3;
+}
+
+.path-control {
+  align-items: center;
+}
+
+.path-input {
+  cursor: pointer;
 }
 
 .brand {

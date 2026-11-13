@@ -48,6 +48,7 @@ import type {
   NwtImportPreview,
   NwtImportRequest,
   NwtImportSummary,
+  PeerMergeResult,
   RichPart,
   StagePathsResult
 } from '../shared/ipc'
@@ -85,6 +86,7 @@ import {
 } from './store/repositories'
 import { importLegacyHistory } from './store/import'
 import { renamePeerKey } from './store/peer-keys'
+import { mergePeers as mergePeerRecords } from './store/peer-merge'
 import { applyNwtImport, readNwtData, type NwtData } from './store/nwt-import'
 import { applyNwtHistory, readNwtHistory, type NwtHistory } from './store/nwt-history'
 import type { SettingsStore } from './settings/store'
@@ -1700,6 +1702,26 @@ export class AppService {
     this.handlePeers(this.registry.getPeers())
   }
 
+  // 把来源联系人的会话、消息与文件记录并入目标联系人
+  mergePeers(targetKey: string, originKeys: string[]): PeerMergeResult {
+    const result = mergePeerRecords(this.db, targetKey, originKeys)
+    for (const origin of originKeys) {
+      this.registry.forget(origin)
+    }
+    logStartup(
+      `合并联系人 目标=${targetKey} 来源=${originKeys.join(',')} 消息=${result.messages} 跳过=${result.skipped}`
+    )
+    this.emit({ type: 'peers', peers: this.peerList() })
+    const conversation = this.repos.conversations.get(directConversationId(targetKey))
+    if (conversation !== null) {
+      this.emit({ type: 'conversation', conversation })
+    }
+    for (const origin of originKeys) {
+      this.emit({ type: 'conversation-removed', conversationId: directConversationId(origin) })
+    }
+    return result
+  }
+
   setAlias(peerKey: string, alias: string): void {
     this.repos.peers.setAlias(peerKey, alias)
     const conversationId = directConversationId(peerKey)
@@ -3168,6 +3190,24 @@ export class AppService {
     }
   }
 
+  // 设置页选择接收目录；取消返回 null
+  async pickReceiveDir(): Promise<string | null> {
+    const current = this.settings.get().files.receiveDir
+    const fallback = join(app.getPath('downloads'), '内网传书')
+    const options: OpenDialogOptions = {
+      title: '选择接收目录',
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: current !== '' && existsSync(current) ? current : fallback
+    }
+    const run =
+      this.window === null
+        ? dialog.showOpenDialog(options)
+        : dialog.showOpenDialog(this.window, options)
+    const result = await run
+    if (result.canceled) return null
+    return result.filePaths[0] ?? null
+  }
+
   private chooseDirectory(title: string): Promise<string | null> {
     const options: OpenDialogOptions = {
       title,
@@ -3694,12 +3734,13 @@ export class AppService {
       status: profile.status,
       online: true
     }).key
+    // 资料里没有头像就清掉旧记录，避免对方删除头像后仍显示上一次的图
+    const previousAvatar = this.repos.peers.get(key)?.avatarMd5 ?? ''
+    this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
+    if (previousAvatar !== profile.avatarMd5) {
+      this.emit({ type: 'peers', peers: this.peerList() })
+    }
     if (profile.avatarMd5 !== '') {
-      const previous = this.repos.peers.get(key)
-      this.repos.peers.setAvatar(key, profile.avatarId, profile.avatarMd5)
-      if (previous?.avatarMd5 !== profile.avatarMd5) {
-        this.emit({ type: 'peers', peers: this.peerList() })
-      }
       this.fetchPeerAvatar(ip, profile.avatarId, profile.avatarMd5)
     }
     if (profile.userId !== '') {

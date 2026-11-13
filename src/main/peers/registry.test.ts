@@ -43,16 +43,22 @@ function input(
 }
 
 describe('PeerRegistry', () => {
-  it('seeds historical peers offline and reuses the user id key by IP', () => {
+  it('seeds historical peers offline and keys a new user by their own id', () => {
     const events: PeerInfo[][] = []
     const registry = new PeerRegistry([seedPeer()], { onPeers: (peers) => events.push(peers) })
     expect(registry.getPeers()[0]).toMatchObject({ key: 'alice', online: false })
 
     const peer = registry.upsertPrivatePeer(input())
-    expect(peer.key).toBe('alice')
+    expect(peer.key).toBe('bob')
     expect(peer.name).toBe('Bob')
     expect(peer.online).toBe(true)
-    expect(events.at(-1)?.[0]?.key).toBe('alice')
+    expect(
+      registry
+        .getPeers()
+        .map((item) => item.key)
+        .sort()
+    ).toEqual(['alice', 'bob'])
+    expect(registry.peerKeyForIp('10.0.0.1')).toBe('bob')
   })
 
   it('uses the private user id as the peer key', () => {
@@ -90,6 +96,16 @@ describe('PeerRegistry', () => {
     expect(changes).toEqual([['10.0.0.8', 'heidi']])
     expect(registry.getPeers().map((peer) => [peer.key, peer.user])).toEqual([['heidi', 'heidi']])
     expect(registry.peerKeyForIp('10.0.0.8')).toBe('heidi')
+  })
+
+  it('同一地址换成另一个用户时单独建联系人', () => {
+    const registry = new PeerRegistry([], { onPeers: () => {} })
+    const first = registry.upsertPrivatePeer(input({ ip: '10.0.0.11', userId: 'ivan' }))
+    const second = registry.upsertPrivatePeer(input({ ip: '10.0.0.11', userId: 'judy' }))
+    expect(first.key).toBe('ivan')
+    expect(second.key).toBe('judy')
+    expect(registry.getPeers()).toHaveLength(2)
+    expect(registry.peerKeyForIp('10.0.0.11')).toBe('judy')
   })
 
   it('keeps one peer when the address changes', () => {

@@ -77,6 +77,27 @@ function handleRemoveStaged(id: string): void {
   if (conversationId) void store.removeStaged(conversationId, id)
 }
 
+// Esc 在界面上把窗口收到托盘；弹窗、菜单或聊天信息面板打开时先由它们自己处理
+function hasEscapeTarget(): boolean {
+  const selectors = [
+    '.overlay',
+    '.nwt-mask',
+    '.merge-mask',
+    '.viewer',
+    '.menu-layer',
+    '.context-menu',
+    '.info-popover',
+    '.status-menu'
+  ]
+  return selectors.some((selector) => document.querySelector(selector) !== null)
+}
+
+function onGlobalKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return
+  if (hasEscapeTarget()) return
+  void window.api.app.minimize().catch(() => undefined)
+}
+
 function hasDroppedFiles(event: DragEvent): boolean {
   return event.dataTransfer?.types.includes('Files') ?? false
 }
@@ -196,6 +217,7 @@ function handleOpenContact(conversationId: string): void {
 }
 
 onMounted(async () => {
+  window.addEventListener('keydown', onGlobalKeydown)
   void store.initialize()
   unsubscribeSettings = window.api.ui.onOpenSettings(() => {
     settingsOpen.value = true
@@ -235,6 +257,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onGlobalKeydown)
   unsubscribeSettings?.()
   unsubscribeNotify?.()
   unsubscribeSelect?.()
