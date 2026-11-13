@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { File, FileArchive, FileText, FolderOpen, Image } from '@lucide/vue'
 import type { Component } from 'vue'
 import type { FileTaskInfo } from '../../../shared/domain'
 import { useAppStore } from '../stores/app'
-import { formatConversationTime, formatSize } from '../utils/format'
+import { formatConversationTime, formatRemaining, formatSize, formatSpeed } from '../utils/format'
 
 type TabId = 'all' | 'receiving' | 'received' | 'sent' | 'failed'
 
@@ -23,6 +23,44 @@ const tabs: Array<{ id: TabId; label: string }> = [
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg'])
 const ARCHIVE_EXTENSIONS = new Set(['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'])
 const TEXT_EXTENSIONS = new Set(['txt', 'md', 'log', 'csv', 'json', 'xml', 'yml', 'yaml'])
+
+// 传输速度按相邻两次进度折算，再做一点平滑，进度本身已按 200 毫秒节流
+const speeds = ref<Record<string, number>>({})
+const speedSamples = new Map<string, { received: number; at: number }>()
+
+watch(
+  () => store.files,
+  (files) => {
+    const now = Date.now()
+    const next = { ...speeds.value }
+    for (const file of files) {
+      if (file.state !== 'transferring' || file.received <= 0) {
+        delete next[file.id]
+        speedSamples.delete(file.id)
+        continue
+      }
+      const previous = speedSamples.get(file.id)
+      if (previous !== undefined && now > previous.at && file.received >= previous.received) {
+        const instant = (file.received - previous.received) / ((now - previous.at) / 1000)
+        const old = speeds.value[file.id] ?? 0
+        next[file.id] = old > 0 ? old * 0.6 + instant * 0.4 : instant
+      }
+      speedSamples.set(file.id, { received: file.received, at: now })
+    }
+    speeds.value = next
+  },
+  { deep: true }
+)
+
+function speedOf(file: FileTaskInfo): number {
+  return speeds.value[file.id] ?? 0
+}
+
+function remainingOf(file: FileTaskInfo): string {
+  const speed = speedOf(file)
+  if (speed <= 0 || file.size <= file.received) return ''
+  return formatRemaining((file.size - file.received) / speed)
+}
 
 const sortedFiles = computed(() =>
   [...store.files].sort((left, right) => right.createdAt - left.createdAt)
@@ -251,6 +289,8 @@ const emptyText = computed(() => {
               <span v-if="file.state === 'transferring'" class="progress-text">
                 {{ percentOf(file) }}% · {{ formatSize(file.received) }} /
                 {{ formatSize(file.size) }}
+                <template v-if="speedOf(file) > 0"> · {{ formatSpeed(speedOf(file)) }} </template>
+                <template v-if="remainingOf(file) !== ''"> · {{ remainingOf(file) }}</template>
               </span>
             </div>
 

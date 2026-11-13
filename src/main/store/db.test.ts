@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { DatabaseSync } from 'node:sqlite'
-import { openDatabase } from './db'
+import { openDatabase, repairFileMessageStatuses } from './db'
 import { SCHEMA_VERSION } from './schema'
 
 const tempDirs: string[] = []
@@ -18,6 +18,26 @@ afterEach(() => {
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }
+})
+
+describe('repairFileMessageStatuses', () => {
+  it('把已完成文件任务的发送中消息改成已发送', () => {
+    const db = openDatabase(':memory:')
+    db.prepare(
+      `INSERT INTO conversations (id, kind, title, created_at) VALUES ('direct:x', 'direct', 'x', 1)`
+    ).run()
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, direction, kind, text, status, created_at)
+       VALUES (1, 'direct:x', 'out', 'file', 'a.txt', 'sending', 1)`
+    ).run()
+    db.prepare(
+      `INSERT INTO file_tasks (id, message_id, conversation_id, direction, name, state, created_at, updated_at)
+       VALUES ('pf1', 1, 'direct:x', 'out', 'a.txt', 'done', 1, 1)`
+    ).run()
+    repairFileMessageStatuses(db)
+    expect(db.prepare('SELECT status FROM messages WHERE id = 1').get()).toEqual({ status: 'sent' })
+    db.close()
+  })
 })
 
 describe('openDatabase', () => {

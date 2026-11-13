@@ -96,7 +96,8 @@ const api: Api = {
       ipcRenderer.invoke(IPC.fileSendRich, conversationId, parts),
     sendFolder: (conversationId, path) =>
       ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path),
-    pickReceiveDir: () => ipcRenderer.invoke(IPC.filePickReceiveDir)
+    pickReceiveDir: () => ipcRenderer.invoke(IPC.filePickReceiveDir),
+    pastePaths: () => ipcRenderer.invoke(IPC.filePastePaths)
   },
   settings: {
     get: () => ipcRenderer.invoke(IPC.settingsGet),

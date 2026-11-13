@@ -11,6 +11,7 @@ export function registerAppIpc(service: AppService): void {
     getMainWindow()?.hide()
   })
   ipcMain.handle(IPC.filePickReceiveDir, () => service.pickReceiveDir())
+  ipcMain.handle(IPC.filePastePaths, () => service.clipboardPaths())
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
   ipcMain.handle(IPC.messagesList, (_event, request) => service.listMessages(request))
   ipcMain.handle(IPC.messagesAll, (_event, conversationId: string) =>

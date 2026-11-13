@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import { randomBytes, createHash } from 'node:crypto'
 import { basename, dirname, join } from 'node:path'
 import {
@@ -161,6 +163,7 @@ const PRIVATE_SEND_TIMEOUT_MS = 30_000
 const PRIVATE_SEND_SWEEP_MS = 1000
 // 内网通与微信一样，超过两分钟不能撤回
 const RECALL_WINDOW_MS = 2 * 60 * 1000
+const execFileAsync = promisify(execFile)
 
 function payloadIdOf(meta: string): string {
   try {
@@ -346,6 +349,8 @@ export class AppService {
   private pendingNwt: { source: string; data: NwtData; history: NwtHistory } | null = null
   // 每个会话最近一次发「正在输入」的时间，避免每次按键都发
   private readonly typingSentAt = new Map<string, number>()
+  // 文件进度上报节流：文件号 → 上次落库时间
+  private readonly progressReportedAt = new Map<number, number>()
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -2317,6 +2322,30 @@ export class AppService {
 
   // 剪贴板里的图片先落盘进待发区，按原图格式发送
   // 剪贴板里的图片先落盘进待发区，按原图格式发送；群聊同样先存进待发区
+  // Chromium 不把资源管理器复制的文件夹交给页面，只能回读 Windows 剪贴板的文件列表
+  async clipboardPaths(): Promise<string[]> {
+    if (process.platform !== 'win32') return []
+    // 剪贴板偶尔会被占用，读失败时重试几次；PowerShell 用 STA，剪贴板 API 依赖消息泵
+    const script =
+      '[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ' +
+      'for ($i = 0; $i -lt 6; $i++) { try { ' +
+      'Get-Clipboard -Format FileDropList | ForEach-Object { $_.FullName }; break ' +
+      '} catch { Start-Sleep -Milliseconds 150 } }'
+    try {
+      const { stdout } = await execFileAsync(
+        'powershell.exe',
+        ['-STA', '-NoProfile', '-NonInteractive', '-Command', script],
+        { timeout: 4000, windowsHide: true, encoding: 'utf8' }
+      )
+      return stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line !== '' && existsSync(line))
+    } catch {
+      return []
+    }
+  }
+
   async pasteStaged(conversationId: string): Promise<StagedAttachment[]> {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null) {
@@ -2336,7 +2365,7 @@ export class AppService {
       paths.push(path)
     }
     if (paths.length === 0) {
-      throw new Error('剪贴板里没有图片')
+      throw new Error('剪贴板里没有可发送的图片或文件')
     }
     return this.addStaged(
       conversationId,
@@ -3443,7 +3472,12 @@ export class AppService {
       )
       link = { conversationId: conversation.id, messageId: message.id }
       this.fileLinks.set(file.id, link)
-      this.emit({ type: 'message', message })
+      // 发出的文件消息落库后状态是已发送，事件也要带同样的状态，
+      // 否则气泡下方的状态会一直停在“发送中”
+      this.emit({
+        type: 'message',
+        message: file.direction === 'out' ? { ...message, status: 'sent' } : message
+      })
       this.emitConversation(conversation.id)
       if (file.direction === 'in') {
         this.notifications.notify({
@@ -4142,9 +4176,13 @@ export class AppService {
     }
   }
 
+  // 进度落库与推送界面按 200 毫秒节流：每个 32 KB 都写一次会把吞吐压住
   private handlePrivateFileProgress(fileId: number, received: number): void {
     const entry = this.privateFileTasks.get(fileId)
     if (entry === undefined) return
+    const now = Date.now()
+    if (now - (this.progressReportedAt.get(fileId) ?? 0) < 200) return
+    this.progressReportedAt.set(fileId, now)
     const task = this.repos.files.get(entry.fileTaskId)
     if (task === null) return
     const next: FileTaskInfo = {
@@ -4159,6 +4197,7 @@ export class AppService {
   }
 
   private handlePrivateFileDone(fileId: number, path: string): void {
+    this.progressReportedAt.delete(fileId)
     const entry = this.privateFileTasks.get(fileId)
     if (entry === undefined) return
     logStartup(`私有文件${entry.direction === 'in' ? '接收' : '发送'}完成 ${fileId}（${path}）`)
@@ -4241,6 +4280,22 @@ export class AppService {
     }
     this.repos.files.upsert(next)
     this.emit({ type: 'file', file: next })
+    // 文件完成或失败时同步消息状态，避免卡片显示已发送、气泡下方还停在发送中
+    if (task.messageId !== null) {
+      const status =
+        state === 'done'
+          ? 'sent'
+          : state === 'failed' || state === 'rejected' || state === 'canceled'
+            ? 'failed'
+            : null
+      if (status !== null) {
+        const message = this.repos.messages.getMessage(task.messageId)
+        if (message !== null && message.status !== status) {
+          this.repos.messages.setStatus(task.messageId, status)
+          this.emit({ type: 'message', message: { ...message, status } })
+        }
+      }
+    }
   }
 
   private emitConversation(id: string): void {

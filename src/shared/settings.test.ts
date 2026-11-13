@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_SHORTCUTS, defaultSettings, settingsSchema } from './settings'
 
+describe('file settings', () => {
+  it('accepts incoming files by default', () => {
+    expect(defaultSettings.files.autoAccept).toBe(true)
+    // 旧配置没有这个字段时按新默认补齐，显式关闭的仍然尊重
+    expect(settingsSchema.parse({ files: {} }).files.autoAccept).toBe(true)
+    expect(settingsSchema.parse({ files: { autoAccept: false } }).files.autoAccept).toBe(false)
+  })
+})
+
 describe('shortcut settings', () => {
   it('enables global shortcuts by default', () => {
     expect(defaultSettings.shortcuts.enabled).toBe(true)

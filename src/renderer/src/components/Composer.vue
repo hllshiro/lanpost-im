@@ -211,12 +211,58 @@ async function onPaste(event: ClipboardEvent): Promise<void> {
     await pasteRich(rich)
     return
   }
-  const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-    file.type.startsWith('image/')
-  )
+  // 资源管理器里复制的文件与文件夹带磁盘路径，直接按路径进待发区；
+  // 文件夹也能识别，交给主进程扫描
+  const pasted = Array.from(event.clipboardData?.files ?? [])
+  const paths = pasted.map((file) => window.api.files.pathFor(file)).filter((path) => path !== '')
+  if (paths.length > 0) {
+    event.preventDefault()
+    fileBusy.value = true
+    fileError.value = ''
+    const before = currentStagedIds()
+    try {
+      await stageAndInsert(
+        () =>
+          window.api.files
+            .stagePaths(props.conversationId, paths)
+            .then((result) => result.attachments),
+        before
+      )
+    } catch (reason) {
+      fileError.value = errorMessage(reason)
+    } finally {
+      fileBusy.value = false
+    }
+    return
+  }
+  const files = pasted.filter((file) => file.type.startsWith('image/'))
   if (files.length > 0) {
     event.preventDefault()
     await pasteImages(files)
+    return
+  }
+  // 资源管理器复制的文件夹不会出现在剪贴板事件里（类型为空），交给主进程回读系统剪贴板
+  if (pasted.length === 0 && (event.clipboardData?.types.length ?? 0) === 0) {
+    event.preventDefault()
+    fileBusy.value = true
+    fileError.value = ''
+    const before = currentStagedIds()
+    try {
+      const paths = await window.api.files.pastePaths()
+      if (paths.length > 0) {
+        await stageAndInsert(
+          () =>
+            window.api.files
+              .stagePaths(props.conversationId, paths)
+              .then((result) => result.attachments),
+          before
+        )
+      }
+    } catch (reason) {
+      fileError.value = errorMessage(reason)
+    } finally {
+      fileBusy.value = false
+    }
     return
   }
   const hasImageType = Array.from(event.clipboardData?.items ?? []).some((item) =>
@@ -571,7 +617,7 @@ onMounted(async () => {
       </button>
 
       <span v-if="fileError" class="file-error">{{ fileError }}</span>
-      <span v-else class="hint">Enter 发送 · Shift + Enter 换行 · Ctrl + V 粘贴图片</span>
+      <span v-else class="spacer" />
 
       <button class="send" :disabled="!canSend" @click="submit">
         <Send :size="14" :stroke-width="2" />
@@ -819,15 +865,9 @@ onMounted(async () => {
   opacity: 0.5;
 }
 
-.hint {
+.spacer {
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 11px;
-  color: var(--text-muted);
-  text-align: right;
 }
 
 .file-error {

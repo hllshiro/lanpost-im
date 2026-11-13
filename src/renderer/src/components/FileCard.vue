@@ -3,7 +3,7 @@ import { computed, ref, watch } from 'vue'
 import { File, FileArchive, FileText, Image } from '@lucide/vue'
 import type { FileTaskInfo } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
-import { formatSize, formatSpeed } from '../utils/format'
+import { formatRemaining, formatSize, formatSpeed } from '../utils/format'
 
 const props = defineProps<{ file: FileTaskInfo }>()
 
@@ -42,6 +42,11 @@ const done = computed(() => props.file.state === 'done')
 const percent = computed(() => {
   if (props.file.size <= 0) return 0
   return Math.min(100, Math.round((props.file.received / props.file.size) * 100))
+})
+
+const remaining = computed(() => {
+  if (speed.value <= 0 || props.file.size <= props.file.received) return ''
+  return formatRemaining((props.file.size - props.file.received) / speed.value)
 })
 
 const stateText = computed(() => {
@@ -143,6 +148,10 @@ function saveAs(): void {
           <template v-if="transferring && speed > 0">
             <span class="dot">·</span>
             <span>{{ formatSpeed(speed) }}</span>
+          </template>
+          <template v-if="transferring && remaining !== ''">
+            <span class="dot">·</span>
+            <span>{{ remaining }}</span>
           </template>
         </p>
       </div>

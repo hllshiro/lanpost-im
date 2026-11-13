@@ -26,6 +26,8 @@ import {
   type FileFrame
 } from './private-wire'
 
+// 一次读盘的块大小：32 KB 一帧，但读按 1 MB 一次，减少读延迟对吞吐的影响
+const FILE_READ_BLOCK = 1024 * 1024
 const CONNECT_TIMEOUT_MS = 5000
 const IDLE_TIMEOUT_MS = 60_000
 
@@ -307,6 +309,16 @@ export class PrivateFileTransfer {
       socket.write(
         encodeFileFrame(FILE_FRAME_PATH, buildPath({ dir: task.saveDir, fileId, name: task.name }))
       )
+      // 落盘和收包重叠：保持最多 8 个写请求在飞，避免每个 32 KB 都等一次写入
+      const writes: Array<Promise<void>> = []
+      let writeError: Error | null = null
+      const queueWrite = (content: Buffer, offset: number): void => {
+        writes.push(
+          writeAt(handle, content, offset).catch((error: unknown) => {
+            writeError ??= toError(error)
+          })
+        )
+      }
       for (;;) {
         const frame = await this.requireFrame(channel)
         if (frame.type !== FILE_FRAME_DATA) continue
@@ -318,11 +330,17 @@ export class PrivateFileTransfer {
           FILE_DATA_HEADER_SIZE,
           FILE_DATA_HEADER_SIZE + header.chunkSize
         )
-        await writeAt(handle, content, header.offset)
+        queueWrite(content, header.offset)
+        if (writes.length >= 8) {
+          await writes.shift()
+          if (writeError !== null) throw writeError
+        }
         const received = Math.min(header.offset + header.chunkSize, task.size)
         this.options.callbacks.onProgress(fileId, received)
         if (received >= task.size) break
       }
+      await Promise.all(writes)
+      if (writeError !== null) throw writeError
       this.forget(fileId)
       this.options.callbacks.onDone(fileId, task.savePath)
       socket.end()
@@ -409,6 +427,7 @@ export class PrivateFileTransfer {
   // 监听方：对端主动连过来。按文件号判断是发送方还是接收方。
   private async accept(socket: Socket): Promise<void> {
     this.active.add(socket)
+    socket.setNoDelay(true)
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy())
     const channel = new FrameChannel(socket)
     const first = await this.requireFrame(channel)
@@ -613,24 +632,31 @@ export class PrivateFileTransfer {
   private async streamFile(socket: Socket, task: OutgoingPrivateFile): Promise<void> {
     const handle = await open(task.path, 'r')
     try {
-      const buffer = Buffer.alloc(FILE_CHUNK_SIZE)
+      // 一次读一大块再切成 32 KB 的帧：读盘是异步的，每帧读一次会把
+      // 吞吐压在每次读的延迟上，按块读能把读的开销摊薄
+      const buffer = Buffer.alloc(FILE_READ_BLOCK)
       let offset = 0
       while (offset < task.size) {
-        const length = Math.min(FILE_CHUNK_SIZE, task.size - offset)
+        const length = Math.min(FILE_READ_BLOCK, task.size - offset)
         const result = await handle.read(buffer, 0, length, offset)
         if (result.bytesRead === 0) break
-        await writeFrame(
-          socket,
-          encodeFileFrame(
-            FILE_FRAME_DATA,
-            buildData({
-              fileId: task.fileId,
-              size: task.size,
-              offset,
-              chunk: buffer.subarray(0, result.bytesRead)
-            })
+        let sent = 0
+        while (sent < result.bytesRead) {
+          const chunkLength = Math.min(FILE_CHUNK_SIZE, result.bytesRead - sent)
+          await writeChunk(
+            socket,
+            encodeFileFrame(
+              FILE_FRAME_DATA,
+              buildData({
+                fileId: task.fileId,
+                size: task.size,
+                offset: offset + sent,
+                chunk: buffer.subarray(sent, sent + chunkLength)
+              })
+            )
           )
-        )
+          sent += chunkLength
+        }
         offset += result.bytesRead
         this.options.callbacks.onProgress(task.fileId, offset)
       }
@@ -666,6 +692,8 @@ export class PrivateFileTransfer {
       socket.once('connect', () => {
         clearTimeout(timer)
         socket.off('error', onError)
+        // 关掉 Nagle，避免小块写入等确认造成的停顿
+        socket.setNoDelay(true)
         this.active.add(socket)
         resolve(socket)
       })
@@ -697,14 +725,35 @@ function writeAt(handle: FileHandle, content: Buffer, offset: number): Promise<v
   })()
 }
 
-function writeFrame(socket: Socket, frame: Buffer): Promise<void> {
+// 数据帧不等写完回调：缓冲有空位就继续写，写满后才等 drain，
+// 这样整条链路上始终有多个帧在飞，吞吐不会被单帧往返限制
+function writeChunk(socket: Socket, frame: Buffer): Promise<void> {
+  if (socket.destroyed) {
+    return Promise.reject(new Error('私有文件通道连接已关闭'))
+  }
+  if (socket.write(frame)) {
+    return Promise.resolve()
+  }
   return new Promise((resolve, reject) => {
-    if (socket.destroyed) {
-      reject(new Error('私有文件通道连接已关闭'))
-      return
+    const cleanup = (): void => {
+      socket.off('drain', onDrain)
+      socket.off('error', onError)
+      socket.off('close', onClose)
     }
-    socket.write(frame, (error) =>
-      error === null || error === undefined ? resolve() : reject(error)
-    )
+    const onDrain = (): void => {
+      cleanup()
+      resolve()
+    }
+    const onError = (error: Error): void => {
+      cleanup()
+      reject(error)
+    }
+    const onClose = (): void => {
+      cleanup()
+      reject(new Error('私有文件通道连接已关闭'))
+    }
+    socket.once('drain', onDrain)
+    socket.once('error', onError)
+    socket.once('close', onClose)
   })
 }

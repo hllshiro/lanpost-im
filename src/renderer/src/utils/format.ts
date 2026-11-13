@@ -66,6 +66,17 @@ export function formatSpeed(bytesPerSecond: number): string {
   return `${formatSize(bytesPerSecond)}/s`
 }
 
+// 预计剩余时间：按当前速度折算，速度未知或已经收完时返回空串
+export function formatRemaining(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  if (seconds < 60) return `剩余 ${Math.ceil(seconds)} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.round(seconds % 60)
+  if (minutes < 60) return rest > 0 ? `剩余 ${minutes} 分 ${rest} 秒` : `剩余 ${minutes} 分`
+  const hours = Math.floor(minutes / 60)
+  return `剩余 ${hours} 小时 ${minutes % 60} 分`
+}
+
 export function previewText(message: MessageInfo): string {
   const text = message.text.replace(/\s+/g, ' ').trim()
   if (message.kind === 'file') return `[文件] ${text || '文件'}`

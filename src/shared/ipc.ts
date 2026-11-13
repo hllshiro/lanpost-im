@@ -72,6 +72,7 @@ export const IPC = {
   fileSendRich: 'files:send-rich',
   fileSendFolder: 'files:send-folder',
   filePickReceiveDir: 'files:pick-receive-dir',
+  filePastePaths: 'files:paste-paths',
   appQuit: 'app:quit',
   appMinimize: 'app:minimize'
 } as const
@@ -292,5 +293,7 @@ export type Api = {
     sendFolder(conversationId: string, path: string): Promise<void>
     // 选择接收目录；取消返回 null
     pickReceiveDir(): Promise<string | null>
+    // 读取系统剪贴板里的文件/文件夹路径（资源管理器复制的文件夹走这条路）
+    pastePaths(): Promise<string[]>
   }
 }

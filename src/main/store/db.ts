@@ -30,6 +30,23 @@ function readExistingVersion(file: string): number | null {
   }
 }
 
+// 旧版本里文件消息的状态可能停在发送中：按文件任务的实际结果补正
+export function repairFileMessageStatuses(db: DatabaseSync): void {
+  db.exec(
+    `UPDATE messages SET status = 'sent'
+     WHERE kind = 'file' AND direction = 'out' AND status = 'sending'
+       AND EXISTS (SELECT 1 FROM file_tasks WHERE file_tasks.message_id = messages.id AND state = 'done')`
+  )
+  db.exec(
+    `UPDATE messages SET status = 'failed'
+     WHERE kind = 'file' AND direction = 'out' AND status = 'sending'
+       AND EXISTS (
+         SELECT 1 FROM file_tasks
+         WHERE file_tasks.message_id = messages.id AND state IN ('failed', 'rejected', 'canceled')
+       )`
+  )
+}
+
 export function migrate(db: DatabaseSync): void {
   const before = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
   db.exec('BEGIN')
@@ -40,6 +57,7 @@ export function migrate(db: DatabaseSync): void {
     if (before < 5) {
       migratePeerKeys(db)
     }
+    repairFileMessageStatuses(db)
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     db.exec('COMMIT')
   } catch (error) {
