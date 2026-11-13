@@ -248,6 +248,20 @@ export class PrivateService {
       const port = seed.port ?? DEFAULT_ENET_PORT
       this.createSession('client', seed.ip, port)?.start()
     }
+    // 已知地址但会话已断的，也补一次连接；删除联系人后刷新能重新握手
+    for (const [ip, port] of this.peerPorts) {
+      if (this.sessions.has(ip)) continue
+      this.createSession('client', ip, port)?.start()
+    }
+  }
+
+  // 删除联系人后断开与它的会话，刷新或对端下次通告时会重新握手
+  dropPeer(ip: string): void {
+    const session = this.sessions.get(ip)
+    if (session === undefined) return
+    this.sessions.delete(ip)
+    session.close()
+    this.peerProfiles.delete(ip)
   }
 
   private replyAnnounce(rinfo: RemoteInfo): void {

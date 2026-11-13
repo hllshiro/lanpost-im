@@ -97,6 +97,8 @@ export function statusLabel(status: string): string {
       return '已读'
     case 'failed':
       return '发送失败'
+    case 'queued':
+      return '等待对方上线'
     default:
       return status
   }

@@ -2,12 +2,13 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ChevronRight, Merge, Search, Users, X } from '@lucide/vue'
 import type { GroupInfo, PeerInfo } from '../../../shared/domain'
-import type { PeerMergeResult } from '../../../shared/ipc'
+import type { BatchSendResult, PeerMergeResult } from '../../../shared/ipc'
 import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import GroupMark from './GroupMark.vue'
+import BatchSendDialog from './BatchSendDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import MergePeersDialog from './MergePeersDialog.vue'
 import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
@@ -17,12 +18,9 @@ const emit = defineEmits<{ open: [conversationId: string] }>()
 const store = useAppStore()
 const query = ref('')
 const activeLetter = ref<string | null>(null)
-const boxOpen = ref(false)
-const boxMode = ref<'broadcast' | 'multicast'>('broadcast')
-const boxText = ref('')
-const boxError = ref('')
-const boxBusy = ref(false)
-const selected = ref<Set<string>>(new Set())
+const batchOpen = ref(false)
+const batchNote = ref('')
+let batchTimer: ReturnType<typeof setTimeout> | undefined
 const tab = ref<'contacts' | 'groups'>('contacts')
 const deleteTarget = ref<
   { kind: 'peer'; peer: PeerInfo } | { kind: 'group'; group: GroupInfo } | null
@@ -161,6 +159,7 @@ async function handleMerged(payload: {
 
 onBeforeUnmount(() => {
   if (mergeTimer !== undefined) clearTimeout(mergeTimer)
+  if (batchTimer !== undefined) clearTimeout(batchTimer)
 })
 
 function askDeletePeer(peer: PeerInfo): void {
@@ -206,55 +205,20 @@ function isCurrent(peer: PeerInfo): boolean {
 }
 
 function openPeer(peer: PeerInfo): void {
-  if (boxOpen.value) {
-    toggleSelect(peer.key)
-    return
-  }
   const conversationId = conversationByPeer.value.get(peer.key)
   if (!conversationId) return
   emit('open', conversationId)
 }
 
-function openBox(mode: 'broadcast' | 'multicast'): void {
-  boxMode.value = mode
-  boxOpen.value = true
-  boxError.value = ''
-  boxText.value = ''
-  selected.value = new Set()
-}
-
-function closeBox(): void {
-  boxOpen.value = false
-  boxError.value = ''
-  boxText.value = ''
-  selected.value = new Set()
-}
-
-function toggleSelect(peerKey: string): void {
-  const next = new Set(selected.value)
-  if (next.has(peerKey)) next.delete(peerKey)
-  else next.add(peerKey)
-  selected.value = next
-}
-
-async function sendBox(): Promise<void> {
-  const text = boxText.value.trim()
-  if (text === '') {
-    boxError.value = '请输入要发送的内容'
-    return
-  }
-  boxBusy.value = true
-  boxError.value = ''
-  const count =
-    boxMode.value === 'broadcast'
-      ? await store.broadcastText(text)
-      : await store.multicastText([...selected.value], text)
-  boxBusy.value = false
-  if (count > 0) {
-    closeBox()
-  } else {
-    boxError.value = '没有可发送的在线联系人'
-  }
+function handleBatchSent(result: BatchSendResult): void {
+  batchOpen.value = false
+  const parts = [`已群发给 ${result.on} 位联系人`]
+  if (result.queued > 0) parts.push(`${result.queued} 位离线，文字已排队`)
+  batchNote.value = parts.join('，')
+  if (batchTimer !== undefined) clearTimeout(batchTimer)
+  batchTimer = setTimeout(() => {
+    batchNote.value = ''
+  }, 4000)
 }
 </script>
 
@@ -269,9 +233,8 @@ async function sendBox(): Promise<void> {
         </p>
       </div>
       <div v-if="tab === 'contacts'" class="head-actions">
-        <button class="broadcast" @click="openBox('broadcast')">广播</button>
-        <button class="broadcast secondary" @click="openBox('multicast')">多选</button>
-        <button class="broadcast secondary" @click="mergeOpen = true">
+        <button class="action" @click="batchOpen = true">群发</button>
+        <button class="action secondary" @click="mergeOpen = true">
           <Merge :size="13" :stroke-width="1.9" />
           合并
         </button>
@@ -293,6 +256,14 @@ async function sendBox(): Promise<void> {
     </header>
 
     <p v-if="mergeNote" class="merge-note">{{ mergeNote }}</p>
+    <p v-if="batchNote" class="merge-note">{{ batchNote }}</p>
+
+    <BatchSendDialog
+      v-if="batchOpen"
+      :peers="store.peers"
+      @close="batchOpen = false"
+      @sent="handleBatchSent"
+    />
 
     <MergePeersDialog
       v-if="mergeOpen"
@@ -347,8 +318,7 @@ async function sendBox(): Promise<void> {
               :tabindex="hasConversation(peer) ? 0 : -1"
               :class="{
                 current: isCurrent(peer),
-                unavailable: !hasConversation(peer),
-                selected: selected.has(peer.key)
+                unavailable: !hasConversation(peer)
               }"
               :title="hasConversation(peer) ? '打开聊天' : '会话尚未建立'"
               @click="openPeer(peer)"
@@ -382,17 +352,10 @@ async function sendBox(): Promise<void> {
                 <span class="ip">{{ peer.ip }}</span>
               </span>
 
-              <span
-                v-if="boxOpen && boxMode === 'multicast'"
-                class="select-mark"
-                :class="{ checked: selected.has(peer.key) }"
-              />
-              <template v-else>
-                <button class="row-delete" title="删除联系人" @click.stop="askDeletePeer(peer)">
-                  删除
-                </button>
-                <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
-              </template>
+              <button class="row-delete" title="删除联系人" @click.stop="askDeletePeer(peer)">
+                删除
+              </button>
+              <ChevronRight :size="16" :stroke-width="1.8" class="chevron" />
             </div>
           </template>
 
@@ -452,26 +415,6 @@ async function sendBox(): Promise<void> {
             <p>{{ query.trim() === '' ? '暂无群聊' : '没有匹配的群聊' }}</p>
           </div>
         </div>
-      </div>
-    </div>
-
-    <div v-if="boxOpen" class="broadcast-box">
-      <div class="box-head">
-        <strong>{{ boxMode === 'broadcast' ? '全体在线' : `已选 ${selected.size} 人` }}</strong>
-        <button class="box-close" title="关闭" @click="closeBox">×</button>
-      </div>
-      <input
-        v-model="boxText"
-        :placeholder="boxMode === 'broadcast' ? '发送给所有在线联系人' : '发送给选中的联系人'"
-        :disabled="boxBusy"
-        @keydown.enter.prevent="sendBox"
-      />
-      <div class="box-actions">
-        <span v-if="boxError" class="box-error">{{ boxError }}</span>
-        <button class="ghost" :disabled="boxBusy" @click="closeBox">取消</button>
-        <button class="primary" :disabled="boxBusy" @click="sendBox">
-          {{ boxBusy ? '发送中…' : '发送' }}
-        </button>
       </div>
     </div>
 
@@ -853,7 +796,7 @@ async function sendBox(): Promise<void> {
   margin-left: auto;
 }
 
-.broadcast {
+.action {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -875,99 +818,10 @@ async function sendBox(): Promise<void> {
   color: #3d7a52;
 }
 
-.broadcast.secondary {
+.action.secondary {
   background: #ffffff;
   border: 1px solid #dcdcdc;
   color: var(--text);
-}
-
-.peer.selected {
-  background: #eef8f1;
-}
-
-.select-mark {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  border: 1px solid #c8c8c8;
-  border-radius: 4px;
-  background: #ffffff;
-}
-
-.select-mark.checked {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.broadcast-box {
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 16px;
-  z-index: 30;
-  padding: 12px;
-  border-radius: 10px;
-  background: #ffffff;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.18);
-}
-
-.box-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  font-size: 12.5px;
-}
-
-.box-close {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  color: var(--text-muted);
-  font-size: 16px;
-  line-height: 1;
-}
-
-.broadcast-box input {
-  width: 100%;
-  height: 32px;
-  padding: 0 10px;
-  border: 1px solid #dcdcdc;
-  border-radius: var(--radius-button);
-  font-size: 12.5px;
-}
-
-.box-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 8px;
-}
-
-.box-error {
-  flex: 1;
-  min-width: 0;
-  color: var(--danger);
-  font-size: 11.5px;
-}
-
-.box-actions .ghost,
-.box-actions .primary {
-  height: 28px;
-  padding: 0 12px;
-  border-radius: var(--radius-button);
-  font-size: 12px;
-}
-
-.box-actions .ghost {
-  border: 1px solid #e0e0e0;
-  background: #ffffff;
-  color: var(--text-secondary);
-}
-
-.box-actions .primary {
-  background: var(--accent);
-  color: #ffffff;
 }
 
 .chevron {

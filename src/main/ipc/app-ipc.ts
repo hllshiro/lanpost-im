@@ -24,12 +24,6 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.messageTyping, (_event, conversationId: string) =>
     service.notifyTyping(conversationId)
   )
-  ipcMain.handle(IPC.messageBroadcast, (_event, request) => ({
-    count: service.broadcastText(request.text)
-  }))
-  ipcMain.handle(IPC.messageMulticast, (_event, request) => ({
-    count: service.multicastText(request.peerKeys, request.text)
-  }))
   ipcMain.handle(IPC.conversationRead, (_event, conversationId: string, messageId: number) =>
     service.markRead(conversationId, messageId)
   )
@@ -87,6 +81,9 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.filePick, (_event, conversationId: string) =>
     service.pickStaged(conversationId)
   )
+  ipcMain.handle(IPC.filePickImages, (_event, conversationId: string) =>
+    service.pickImages(conversationId)
+  )
   ipcMain.handle(IPC.filePaste, (_event, conversationId: string) =>
     service.pasteStaged(conversationId)
   )
@@ -111,6 +108,9 @@ export function registerAppIpc(service: AppService): void {
   )
   ipcMain.handle(IPC.fileSendFolder, (_event, conversationId: string, path: string) =>
     service.sendFolder(conversationId, path)
+  )
+  ipcMain.handle(IPC.fileBatchSend, (_event, batchId: string, peerKeys: string[], parts) =>
+    service.batchSend({ batchId, peerKeys, parts })
   )
   ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
     service.setActiveConversation(conversationId)

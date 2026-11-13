@@ -45,6 +45,7 @@ import type {
 } from '../shared/domain'
 import type {
   AppInfo,
+  BatchSendResult,
   MessagesListRequest,
   MessagesSendRequest,
   NwtImportPreview,
@@ -68,7 +69,6 @@ import type {
   RemoteProfile
 } from './protocol/private/messages'
 import { nextPrivateSeq, outstandingToFail, receiptsToSend } from './protocol/private/route'
-import { eligibleTargets } from './protocol/private/broadcast'
 import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
@@ -1420,6 +1420,7 @@ export class AppService {
   }
 
   async stop(): Promise<void> {
+    this.started = false
     this.notifications.stop()
     const privateService = this.privateService
     this.privateService = null
@@ -1438,7 +1439,6 @@ export class AppService {
     if (privateService !== null) {
       await privateService.stop()
     }
-    this.started = false
   }
 
   snapshot(): AppSnapshot {
@@ -1497,22 +1497,17 @@ export class AppService {
       throw new Error('会话不存在')
     }
     const peer = this.repos.peers.get(conversation.peerKey)
-    if (peer === null || !peer.online) {
-      throw new Error('联系人不在线')
+    if (peer === null) {
+      throw new Error('联系人不存在')
     }
     const privateService = this.privateService
     if (privateService === null) {
       throw new Error('内网通私有会话未就绪')
     }
-    if (!privateService.isReady(peer.ip)) {
-      privateService.ensureSession(peer.ip)
-      throw new Error('内网通私有会话未就绪，请稍后重试')
-    }
-    const msgId = this.allocatePrivateSeq()
     const payloadId = createPayloadId()
-    if (!privateService.sendText(peer.ip, msgId, request.text, payloadId)) {
-      throw new Error('内网通私有会话未就绪，请稍后重试')
-    }
+    // 只有对端在线且会话就绪才立即发出；其余情况先排队，收到 X_READY 再补发
+    const ready = peer.online && privateService.isReady(peer.ip)
+    const msgId = ready ? this.allocatePrivateSeq() : 0
     const message = this.recordOutgoing(
       conversation.id,
       request.text,
@@ -1520,8 +1515,19 @@ export class AppService {
       undefined,
       JSON.stringify({ nwtPayloadId: payloadId })
     )
-    this.trackPrivateSend(peer.ip, conversation.id, msgId)
-    return { message }
+    if (ready && privateService.sendText(peer.ip, msgId, request.text, payloadId)) {
+      this.repos.messages.setStatus(message.id, 'sending')
+      this.trackPrivateSend(peer.ip, conversation.id, msgId)
+    } else {
+      privateService.ensureSession(peer.ip)
+      this.repos.messages.setStatus(message.id, 'queued')
+      logStartup(`离线消息排队 会话=${conversation.id} 消息=${message.id}`)
+    }
+    this.repos.conversations.touch(conversation.id, message.createdAt, 0)
+    const updated = this.repos.messages.getMessage(message.id) ?? message
+    this.emit({ type: 'message', message: updated })
+    this.emitConversation(conversation.id)
+    return { message: updated }
   }
 
   // 输入中：只对一对一在线联系人发送，三秒节流一次
@@ -1539,61 +1545,6 @@ export class AppService {
     if (service.sendTyping(peer.ip)) {
       this.typingSentAt.set(conversationId, now)
     }
-  }
-
-  broadcastText(text: string): number {
-    const service = this.privateService
-    if (service === null) {
-      throw new Error('内网通私有会话未就绪')
-    }
-    const targets = eligibleTargets(this.repos.peers.list(), (ip) => service.isReady(ip))
-    return this.sendToTargets(targets, text)
-  }
-
-  multicastText(peerKeys: string[], text: string): number {
-    const service = this.privateService
-    if (service === null) {
-      throw new Error('内网通私有会话未就绪')
-    }
-    const peers = peerKeys
-      .map((key) => this.repos.peers.get(key))
-      .filter((peer): peer is PeerInfo => peer !== null)
-    const targets = eligibleTargets(peers, (ip) => service.isReady(ip))
-    return this.sendToTargets(targets, text)
-  }
-
-  private sendToTargets(targets: PeerInfo[], text: string): number {
-    const body = text.trim()
-    if (body === '') {
-      throw new Error('消息不能为空')
-    }
-    const service = this.privateService
-    if (service === null) {
-      throw new Error('内网通私有会话未就绪')
-    }
-    let count = 0
-    for (const peer of targets) {
-      const msgId = this.allocatePrivateSeq()
-      const payloadId = createPayloadId()
-      if (!service.sendText(peer.ip, msgId, body, payloadId)) continue
-      const conversation = this.repos.conversations.ensureDirect(
-        peer.key,
-        peer.alias.trim() || peer.name || peer.user || peer.ip
-      )
-      this.recordOutgoing(
-        conversation.id,
-        body,
-        msgId,
-        undefined,
-        JSON.stringify({ nwtPayloadId: payloadId })
-      )
-      this.trackPrivateSend(peer.ip, conversation.id, msgId)
-      count += 1
-    }
-    if (count === 0) {
-      throw new Error('没有可发送的在线联系人')
-    }
-    return count
   }
 
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
@@ -1893,7 +1844,88 @@ export class AppService {
     logStartup(`私有群移出成员 群号=${groupId} 用户=${userId}`)
   }
 
-  // 退群：本机不是群主时才允许，其余成员收到 3009
+  // 群发：把待发区的内容复制到每个接收人的会话，再走常规的富文本与附件发送
+  async batchSend(request: {
+    batchId: string
+    peerKeys: string[]
+    parts: RichPart[]
+  }): Promise<BatchSendResult> {
+    const batch = this.staged.list(request.batchId)
+    const parts = request.parts
+    const text = parts
+      .filter((part) => part.kind === 'text')
+      .map((part) => part.text)
+      .join('')
+      .trim()
+    if (text === '' && !parts.some((part) => part.kind === 'image') && batch.length === 0) {
+      throw new Error('请先输入内容或添加附件')
+    }
+    const keys = [...new Set(request.peerKeys)]
+    if (keys.length === 0) {
+      throw new Error('请选择接收人')
+    }
+    const indexOf = new Map(batch.map((item, index) => [item.id, index]))
+    const sources: StagedSource[] = batch.map((item) => {
+      const file = this.staged.file(item.id)
+      return {
+        path: item.path,
+        name: item.name,
+        size: item.size,
+        kind: item.kind,
+        temporary: file?.temporary ?? false,
+        ...(item.sticker === true ? { sticker: true } : {})
+      }
+    })
+    let on = 0
+    let queued = 0
+    for (const key of keys) {
+      const peer = this.repos.peers.get(key)
+      if (peer === null) continue
+      const conversation = this.repos.conversations.ensureDirect(
+        key,
+        peer.alias.trim() || peer.name || peer.user || key
+      )
+      const online =
+        peer.online && this.privateService !== null && this.privateService.isReady(peer.ip)
+      if (!online) {
+        // 离线的只排队文字，附件等对方上线后再单独发
+        if (text !== '') {
+          this.sendText({ conversationId: conversation.id, text })
+          queued += 1
+        }
+        continue
+      }
+      const copied = sources.length > 0 ? this.staged.add(conversation.id, sources) : []
+      const mapped: RichPart[] = []
+      for (const part of parts) {
+        if (part.kind === 'text') {
+          mapped.push(part)
+          continue
+        }
+        const index = indexOf.get(part.stagedId)
+        if (index === undefined) continue
+        const target = copied[index]
+        if (target !== undefined) mapped.push({ kind: 'image', stagedId: target.id })
+      }
+      if (mapped.length > 0) {
+        this.sendRich(conversation.id, mapped)
+      }
+      if (batch.some((item) => item.kind !== 'image')) {
+        await this.sendStaged(conversation.id)
+      }
+      on += 1
+    }
+    for (const item of batch) {
+      this.staged.take(request.batchId, item.id)
+    }
+    this.emitStaged(request.batchId)
+    if (on === 0 && queued === 0) {
+      throw new Error('所选联系人都离线，附件无法发送')
+    }
+    logStartup(`群发 在线投递 ${on} 人，排队 ${queued} 人，附件 ${batch.length} 个`)
+    return { on, queued }
+  }
+
   // 从本机删除联系人：会话、消息、文件任务与头像记录一起清掉；
   // 在线联系人下次广播会被重新发现，这是预期行为
   deleteContact(peerKey: string): void {
@@ -1905,6 +1937,10 @@ export class AppService {
     this.repos.conversations.remove(conversationId)
     this.repos.peers.remove(peerKey)
     this.registry.forget(peerKey)
+    // 会话不断开的话，刷新时不会再握手，联系人好像永远回不来
+    if (peer.ip !== '') {
+      this.privateService?.dropPeer(peer.ip)
+    }
     this.emit({ type: 'conversation-removed', conversationId })
     this.emit({ type: 'peers', peers: this.peerList() })
     logStartup(`删除联系人 ${peerKey}`)
@@ -1934,6 +1970,7 @@ export class AppService {
     this.removeGroupLocally(groupId, '删除')
   }
 
+  // 退群：本机不是群主时才允许，其余成员收到 3009
   leaveGroup(groupId: string): void {
     const service = this.privateService
     const group = this.requireGroup(groupId)
@@ -2095,10 +2132,28 @@ export class AppService {
   sendRich(conversationId: string, parts: RichPart[]): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null) throw new Error('会话不存在')
+    const isGroup = conversation.kind === 'group'
+    const hasImage = parts.some((part) => part.kind === 'image')
+    if (!isGroup) {
+      if (conversation.peerKey === null) throw new Error('联系人不存在')
+      const peer = this.repos.peers.get(conversation.peerKey)
+      if (peer === null) throw new Error('联系人不存在')
+      const ready =
+        peer.online && this.privateService !== null && this.privateService.isReady(peer.ip)
+      if (!ready) {
+        // 对方不在线时文字照常排队，图片只能等对方上线后再发
+        if (hasImage) throw new Error('对方不在线，图片需要等对方上线后再发送')
+        const text = parts
+          .filter((part) => part.kind === 'text')
+          .map((part) => part.text)
+          .join('')
+        if (text.trim() !== '') this.sendText({ conversationId, text })
+        return
+      }
+    }
     const service = this.privateService
     const transfer = this.privateFiles
     if (service === null || transfer === null) throw new Error('内网通私有文件通道未启动')
-    const isGroup = conversation.kind === 'group'
     const groupId = isGroup && conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
     const targets: Array<{ ip: string; key: string }> = []
     if (isGroup) {
@@ -2334,11 +2389,8 @@ export class AppService {
 
   // 「文件」按钮只把文件放进待发区，点发送时才开始传输
   async pickStaged(conversationId: string): Promise<StagedAttachment[]> {
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) {
-      throw new Error('会话不存在')
-    }
-    if (conversation.kind === 'group') {
+    const conversation = this.stagingConversation(conversationId)
+    if (conversation !== null && conversation.kind === 'group') {
       throw new Error('群聊暂时只支持粘贴图片')
     }
     const options: OpenDialogOptions = {
@@ -2360,7 +2412,29 @@ export class AppService {
     )
   }
 
-  // 剪贴板里的图片先落盘进待发区，按原图格式发送
+  // 「图片」按钮只把图片放进待发区，发送时按原图发出
+  async pickImages(conversationId: string): Promise<StagedAttachment[]> {
+    this.stagingConversation(conversationId)
+    const options: OpenDialogOptions = {
+      title: '添加图片',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '图片', extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }],
+      defaultPath: this.lastDialogDir()
+    }
+    const result =
+      this.window === null
+        ? await dialog.showOpenDialog(options)
+        : await dialog.showOpenDialog(this.window, options)
+    if (result.canceled || result.filePaths.length === 0) {
+      return this.staged.list(conversationId)
+    }
+    this.rememberDialogDir(dirname(result.filePaths[0] ?? ''))
+    return this.addStaged(
+      conversationId,
+      result.filePaths.map((path) => this.stagedSource(path, false))
+    )
+  }
+
   // 剪贴板里的图片先落盘进待发区，按原图格式发送；群聊同样先存进待发区
   // Chromium 不把资源管理器复制的文件夹交给页面，只能回读 Windows 剪贴板的文件列表
   async clipboardPaths(): Promise<string[]> {
@@ -2387,10 +2461,7 @@ export class AppService {
   }
 
   async pasteStaged(conversationId: string): Promise<StagedAttachment[]> {
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) {
-      throw new Error('会话不存在')
-    }
+    this.stagingConversation(conversationId)
     const dir = join(app.getPath('userData'), 'clipboard')
     mkdirSync(dir, { recursive: true })
     const paths: string[] = []
@@ -2413,12 +2484,18 @@ export class AppService {
     )
   }
 
-  // 拖进窗口的文件：有磁盘路径的直接引用原文件，拖进来的文件夹在这里拦下
-  stagePaths(conversationId: string, paths: string[], sticker = false): StagePathsResult {
+  // 群发窗口没有会话，待发区用 batch: 前缀的临时 id；其余 id 必须是真实会话
+  private stagingConversation(conversationId: string): ConversationInfo | null {
     const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) {
+    if (conversation === null && !conversationId.startsWith('batch:')) {
       throw new Error('会话不存在')
     }
+    return conversation
+  }
+
+  // 拖进窗口的文件：有磁盘路径的直接引用原文件，拖进来的文件夹在这里拦下
+  stagePaths(conversationId: string, paths: string[], sticker = false): StagePathsResult {
+    this.stagingConversation(conversationId)
     const sources: StagedSource[] = []
     const skipped: string[] = []
     for (const path of paths) {
@@ -2454,10 +2531,7 @@ export class AppService {
     data: ArrayBuffer,
     sticker = false
   ): StagedAttachment[] {
-    const conversation = this.repos.conversations.get(conversationId)
-    if (conversation === null) {
-      throw new Error('会话不存在')
-    }
+    this.stagingConversation(conversationId)
     const dir = join(app.getPath('userData'), 'clipboard')
     mkdirSync(dir, { recursive: true })
     const label = sanitizeFileName(name) || '拖入的文件'
@@ -3550,6 +3624,8 @@ export class AppService {
   }
 
   private handlePeers(peers: PeerInfo[]): void {
+    // 退出过程中数据库可能已经关闭，此时不再写联系人
+    if (!this.started) return
     const aliases = new Map(this.repos.peers.list().map((peer) => [peer.key, peer.alias]))
     for (const peer of peers) {
       this.repos.peers.upsert(peer)
@@ -3977,7 +4053,35 @@ export class AppService {
     if (userId !== '') {
       this.registry.assignUserId(ip, userId)
     }
+    this.flushQueuedMessages(ip)
     this.reconcileGroups(ip, userId)
+  }
+
+  // 对端上线：把离线期间排队的消息按顺序补发
+  private flushQueuedMessages(ip: string): void {
+    const service = this.privateService
+    if (service === null || !service.isReady(ip)) return
+    const peerKey = this.registry.peerKeyForIp(ip)
+    if (peerKey === null) return
+    const conversationId = directConversationId(peerKey)
+    const queued = this.repos.messages.queued(conversationId)
+    for (const message of queued) {
+      const msgId = this.allocatePrivateSeq()
+      const payloadId = payloadIdOf(message.meta)
+      if (!service.sendText(ip, msgId, message.text, payloadId === '' ? undefined : payloadId)) {
+        break
+      }
+      this.repos.messages.setRemoteSeq(message.id, msgId)
+      this.repos.messages.setStatus(message.id, 'sending')
+      this.trackPrivateSend(ip, conversationId, msgId)
+      const updated = this.repos.messages.getMessage(message.id)
+      if (updated !== null) {
+        this.emit({ type: 'message', message: updated })
+      }
+    }
+    if (queued.length > 0) {
+      logStartup(`补发离线消息 ${queued.length} 条 → ${ip}`)
+    }
   }
 
   // 联系人从地址改成用户标识时，把联系人、会话、消息与文件任务一起改名

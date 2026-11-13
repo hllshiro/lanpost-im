@@ -26,7 +26,8 @@ import {
   sendReceiptXml,
   shareDownloadFolderXml,
   shareDownloadFolderRspXml,
-  remindFileXml
+  remindFileXml,
+  retrieveImagesXml
 } from './messages'
 import type { PrivateProfile } from './messages'
 import { decodeBeacon } from './beacon'
@@ -65,6 +66,14 @@ describe('private messages', () => {
       .replace(/"/g, '&quot;')
     const xml = `<X_SEND_MSG docver="1"><MSG_ID>8</MSG_ID><RECEIPT>0</RECEIPT><MSG>${body}</MSG></X_SEND_MSG>`
     expect(parsePrivate(1004, xml)).toEqual({ kind: 'recall', msgId: 8, targetId: 'v-id' })
+  })
+
+  it('treats an image retrieve request as a request, not a recall', () => {
+    const xml = retrieveImagesXml(21, [
+      { id: 833061, type: '', value: '833061|2cd8bde463f5d82aae0f0cec061d6b8f' }
+    ])
+    const parsed = parsePrivate(1004, xml)
+    expect(parsed.kind).not.toBe('recall')
   })
 
   it('builds a recall message pointing at the original payload id', () => {

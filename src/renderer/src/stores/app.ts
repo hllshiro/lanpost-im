@@ -13,7 +13,7 @@ import type {
   StagedAttachment
 } from '../../../shared/domain'
 import { errorMessage } from '../utils/errors'
-import type { RichPart } from '../../../shared/ipc'
+import type { BatchSendResult, RichPart } from '../../../shared/ipc'
 
 const PREVIEW_PAGE_SIZE = 10
 const DRAFT_SAVE_DELAY = 400
@@ -435,6 +435,20 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 群发：把 batch: 待发区里的内容交给主进程，按接收人逐个投递
+  async function batchSend(
+    batchId: string,
+    peerKeys: string[],
+    parts: RichPart[]
+  ): Promise<BatchSendResult> {
+    sending.value = true
+    try {
+      return await window.api.files.batchSend(batchId, peerKeys, parts)
+    } finally {
+      sending.value = false
+    }
+  }
+
   // 发送：待发区的附件按顺序先发出去，再发文字
   async function sendText(text: string): Promise<boolean> {
     const conversationId = currentConversationId.value
@@ -466,26 +480,6 @@ export const useAppStore = defineStore('app', () => {
       return false
     } finally {
       sending.value = false
-    }
-  }
-
-  async function broadcastText(text: string): Promise<number> {
-    try {
-      const result = await window.api.messages.broadcast({ text })
-      return result.count
-    } catch (reason) {
-      reportError(reason)
-      return 0
-    }
-  }
-
-  async function multicastText(peerKeys: string[], text: string): Promise<number> {
-    try {
-      const result = await window.api.messages.multicast({ peerKeys, text })
-      return result.count
-    } catch (reason) {
-      reportError(reason)
-      return 0
     }
   }
 
@@ -656,6 +650,7 @@ export const useAppStore = defineStore('app', () => {
     currentGroup,
     currentFiles,
     currentStaged,
+    staged,
     initialize,
     loadSnapshot,
     refreshPeers,
@@ -664,8 +659,7 @@ export const useAppStore = defineStore('app', () => {
     loadMessages,
     sendText,
     sendRich,
-    broadcastText,
-    multicastText,
+    batchSend,
     saveDraft,
     removeStaged,
     markRead,

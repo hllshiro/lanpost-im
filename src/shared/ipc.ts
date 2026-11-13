@@ -36,8 +36,6 @@ export const IPC = {
   messageSend: 'messages:send',
   messageRecall: 'messages:recall',
   messageTyping: 'messages:typing',
-  messageBroadcast: 'messages:broadcast',
-  messageMulticast: 'messages:multicast',
   conversationRead: 'conversation:read',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
@@ -66,6 +64,7 @@ export const IPC = {
   fileRevealPath: 'files:reveal-path',
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
+  filePickImages: 'files:pick-images',
   filePaste: 'files:paste',
   fileStagePaths: 'files:stage-paths',
   fileStageBytes: 'files:stage-bytes',
@@ -73,6 +72,7 @@ export const IPC = {
   fileStagedSend: 'files:staged-send',
   fileSendRich: 'files:send-rich',
   fileSendFolder: 'files:send-folder',
+  fileBatchSend: 'files:batch-send',
   filePickReceiveDir: 'files:pick-receive-dir',
   filePastePaths: 'files:paste-paths',
   appQuit: 'app:quit',
@@ -160,17 +160,10 @@ export interface MessagesSendRequest {
   text: string
 }
 
-export interface MessageBroadcastRequest {
-  text: string
-}
-
-export interface MessageMulticastRequest {
-  peerKeys: string[]
-  text: string
-}
-
-export interface SentCountResult {
-  count: number
+// 群发结果：on 表示已经在线投递，queued 表示对方离线、文字已排队
+export interface BatchSendResult {
+  on: number
+  queued: number
 }
 
 // 拖进窗口的文件里，能直接引用的按路径放行，文件夹等无法当文件处理的名字放在 skipped
@@ -233,8 +226,6 @@ export type Api = {
     recall(conversationId: string, messageId: number): Promise<void>
     // 输入中通知对端，主进程按节流发送
     typing(conversationId: string): Promise<void>
-    broadcast(request: MessageBroadcastRequest): Promise<SentCountResult>
-    multicast(request: MessageMulticastRequest): Promise<SentCountResult>
     markRead(conversationId: string, messageId: number): Promise<void>
     saveDraft(conversationId: string, draft: string): Promise<void>
   }
@@ -276,6 +267,8 @@ export type Api = {
     saveAs(id: string): Promise<void>
     // 选中与粘贴都只进待发区，返回当前会话最新的待发列表
     pick(conversationId: string): Promise<StagedAttachment[]>
+    // 只挑图片，按图片消息发送
+    pickImages(conversationId: string): Promise<StagedAttachment[]>
     paste(conversationId: string): Promise<StagedAttachment[]>
     // 拖进窗口的文件：有磁盘路径的直接引用，没有路径的按字节落盘
     stagePaths(
@@ -297,6 +290,8 @@ export type Api = {
     sendRich(conversationId: string, parts: RichPart[]): Promise<void>
     // 发送文件夹：先发 1013 邀请，对端接受后由文件夹通道推送
     sendFolder(conversationId: string, path: string): Promise<void>
+    // 群发：把 batch: 待发区里的内容发给选中的联系人
+    batchSend(batchId: string, peerKeys: string[], parts: RichPart[]): Promise<BatchSendResult>
     // 选择接收目录；取消返回 null
     pickReceiveDir(): Promise<string | null>
     // 读取系统剪贴板里的文件/文件夹路径（资源管理器复制的文件夹走这条路）

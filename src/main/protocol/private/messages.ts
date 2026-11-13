@@ -940,11 +940,12 @@ function recallTargetFromJson(raw: string): string {
     if (typeof item !== 'object' || item === null) continue
     const retrieve = (item as { retrieve?: unknown }).retrieve
     if (typeof retrieve !== 'object' || retrieve === null) continue
-    // 真实客户端把目标编号放在 v，m 也带一份；两个字段都接受
+    // 真实客户端把目标编号放在 v，m 也带一份；两个字段都接受。
+    // 取图请求也用 retrieve 节点，但 v 是 "文件号|md5" 这样的文件引用，不能当成撤回
     const value = (retrieve as { v?: unknown }).v
-    if (typeof value === 'string' && value !== '') return value
+    if (typeof value === 'string' && value !== '' && !value.includes('|')) return value
     const target = (retrieve as { m?: unknown }).m
-    if (typeof target === 'string' && target !== '') return target
+    if (typeof target === 'string' && target !== '' && !target.includes('|')) return target
   }
   return ''
 }

@@ -192,6 +192,30 @@ describe('MessageRepository', () => {
     db.close()
   })
 
+  it('returns only queued outgoing messages in the original order', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const messages = new MessageRepository(db)
+    const conversation = conversations.ensureDirect('1|a', '甲')
+
+    const first = messages.insertOutgoing(conversation.id, '一', 0)
+    const second = messages.insertOutgoing(conversation.id, '二', 0)
+    const sent = messages.insertOutgoing(conversation.id, '三', 3)
+    messages.insertIncoming(conversation.id, '对方', 4)
+    messages.setStatus(first.id, 'queued')
+    messages.setStatus(second.id, 'queued')
+    messages.setStatus(sent.id, 'sent')
+
+    const queued = messages.queued(conversation.id)
+    expect(queued.map((message) => message.text)).toEqual(['一', '二'])
+    expect(queued.every((message) => message.direction === 'out')).toBe(true)
+    expect(messages.queued('missing')).toEqual([])
+
+    messages.setRemoteSeq(second.id, 9)
+    expect(messages.getMessage(second.id)?.remoteSeq).toBe(9)
+    db.close()
+  })
+
   it('maps directions, statuses and metadata', () => {
     const db = openMemory()
     const conversations = new ConversationRepository(db)

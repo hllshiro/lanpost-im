@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
-import { FileText, Folder, Paperclip, Send, Smile, X } from '@lucide/vue'
+import { FileText, Folder, Image as ImageIcon, Paperclip, Send, Smile, X } from '@lucide/vue'
 import type { StagedAttachment } from '../../../shared/domain'
 import type { RichPart } from '../../../shared/ipc'
 import { errorMessage } from '../utils/errors'
@@ -35,6 +35,7 @@ const props = defineProps<{
   conversationTitle: string
   conversationId: string
   staged: StagedAttachment[]
+  blocked?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -195,6 +196,20 @@ async function pickFile(): Promise<void> {
   const before = currentStagedIds()
   try {
     await stageAndInsert(() => window.api.files.pick(props.conversationId), before)
+  } catch (reason) {
+    fileError.value = errorMessage(reason)
+  } finally {
+    fileBusy.value = false
+  }
+}
+
+async function pickImage(): Promise<void> {
+  if (fileBusy.value || props.conversationId === '') return
+  fileBusy.value = true
+  fileError.value = ''
+  const before = currentStagedIds()
+  try {
+    await stageAndInsert(() => window.api.files.pickImages(props.conversationId), before)
   } catch (reason) {
     fileError.value = errorMessage(reason)
   } finally {
@@ -448,10 +463,13 @@ function collectParts(): RichPart[] {
   return parts
 }
 
-const canSend = computed(() => !props.sending && (hasContent.value || stagedFiles.value.length > 0))
+const canSend = computed(
+  () =>
+    !props.sending && props.blocked !== true && (hasContent.value || stagedFiles.value.length > 0)
+)
 
 function submit(): void {
-  if (props.sending) return
+  if (props.sending || props.blocked === true) return
   const parts = collectParts()
   const hasImage = parts.some((part) => part.kind === 'image')
   const text = parts
@@ -604,6 +622,17 @@ onMounted(async () => {
           </div>
         </div>
       </div>
+
+      <button
+        class="tool"
+        :disabled="fileBusy || conversationId === ''"
+        :title="fileBusy ? '正在选择图片' : '添加图片'"
+        aria-label="添加图片"
+        @click="pickImage"
+      >
+        <ImageIcon :size="17" :stroke-width="1.8" />
+        <span>图片</span>
+      </button>
 
       <button
         class="tool"

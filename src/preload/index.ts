@@ -46,8 +46,6 @@ const api: Api = {
     recall: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.messageRecall, conversationId, messageId),
     typing: (conversationId) => ipcRenderer.invoke(IPC.messageTyping, conversationId),
-    broadcast: (request) => ipcRenderer.invoke(IPC.messageBroadcast, request),
-    multicast: (request) => ipcRenderer.invoke(IPC.messageMulticast, request),
     markRead: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.conversationRead, conversationId, messageId),
     saveDraft: (conversationId, draft) =>
@@ -84,6 +82,7 @@ const api: Api = {
     revealPath: (path) => ipcRenderer.invoke(IPC.fileRevealPath, path),
     saveAs: (id) => ipcRenderer.invoke(IPC.fileSaveAs, id),
     pick: (conversationId) => ipcRenderer.invoke(IPC.filePick, conversationId),
+    pickImages: (conversationId) => ipcRenderer.invoke(IPC.filePickImages, conversationId),
     paste: (conversationId) => ipcRenderer.invoke(IPC.filePaste, conversationId),
     stagePaths: (conversationId, paths, sticker) =>
       ipcRenderer.invoke(IPC.fileStagePaths, conversationId, paths, sticker === true),
@@ -98,6 +97,8 @@ const api: Api = {
       ipcRenderer.invoke(IPC.fileSendRich, conversationId, parts),
     sendFolder: (conversationId, path) =>
       ipcRenderer.invoke(IPC.fileSendFolder, conversationId, path),
+    batchSend: (batchId, peerKeys, parts) =>
+      ipcRenderer.invoke(IPC.fileBatchSend, batchId, peerKeys, parts),
     pickReceiveDir: () => ipcRenderer.invoke(IPC.filePickReceiveDir),
     pastePaths: () => ipcRenderer.invoke(IPC.filePastePaths)
   },

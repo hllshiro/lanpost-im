@@ -460,6 +460,17 @@ export class MessageRepository {
     return rows.map(mapMessage)
   }
 
+  // 离线排队的消息：对方上线后按原顺序补发
+  queued(conversationId: string): MessageInfo[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE conversation_id = ? AND status = 'queued' AND direction = 'out'
+         ORDER BY id`
+      )
+      .all(conversationId) as unknown as MessageRow[]
+    return rows.map(mapMessage)
+  }
+
   setRemoteSeq(id: number, seq: number): void {
     this.db.prepare('UPDATE messages SET remote_seq = ? WHERE id = ?').run(seq, id)
   }
