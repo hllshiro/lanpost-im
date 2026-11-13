@@ -73,6 +73,7 @@ import { PrivateService } from './protocol/private/service'
 import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
 import { PeerRegistry } from './peers/registry'
+import { applyPresence } from './peers/presence'
 import { PrivateFolderTransfer, type OutgoingFolder } from './files/folder-transfer'
 import { scanFolder } from './files/folder-info'
 import { PrivateFileTransfer } from './files/private-transfer'
@@ -531,8 +532,14 @@ export class AppService {
           onError: (error) => logStartup('private error: ' + error.message)
         }
       })
-      await service.start()
+      // 先挂上引用再启动：启动过程中就可能完成握手，联系人事件要能查到会话状态
       this.privateService = service
+      try {
+        await service.start()
+      } catch (error) {
+        this.privateService = null
+        throw error
+      }
     } catch (error) {
       logStartup('private service start failed: ' + (error as Error).message)
     }
@@ -1444,7 +1451,6 @@ export class AppService {
   snapshot(): AppSnapshot {
     const settings = this.settings.get()
     const conversations = this.repos.conversations.list()
-    const service = this.privateService
     return {
       local: {
         name: settings.identity.displayName,
@@ -1456,11 +1462,7 @@ export class AppService {
         privateUserId: privateUserId(settings),
         avatarMd5: settings.identity.avatarMd5
       },
-      peers: this.peerList().map((peer) => ({
-        ...peer,
-        ready: service?.isReady(peer.ip) ?? peer.ready,
-        privateUserId: service?.peerUserId(peer.ip) ?? ''
-      })),
+      peers: this.peerList(),
       conversations,
       groups: this.repos.groups.list().map((group) => this.groupInfoOf(group.id)),
       files: this.repos.files.list(),
@@ -1471,9 +1473,16 @@ export class AppService {
 
   // 头像文件还没取回来时不把 md5 发给界面，避免渲染出坏图
   private peerList(): PeerInfo[] {
+    const service = this.privateService
     return this.repos.peers.list().map((peer) => {
       const md5 = peer.avatarMd5 ?? ''
-      return { ...peer, avatarMd5: md5 !== '' && this.avatars.has(md5) ? md5 : '' }
+      return {
+        ...applyPresence(peer, {
+          ready: service !== null && service.isReady(peer.ip),
+          privateUserId: service?.peerUserId(peer.ip) ?? ''
+        }),
+        avatarMd5: md5 !== '' && this.avatars.has(md5) ? md5 : ''
+      }
     })
   }
 
@@ -3913,6 +3922,8 @@ export class AppService {
       return
     }
     if (state === 'closed') {
+      // 新会话可能已经就绪，旧的关闭事件不能把在线状态改回离线
+      if (this.privateService?.isReady(ip)) return
       this.registry.markPrivatePeerOffline(ip)
       for (const entry of Array.from(this.privateOutstanding.values())) {
         if (entry.ip === ip) {

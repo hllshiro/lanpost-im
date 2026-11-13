@@ -568,6 +568,11 @@ export class PrivateSession {
     this.shutdown(true)
   }
 
+  // 被新连接替换时静默关闭：不发 X_QUIT，也不把这次关闭当成对端下线
+  closeSilently(): void {
+    this.shutdown(false)
+  }
+
   private accept(data: Buffer): void {
     if (this.currentState === 'closed') return
     this.lastInboundAt = this.now()

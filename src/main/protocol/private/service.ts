@@ -625,8 +625,9 @@ export class PrivateService {
         this.log(`与 ${rinfo.address} 同时发起连接，本端保留出站会话，忽略对方 CONNECT`)
         return
       }
-      existing.close()
-      this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
+      const replacement = this.createSession('server', rinfo.address, rinfo.port)
+      existing.closeSilently()
+      replacement?.receive(data)
       return
     }
     if (existing !== undefined) {
@@ -642,8 +643,9 @@ export class PrivateService {
         return
       }
       this.log(`对端 ${rinfo.address} 用新的连接标识 ${connectId} 重新连接，重建会话`)
-      existing.close()
-      this.createSession('server', rinfo.address, rinfo.port)?.receive(data)
+      const replacement = this.createSession('server', rinfo.address, rinfo.port)
+      existing.closeSilently()
+      replacement?.receive(data)
       return
     }
     if (connectId === null) {
@@ -804,8 +806,11 @@ export class PrivateService {
   }
 
   private handleState(ip: string, state: SessionState, session: PrivateSession | null): void {
-    if (state === 'closed' && session !== null && this.sessions.get(ip) === session) {
-      this.sessions.delete(ip)
+    if (state === 'closed') {
+      const current = this.sessions.get(ip)
+      // 旧会话被新连接替换后关闭：新会话还在，不能报下线
+      if (session !== null && current !== undefined && current !== session) return
+      if (session !== null && current === session) this.sessions.delete(ip)
     }
     this.options.callbacks.onState(ip, state, this.peerProfiles.get(ip) ?? null)
   }

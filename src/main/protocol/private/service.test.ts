@@ -457,7 +457,8 @@ describe('private service', () => {
     const decoded = decodeDatagram(verify)
     expect(decoded.commands[0].command).toBe(ENET_CMD_VERIFY | ENET_FLAG_ACK)
     expect(parseVerifyPayload(decoded.commands[0].payload).connectId).toBe(0x9999)
-    expect(states).toContain('closed')
+    // 旧会话被新连接替换时不能报下线，否则界面会在重新握手期间闪成离线
+    expect(states).not.toContain('closed')
     expect(a.isReady('127.0.0.1')).toBe(false)
   })
 
