@@ -1,6 +1,5 @@
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
-import { basename } from 'node:path'
 import { promisify } from 'node:util'
 import type { FirewallState, FirewallStatus } from '../shared/ipc'
 
@@ -57,7 +56,9 @@ function messageOf(error: unknown): string {
 }
 
 export function ruleNameOf(executable: string): string {
-  return basename(executable).toLowerCase() === 'electron.exe' ? 'lanpost-im-dev' : 'lanpost-im'
+  // 路径可能是 Windows 反斜杠或 POSIX 斜杠；不能依赖宿主平台的 path.basename
+  const name = executable.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  return name === 'electron.exe' ? 'lanpost-im-dev' : 'lanpost-im'
 }
 
 function detailOf(state: FirewallState): string {

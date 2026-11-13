@@ -15,6 +15,11 @@ describe('ruleNameOf', () => {
   it('uses the product rule name for packaged executables', () => {
     expect(ruleNameOf('C:\\Program Files\\lanpost-im\\lanpost-im.exe')).toBe('lanpost-im')
   })
+
+  it('handles POSIX paths on Linux runners', () => {
+    expect(ruleNameOf('/repo/node_modules/electron/dist/electron.exe')).toBe('lanpost-im-dev')
+    expect(ruleNameOf('/opt/lanpost-im/lanpost-im')).toBe('lanpost-im')
+  })
 })
 
 describe('linuxRepairScript', () => {
