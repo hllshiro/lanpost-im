@@ -31,6 +31,8 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.identityPickAvatar, () => service.pickAvatar())
   ipcMain.handle(IPC.identityClearAvatar, () => service.clearAvatar())
   ipcMain.handle(IPC.identityStatus, (_event, status: number) => service.setStatus(status))
+  ipcMain.handle(IPC.storageImportNwtPreview, () => service.previewNwtImport())
+  ipcMain.handle(IPC.storageImportNwtApply, (_event, request) => service.applyNwtImport(request))
   ipcMain.handle(IPC.groupCreate, (_event, name: string, memberUserIds: string[]) =>
     service.createGroup(name, memberUserIds)
   )

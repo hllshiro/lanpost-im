@@ -14,6 +14,8 @@ export interface PrivatePeerInput {
 
 export interface PeerRegistryCallbacks {
   onPeers(peers: PeerInfo[]): void
+  // 联系人从按地址识别变成按用户标识识别时通知调用方改名历史数据
+  onPeerKeyChanged?: (from: string, to: string) => void
 }
 
 function emptyPeer(key: string, ip: string, userId: string): PeerInfo {
@@ -80,14 +82,30 @@ export class PeerRegistry {
 
   upsertPrivatePeer(input: PrivatePeerInput): PeerInfo {
     const now = Date.now()
-    const existingKey = this.ipIndex.get(input.ip)
-    const key = existingKey ?? (input.userId !== '' ? `${input.ip}|${input.userId}` : input.ip)
+    const previousKey = this.ipIndex.get(input.ip)
+    // 联系人按私有用户标识识别，地址只用于当前会话；没有标识时才退回地址
+    const targetKey = input.userId !== '' ? input.userId : input.ip
+    let key = targetKey
+    if (previousKey !== undefined && previousKey !== targetKey) {
+      const previous = this.peers.get(previousKey)
+      if (previous !== undefined && input.userId !== '' && previous.user === '') {
+        this.peers.delete(previousKey)
+        previous.key = targetKey
+        this.peers.set(targetKey, previous)
+        this.callbacks.onPeerKeyChanged?.(previousKey, targetKey)
+      } else {
+        key = previousKey
+      }
+    }
     let peer = this.peers.get(key)
     if (peer === undefined) {
       peer = emptyPeer(key, input.ip, input.userId)
       this.peers.set(key, peer)
     }
-    peer.ip = input.ip
+    if (peer.ip !== input.ip) {
+      this.ipIndex.delete(peer.ip)
+      peer.ip = input.ip
+    }
     peer.port = 0
     peer.user = input.userId !== '' ? input.userId : peer.user
     peer.name = input.name !== '' ? input.name : peer.name
@@ -102,6 +120,27 @@ export class PeerRegistry {
     this.ipIndex.set(input.ip, key)
     this.emit()
     return clonePeer(peer)
+  }
+
+  // 握手完成后服务端会单独告知对端用户号，此时把按地址命名的联系人改成用户标识
+  assignUserId(ip: string, userId: string): string | null {
+    const currentKey = this.ipIndex.get(ip)
+    if (currentKey === undefined) return null
+    if (userId === '' || currentKey === userId) {
+      const peer = this.peers.get(currentKey)
+      if (peer !== undefined && userId !== '') peer.user = userId
+      return currentKey
+    }
+    const peer = this.peers.get(currentKey)
+    if (peer === undefined) return null
+    this.peers.delete(currentKey)
+    peer.key = userId
+    peer.user = userId
+    this.peers.set(userId, peer)
+    this.ipIndex.set(ip, userId)
+    this.callbacks.onPeerKeyChanged?.(currentKey, userId)
+    this.emit()
+    return userId
   }
 
   touchPrivatePeer(ip: string): void {

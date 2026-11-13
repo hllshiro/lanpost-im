@@ -45,6 +45,9 @@ import type {
   AppInfo,
   MessagesListRequest,
   MessagesSendRequest,
+  NwtImportPreview,
+  NwtImportRequest,
+  NwtImportSummary,
   RichPart,
   StagePathsResult
 } from '../shared/ipc'
@@ -81,6 +84,9 @@ import {
   type Repositories
 } from './store/repositories'
 import { importLegacyHistory } from './store/import'
+import { renamePeerKey } from './store/peer-keys'
+import { applyNwtImport, readNwtData, type NwtData } from './store/nwt-import'
+import { applyNwtHistory, readNwtHistory, type NwtHistory } from './store/nwt-history'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
 import {
@@ -323,6 +329,7 @@ export class AppService {
   private readonly privateTaskIds = new Map<string, number>()
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<string>()
+  private pendingNwt: { source: string; data: NwtData; history: NwtHistory } | null = null
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -355,7 +362,8 @@ export class AppService {
     }
     this.receiveDir = receiveDir
     this.registry = new PeerRegistry(this.repos.peers.list(), {
-      onPeers: (peers) => this.handlePeers(peers)
+      onPeers: (peers) => this.handlePeers(peers),
+      onPeerKeyChanged: (from, to) => this.handlePeerKeyChanged(from, to)
     })
     this.notifications = new NotificationManager(settings, () => this.window)
   }
@@ -485,7 +493,7 @@ export class AppService {
           onGroupDismiss: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '解散'),
           onGroupKick: (ip, groupId) => this.handleGroupRemoved(ip, groupId, '被移出'),
           onGroupExit: (ip, groupId) => this.handleGroupMemberExit(ip, groupId),
-          onReady: (ip, userId) => this.reconcileGroups(ip, userId),
+          onReady: (ip, userId) => this.handlePrivateReady(ip, userId),
           onChangeInfo: (ip, profile) => this.upsertPrivatePeer(ip, profile),
           onFileOffer: (ip, offer) => this.handlePrivateFileOffer(ip, offer),
           onFileOperate: (ip, cmd, taskId, op) =>
@@ -3071,6 +3079,108 @@ export class AppService {
     logStartup(`群头像已更新 群号=${group.id} md5=${md5} 版本=${info.infoVersion}`)
   }
 
+  // 选完目录先解密并汇总，界面据此显示可选的会话清单
+  async previewNwtImport(): Promise<NwtImportPreview> {
+    const dir = await this.chooseDirectory('选择内网通安装目录')
+    if (dir === null) {
+      return {
+        canceled: true,
+        source: '',
+        privateId: '',
+        displayName: '',
+        hasAvatar: false,
+        groupCount: 0,
+        messageCount: 0,
+        sessions: []
+      }
+    }
+    this.rememberDialogDir(dir)
+    const data = readNwtData(dir)
+    const history = readNwtHistory(dir)
+    this.pendingNwt = { source: data.root, data, history }
+    const messageCount = history.sessions.reduce((total, item) => total + item.count, 0)
+    logStartup(
+      `内网通数据预览 ${data.root} 用户=${data.privateId} 群=${data.groups.length} 会话=${history.sessions.length}`
+    )
+    return {
+      canceled: false,
+      source: data.root,
+      privateId: data.privateId,
+      displayName:
+        data.profile.displayName !== ''
+          ? data.profile.displayName
+          : this.settings.get().identity.displayName,
+      hasAvatar: data.avatar !== null,
+      groupCount: data.groups.length,
+      messageCount,
+      sessions: history.sessions.map((item) => ({
+        key: item.key,
+        kind: item.kind,
+        title: item.title,
+        count: item.count,
+        firstAt: item.firstAt,
+        lastAt: item.lastAt
+      }))
+    }
+  }
+
+  // 按用户勾选的范围导入；身份变了就重启私有服务，让对端看到同一个用户
+  async applyNwtImport(request: NwtImportRequest): Promise<NwtImportSummary> {
+    const pending = this.pendingNwt
+    if (pending === null) {
+      throw new Error('没有待导入的数据，请重新选择内网通目录')
+    }
+    const previousId = this.settings.get().identity.privateId
+    const summary = applyNwtImport({
+      data: pending.data,
+      settings: this.settings,
+      repos: this.repos,
+      avatars: this.avatars,
+      randomAvatarId: () => Math.max(1, randomBytes(4).readUInt32BE(0) & 0x7fffffff),
+      scope: { identity: request.includeIdentity, groups: request.includeGroups }
+    })
+    const result = applyNwtHistory({
+      history: pending.history,
+      selected: request.sessions,
+      repos: this.repos,
+      db: this.db
+    })
+    this.pendingNwt = null
+    logStartup(
+      `内网通数据导入 ${pending.source} 用户=${summary.privateId} 群=${summary.groupCount} 会话=${result.conversations} 消息=${result.messages} 跳过=${result.skipped}`
+    )
+    if (request.includeIdentity && summary.privateId !== previousId) {
+      await this.stop()
+      await this.start()
+    } else {
+      this.applySettings(this.settings.get())
+    }
+    this.emit({ type: 'settings', settings: this.settings.get() })
+    return {
+      displayName: summary.displayName,
+      privateId: summary.privateId,
+      groupCount: summary.groupCount,
+      avatarImported: summary.avatarImported,
+      sessions: result.conversations,
+      messages: result.messages,
+      files: result.files,
+      skipped: result.skipped
+    }
+  }
+
+  private chooseDirectory(title: string): Promise<string | null> {
+    const options: OpenDialogOptions = {
+      title,
+      properties: ['openDirectory'],
+      defaultPath: this.lastDialogDir()
+    }
+    const run =
+      this.window === null
+        ? dialog.showOpenDialog(options)
+        : dialog.showOpenDialog(this.window, options)
+    return run.then((result) => (result.canceled ? null : (result.filePaths[0] ?? null)))
+  }
+
   private chooseImage(title: string): Promise<string | null> {
     const options: OpenDialogOptions = {
       title,
@@ -3598,6 +3708,29 @@ export class AppService {
           this.fetchGroupPhoto(group.id, group.photoMd5)
         }
       }
+    }
+  }
+
+  // 就绪报文带对端用户号：联系人改成用户标识后再核对群资料
+  private handlePrivateReady(ip: string, userId: string): void {
+    if (userId !== '') {
+      this.registry.assignUserId(ip, userId)
+    }
+    this.reconcileGroups(ip, userId)
+  }
+
+  // 联系人从地址改成用户标识时，把联系人、会话、消息与文件任务一起改名
+  private handlePeerKeyChanged(from: string, to: string): void {
+    try {
+      renamePeerKey(this.db, from, to)
+      this.db.prepare('UPDATE peers SET user = ? WHERE key = ?').run(to, to)
+      logStartup(`联系人改名 ${from} -> ${to}`)
+      const conversation = this.repos.conversations.get(directConversationId(to))
+      if (conversation !== null) {
+        this.emit({ type: 'conversation', conversation })
+      }
+    } catch (error) {
+      logStartup(`联系人改名失败 ${from} -> ${to}: ${(error as Error).message}`)
     }
   }
 

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema'
+import { ensureNwtMessageColumn, migratePeerKeys } from './peer-keys'
 
 export interface OpenDatabaseOptions {
   busyTimeout?: number
@@ -30,9 +31,15 @@ function readExistingVersion(file: string): number | null {
 }
 
 export function migrate(db: DatabaseSync): void {
+  const before = (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version
   db.exec('BEGIN')
   try {
     db.exec(SCHEMA_SQL)
+    // 老库没有 nwt_id 列，先补列补索引再迁移联系人键
+    ensureNwtMessageColumn(db)
+    if (before < 5) {
+      migratePeerKeys(db)
+    }
     db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`)
     db.exec('COMMIT')
   } catch (error) {

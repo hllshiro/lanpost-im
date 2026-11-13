@@ -365,7 +365,15 @@ export class ConversationRepository {
 }
 
 export class MessageRepository {
-  constructor(private readonly db: DatabaseSync) {}
+  // 导入历史时每条消息都要写一次，语句只准备一次
+  private readonly importedInsert: ReturnType<DatabaseSync['prepare']>
+
+  constructor(private readonly db: DatabaseSync) {
+    this.importedInsert = db.prepare(
+      `INSERT INTO messages (conversation_id, direction, kind, text, remote_seq, status, created_at, meta, nwt_id)
+       VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`
+    )
+  }
 
   list(conversationId: string, beforeId?: number, limit = 50): MessagesPage {
     const size = Math.max(1, Math.floor(limit))
@@ -433,6 +441,37 @@ export class MessageRepository {
 
   setMeta(id: number, meta: string): void {
     this.db.prepare('UPDATE messages SET meta = ? WHERE id = ?').run(meta, id)
+  }
+
+  // 从内网通记录导入的消息：一次取出会话里已有的消息号，避免逐条查库
+  nwtIds(conversationId: string): Set<string> {
+    const rows = this.db
+      .prepare("SELECT nwt_id FROM messages WHERE conversation_id = ? AND nwt_id <> ''")
+      .all(conversationId) as unknown as Array<{ nwt_id: string }>
+    return new Set(rows.map((row) => row.nwt_id))
+  }
+
+  insertImported(input: {
+    conversationId: string
+    direction: MessageInfo['direction']
+    kind: MessageInfo['kind']
+    text: string
+    time: number
+    meta: string
+    nwtId: string
+  }): number {
+    const status = input.direction === 'in' ? 'delivered' : 'sent'
+    const result = this.importedInsert.run(
+      input.conversationId,
+      input.direction,
+      input.kind,
+      input.text,
+      status,
+      input.time,
+      input.meta,
+      input.nwtId
+    )
+    return Number(result.lastInsertRowid)
   }
 
   getMessage(id: number): MessageInfo | null {
@@ -521,6 +560,19 @@ export class PeerRepository {
       .prepare(`${PEER_SELECT} ORDER BY name COLLATE NOCASE ASC, key ASC`)
       .all() as unknown as PeerRow[]
     return rows.map(mapPeer)
+  }
+
+  // 导入历史时补一条联系人：已有联系人只填空缺的名字，不覆盖握手得到的资料
+  ensureImported(key: string, name: string, lastSeen: number): void {
+    this.db
+      .prepare(
+        `INSERT INTO peers (key, ip, port, user, host, name, last_seen)
+         VALUES (?, '', 0, ?, '', ?, ?)
+         ON CONFLICT(key) DO UPDATE SET
+           name = CASE WHEN peers.name = '' OR peers.name = peers.user THEN excluded.name ELSE peers.name END,
+           last_seen = MAX(peers.last_seen, excluded.last_seen)`
+      )
+      .run(key, key, name, lastSeen)
   }
 
   setAlias(key: string, alias: string): void {

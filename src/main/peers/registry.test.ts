@@ -4,7 +4,7 @@ import { PeerRegistry } from './registry'
 
 function seedPeer(overrides: Partial<PeerInfo> = {}): PeerInfo {
   return {
-    key: '10.0.0.1|alice',
+    key: 'alice',
     ip: '10.0.0.1',
     port: 0,
     user: 'alice',
@@ -43,23 +43,63 @@ function input(
 }
 
 describe('PeerRegistry', () => {
-  it('seeds historical peers offline and reuses the old key by IP', () => {
+  it('seeds historical peers offline and reuses the user id key by IP', () => {
     const events: PeerInfo[][] = []
     const registry = new PeerRegistry([seedPeer()], { onPeers: (peers) => events.push(peers) })
-    expect(registry.getPeers()[0]).toMatchObject({ key: '10.0.0.1|alice', online: false })
+    expect(registry.getPeers()[0]).toMatchObject({ key: 'alice', online: false })
 
     const peer = registry.upsertPrivatePeer(input())
-    expect(peer.key).toBe('10.0.0.1|alice')
+    expect(peer.key).toBe('alice')
     expect(peer.name).toBe('Bob')
     expect(peer.online).toBe(true)
-    expect(events.at(-1)?.[0]?.key).toBe('10.0.0.1|alice')
+    expect(events.at(-1)?.[0]?.key).toBe('alice')
   })
 
-  it('creates a key from IP and private user id for a new peer', () => {
+  it('uses the private user id as the peer key', () => {
     const registry = new PeerRegistry([], { onPeers: () => {} })
     const peer = registry.upsertPrivatePeer(input({ ip: '10.0.0.2', userId: 'carol' }))
-    expect(peer.key).toBe('10.0.0.2|carol')
-    expect(registry.peerKeyForIp('10.0.0.2')).toBe('10.0.0.2|carol')
+    expect(peer.key).toBe('carol')
+    expect(registry.peerKeyForIp('10.0.0.2')).toBe('carol')
+  })
+
+  it('renames the peer when the user id arrives after the address', () => {
+    const changes: Array<[string, string]> = []
+    const registry = new PeerRegistry([], {
+      onPeers: () => {},
+      onPeerKeyChanged: (from, to) => changes.push([from, to])
+    })
+    const first = registry.upsertPrivatePeer(input({ ip: '10.0.0.9', userId: '', name: '匿名' }))
+    expect(first.key).toBe('10.0.0.9')
+
+    const second = registry.upsertPrivatePeer(input({ ip: '10.0.0.9', userId: 'frank' }))
+    expect(second.key).toBe('frank')
+    expect(changes).toEqual([['10.0.0.9', 'frank']])
+    expect(registry.getPeers().map((peer) => peer.key)).toEqual(['frank'])
+    expect(registry.peerKeyForIp('10.0.0.9')).toBe('frank')
+  })
+
+  it('就绪回调带来用户号时改名', () => {
+    const changes: Array<[string, string]> = []
+    const registry = new PeerRegistry([], {
+      onPeers: () => {},
+      onPeerKeyChanged: (from, to) => changes.push([from, to])
+    })
+    registry.upsertPrivatePeer(input({ ip: '10.0.0.8', userId: '', name: '待识别' }))
+    const key = registry.assignUserId('10.0.0.8', 'heidi')
+    expect(key).toBe('heidi')
+    expect(changes).toEqual([['10.0.0.8', 'heidi']])
+    expect(registry.getPeers().map((peer) => [peer.key, peer.user])).toEqual([['heidi', 'heidi']])
+    expect(registry.peerKeyForIp('10.0.0.8')).toBe('heidi')
+  })
+
+  it('keeps one peer when the address changes', () => {
+    const registry = new PeerRegistry([], { onPeers: () => {} })
+    const first = registry.upsertPrivatePeer(input({ ip: '10.0.0.5', userId: 'dave' }))
+    const second = registry.upsertPrivatePeer(input({ ip: '10.0.0.6', userId: 'dave' }))
+    expect(second.key).toBe(first.key)
+    expect(registry.getPeers()).toHaveLength(1)
+    expect(registry.peerKeyForIp('10.0.0.5')).toBeNull()
+    expect(registry.peerKeyForIp('10.0.0.6')).toBe('dave')
   })
 
   it('keeps the key stable when the profile changes', () => {
@@ -86,14 +126,8 @@ describe('PeerRegistry', () => {
 
   it('returns clones so callers cannot mutate registry state', () => {
     const registry = new PeerRegistry([], { onPeers: () => {} })
-    registry.upsertPrivatePeer(input({ ip: '10.0.0.5', userId: 'frank' }))
-    const peers = registry.getPeers()
-    peers[0]!.name = 'mutated'
-    expect(registry.getPeers()[0]?.name).toBe('Bob')
-  })
-
-  it('returns null for an unknown IP', () => {
-    const registry = new PeerRegistry([], { onPeers: () => {} })
-    expect(registry.peerKeyForIp('10.0.0.9')).toBeNull()
+    const peer = registry.upsertPrivatePeer(input({ ip: '10.0.0.7', userId: 'grace' }))
+    peer.name = 'changed'
+    expect(registry.getPeers()[0].name).toBe('Bob')
   })
 })

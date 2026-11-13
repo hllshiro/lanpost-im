@@ -51,7 +51,15 @@ export interface MessageInfo {
 }
 
 export type FileState =
-  'waiting' | 'offered' | 'transferring' | 'done' | 'rejected' | 'failed' | 'canceled'
+  | 'waiting'
+  | 'offered'
+  | 'transferring'
+  | 'done'
+  | 'rejected'
+  | 'failed'
+  | 'canceled'
+  // 从内网通记录导入，但本机没有这个文件
+  | 'missing'
 
 export interface FileTaskInfo {
   id: string

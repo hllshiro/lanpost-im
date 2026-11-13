@@ -23,6 +23,8 @@ export const IPC = {
   identityPickAvatar: 'identity:pick-avatar',
   identityClearAvatar: 'identity:clear-avatar',
   identityStatus: 'identity:status',
+  storageImportNwtPreview: 'storage:import-nwt-preview',
+  storageImportNwtApply: 'storage:import-nwt-apply',
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
@@ -81,6 +83,45 @@ export interface FirewallStatus {
   state: FirewallState
   executable: string
   detail: string
+}
+
+// 选完目录后的预览：账号、群数量与可选的会话清单
+export interface NwtImportSession {
+  key: string
+  kind: 'direct' | 'group'
+  title: string
+  count: number
+  firstAt: number
+  lastAt: number
+}
+
+export interface NwtImportPreview {
+  canceled: boolean
+  source: string
+  privateId: string
+  displayName: string
+  hasAvatar: boolean
+  groupCount: number
+  messageCount: number
+  sessions: NwtImportSession[]
+}
+
+// 用户勾选的范围；会话按 key 传回
+export interface NwtImportRequest {
+  includeIdentity: boolean
+  includeGroups: boolean
+  sessions: string[]
+}
+
+export interface NwtImportSummary {
+  displayName: string
+  privateId: string
+  groupCount: number
+  avatarImported: boolean
+  sessions: number
+  messages: number
+  files: number
+  skipped: number
 }
 
 export interface NotifyPayload {
@@ -152,6 +193,10 @@ export type Api = {
     pickAvatar(): Promise<void>
     clearAvatar(): Promise<void>
     setStatus(status: number): Promise<void>
+  }
+  storage: {
+    previewNwtImport(): Promise<NwtImportPreview>
+    applyNwtImport(request: NwtImportRequest): Promise<NwtImportSummary>
   }
   ui: {
     onOpenSettings(listener: () => void): () => void

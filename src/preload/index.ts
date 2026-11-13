@@ -109,6 +109,10 @@ const api: Api = {
     pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),
     clearAvatar: () => ipcRenderer.invoke(IPC.identityClearAvatar),
     setStatus: (status) => ipcRenderer.invoke(IPC.identityStatus, status)
+  },
+  storage: {
+    previewNwtImport: () => ipcRenderer.invoke(IPC.storageImportNwtPreview),
+    applyNwtImport: (request) => ipcRenderer.invoke(IPC.storageImportNwtApply, request)
   }
 }
 

@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 4
+export const SCHEMA_VERSION = 5
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS messages (
   remote_seq INTEGER NOT NULL DEFAULT 0,
   status TEXT NOT NULL,
   created_at INTEGER NOT NULL,
-  meta TEXT NOT NULL DEFAULT '{}'
+  meta TEXT NOT NULL DEFAULT '{}',
+  nwt_id TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, id DESC);

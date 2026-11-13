@@ -16,7 +16,12 @@ import {
   UserRound,
   X
 } from '@lucide/vue'
-import type { AppInfo, FirewallStatus } from '../../../shared/ipc'
+import type {
+  AppInfo,
+  FirewallStatus,
+  NwtImportPreview,
+  NwtImportSummary
+} from '../../../shared/ipc'
 import {
   DEFAULT_SHORTCUTS,
   defaultSettings,
@@ -26,6 +31,7 @@ import {
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
+import NwtImportDialog from './NwtImportDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
 const emit = defineEmits<{
@@ -83,6 +89,9 @@ const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 const firewall = ref<FirewallStatus | null>(null)
 const firewallBusy = ref(false)
+const nwtBusy = ref(false)
+const nwtResult = ref('')
+const nwtPreview = ref<NwtImportPreview | null>(null)
 let savedTimer: number | undefined
 
 const currentLabel = computed(
@@ -157,6 +166,35 @@ async function clearAvatar(): Promise<void> {
   } catch (reason) {
     error.value = errorMessage(reason)
   }
+}
+
+// 选完目录先拿预览，再由用户在弹窗里勾选导入范围
+async function startNwtImport(): Promise<void> {
+  if (nwtBusy.value) return
+  nwtBusy.value = true
+  error.value = ''
+  nwtResult.value = ''
+  try {
+    const preview = await window.api.storage.previewNwtImport()
+    if (preview.canceled) return
+    nwtPreview.value = preview
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    nwtBusy.value = false
+  }
+}
+
+async function finishNwtImport(summary: NwtImportSummary): Promise<void> {
+  nwtPreview.value = null
+  await loadSettings()
+  emit('saved', settings.value)
+  const parts: string[] = []
+  if (summary.groupCount > 0) parts.push(`群 ${summary.groupCount} 个`)
+  parts.push(`会话 ${summary.sessions} 个`, `消息 ${summary.messages} 条`)
+  if (summary.files > 0) parts.push(`文件记录 ${summary.files} 个`)
+  if (summary.skipped > 0) parts.push(`跳过重复 ${summary.skipped} 条`)
+  nwtResult.value = `已导入 ${summary.displayName}（${summary.privateId.slice(0, 8)}）：${parts.join('，')}`
 }
 
 async function loadAppInfo(): Promise<void> {
@@ -1060,6 +1098,20 @@ onBeforeUnmount(() => {
               <span class="readonly">永久</span>
             </div>
           </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">从内网通导入</span>
+              <p class="hint">
+                选择内网通安装目录后，可勾选账号资料、群与聊天记录；历史较多时读取会短暂卡顿，请耐心等待，不要关闭窗口
+              </p>
+            </div>
+            <div class="control control-auto">
+              <button class="mini" :disabled="nwtBusy" @click="startNwtImport">
+                {{ nwtBusy ? '读取中…' : '选择目录导入' }}
+              </button>
+            </div>
+          </div>
+          <p v-if="nwtResult" class="note">{{ nwtResult }}</p>
           <p class="note">修改数据目录不会移动已经接收的文件。</p>
         </div>
 
@@ -1095,6 +1147,13 @@ onBeforeUnmount(() => {
           <p v-if="appInfoError" class="about-error">{{ appInfoError }}</p>
         </div>
       </div>
+
+      <NwtImportDialog
+        v-if="nwtPreview"
+        :preview="nwtPreview"
+        @close="nwtPreview = null"
+        @done="finishNwtImport"
+      />
 
       <footer v-if="current !== 'about'" class="panel-foot">
         <template v-if="confirmingReset">

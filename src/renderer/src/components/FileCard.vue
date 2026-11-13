@@ -59,6 +59,8 @@ const stateText = computed(() => {
       return incoming.value ? '接收失败' : '发送失败'
     case 'canceled':
       return '已取消'
+    case 'missing':
+      return '文件不在这台电脑'
     default:
       return props.file.state
   }
