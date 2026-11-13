@@ -34,6 +34,8 @@ export const IPC = {
   messagesList: 'messages:list',
   messagesAll: 'messages:all',
   messageSend: 'messages:send',
+  messageRecall: 'messages:recall',
+  messageTyping: 'messages:typing',
   messageBroadcast: 'messages:broadcast',
   messageMulticast: 'messages:multicast',
   conversationRead: 'conversation:read',
@@ -224,6 +226,10 @@ export type Api = {
     list(request: MessagesListRequest): Promise<MessagesPage>
     all(conversationId: string): Promise<MessageInfo[]>
     send(request: MessagesSendRequest): Promise<SendTextResult>
+    // 撤回自己两分钟内发出的消息
+    recall(conversationId: string, messageId: number): Promise<void>
+    // 输入中通知对端，主进程按节流发送
+    typing(conversationId: string): Promise<void>
     broadcast(request: MessageBroadcastRequest): Promise<SentCountResult>
     multicast(request: MessageMulticastRequest): Promise<SentCountResult>
     markRead(conversationId: string, messageId: number): Promise<void>

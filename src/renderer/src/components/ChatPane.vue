@@ -97,6 +97,9 @@ const pendingText = computed(() => {
 
 const presence = computed(() => {
   if (!props.conversation) return ''
+  if (props.conversation.kind === 'direct' && store.isTyping(props.conversation.id)) {
+    return '正在输入…'
+  }
   if (props.conversation.kind === 'group') {
     return props.group === null ? '群聊' : `${props.group.members.length} 人`
   }
@@ -164,6 +167,11 @@ function confirmPending(): void {
   if (action.kind === 'kick') emit('kick', action.member.userId)
   else if (action.kind === 'leave') emit('leave')
   else emit('dismiss')
+}
+
+function handleRecall(messageId: number): void {
+  if (!props.conversation) return
+  void store.recallMessage(props.conversation.id, messageId)
 }
 
 function handleDraft(value: string): void {
@@ -382,7 +390,9 @@ onBeforeUnmount(() => {
           :unread-after-id="keyword.length > 0 ? 0 : unreadAfterId"
           :loading="loadingMessages"
           :searching="keyword.length > 0"
+          :group="conversation.kind === 'group'"
           @read="emit('read')"
+          @recall="handleRecall"
         />
       </div>
 
@@ -395,6 +405,7 @@ onBeforeUnmount(() => {
         @update:draft="handleDraft"
         @send-rich="emit('send-rich', $event)"
         @remove-staged="emit('remove-staged', $event)"
+        @typing="store.notifyTyping(conversation.id)"
       />
     </template>
 

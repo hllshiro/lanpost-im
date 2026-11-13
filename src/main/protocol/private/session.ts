@@ -18,6 +18,8 @@ import {
 import { decodeFrame, encodeFrame } from './frame'
 import {
   changeInfoXml,
+  recallMsgXml,
+  sendWrittingXml,
   handshakeXml,
   heartbeatXml,
   helloFrame,
@@ -73,6 +75,7 @@ const CMD_HELLO = 4
 const CMD_HANDSHAKE = 1000
 const CMD_CHANGE_INFO = 1003
 const CMD_SEND_MSG = 1004
+const CMD_SEND_WRITTING = 1008
 const CMD_SEND_MSG_ACK = 1005
 const CMD_SEND_RECEIPT = 1006
 const CMD_SEND_FILE = 1009
@@ -126,9 +129,12 @@ export interface SessionCallbacks {
     msgId: number,
     text: string,
     images: PrivateImageRef[],
-    segments: PrivateContentSegment[]
+    segments: PrivateContentSegment[],
+    payloadId: string
   ): void
   onUnsupported(msgId: number): void
+  onTyping(type: number): void
+  onRecall(msgId: number, targetId: string): void
   onAck(msgId: number): void
   onReceipt(msgId: number): void
   onProfile(
@@ -322,9 +328,24 @@ export class PrivateSession {
     }
   }
 
-  sendText(msgId: number, text: string): boolean {
+  sendTyping(): boolean {
     if (this.currentState !== 'ready' || this.reliable === null) return false
-    const seqs = this.reliable.send(encodeFrame(CMD_SEND_MSG, sendMsgXml(msgId, text)))
+    this.reliable.send(encodeFrame(CMD_SEND_WRITTING, sendWrittingXml(0)))
+    return true
+  }
+
+  sendRecall(msgId: number, targetId: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    const seqs = this.reliable.send(encodeFrame(CMD_SEND_MSG, recallMsgXml(msgId, targetId)))
+    for (const seq of seqs) {
+      this.messageSeqs.set(seq, msgId)
+    }
+    return true
+  }
+
+  sendText(msgId: number, text: string, payloadId?: string): boolean {
+    if (this.currentState !== 'ready' || this.reliable === null) return false
+    const seqs = this.reliable.send(encodeFrame(CMD_SEND_MSG, sendMsgXml(msgId, text, payloadId)))
     for (const seq of seqs) {
       this.messageSeqs.set(seq, msgId)
     }
@@ -781,11 +802,24 @@ export class PrivateSession {
     switch (incoming.kind) {
       case 'text':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
-        this.callbacks.onText(incoming.msgId, incoming.text, incoming.images, incoming.segments)
+        this.callbacks.onText(
+          incoming.msgId,
+          incoming.text,
+          incoming.images,
+          incoming.segments,
+          incoming.payloadId
+        )
         return
       case 'text-unsupported':
         this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
         this.callbacks.onUnsupported(incoming.msgId)
+        return
+      case 'typing':
+        this.callbacks.onTyping(incoming.type)
+        return
+      case 'recall':
+        this.sendFrame(CMD_SEND_MSG_ACK, sendMsgAckXml(incoming.msgId))
+        this.callbacks.onRecall(incoming.msgId, incoming.targetId)
         return
       case 'ack':
         this.callbacks.onAck(incoming.msgId)

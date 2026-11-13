@@ -19,8 +19,10 @@ import {
   quitXml,
   readyXml,
   sendFileXml,
+  recallMsgXml,
   sendMsgAckXml,
   sendMsgXml,
+  sendWrittingXml,
   sendReceiptXml,
   shareDownloadFolderXml,
   shareDownloadFolderRspXml,
@@ -30,6 +32,50 @@ import type { PrivateProfile } from './messages'
 import { decodeBeacon } from './beacon'
 
 describe('private messages', () => {
+  it('builds and parses X_SEND_WRITTING', () => {
+    const xml = sendWrittingXml()
+    expect(xml).toContain('<X_SEND_WRITTING docver="1">')
+    expect(xml).toContain('<TYPE>0</TYPE>')
+    expect(parsePrivate(1008, xml)).toEqual({ kind: 'typing', type: 0 })
+  })
+
+  it('parses a recall payload and keeps the target id', () => {
+    const body = JSON.stringify({
+      app: 'shiyeline',
+      dt: [{ retrieve: { m: 'abc123' } }],
+      id: 'x',
+      type: '0',
+      ver: '6.0'
+    })
+      .replace(/ /g, '&nbsp;')
+      .replace(/"/g, '&quot;')
+    const xml = `<X_SEND_MSG docver="1"><MSG_ID>9</MSG_ID><RECEIPT>0</RECEIPT><MSG>${body}</MSG></X_SEND_MSG>`
+    expect(parsePrivate(1004, xml)).toEqual({ kind: 'recall', msgId: 9, targetId: 'abc123' })
+  })
+
+  it('parses a recall that only carries v', () => {
+    const body = JSON.stringify({
+      app: 'shiyeline',
+      dt: [{ retrieve: { v: 'v-id' } }],
+      id: 'x',
+      type: '0',
+      ver: '6.0'
+    })
+      .replace(/ /g, '&nbsp;')
+      .replace(/"/g, '&quot;')
+    const xml = `<X_SEND_MSG docver="1"><MSG_ID>8</MSG_ID><RECEIPT>0</RECEIPT><MSG>${body}</MSG></X_SEND_MSG>`
+    expect(parsePrivate(1004, xml)).toEqual({ kind: 'recall', msgId: 8, targetId: 'v-id' })
+  })
+
+  it('builds a recall message pointing at the original payload id', () => {
+    const xml = recallMsgXml(11, 'abc123')
+    expect(xml).toContain('<MSG_ID>11</MSG_ID>')
+    expect(xml).toContain('&quot;retrieve&quot;')
+    expect(xml).toContain('&quot;m&quot;&nbsp;:&nbsp;&quot;abc123&quot;')
+    const parsed = parsePrivate(1004, xml)
+    expect(parsed).toMatchObject({ kind: 'recall', msgId: 11, targetId: 'abc123' })
+  })
+
   it('builds X_SEND_MSG with the captured JSON shape', () => {
     const xml = sendMsgXml(7, '你好')
     expect(xml).toContain('<MSG_ID>7</MSG_ID>')
@@ -42,7 +88,8 @@ describe('private messages', () => {
       msgId: 7,
       text: '你好',
       images: [],
-      segments: [{ kind: 'text', text: '你好' }]
+      segments: [{ kind: 'text', text: '你好' }],
+      payloadId: expect.any(String)
     })
   })
 
@@ -77,7 +124,8 @@ describe('private messages', () => {
       msgId: 6,
       text: 'https://example.com/a',
       images: [],
-      segments: []
+      segments: [],
+      payloadId: ''
     })
   })
 
@@ -89,7 +137,8 @@ describe('private messages', () => {
       msgId: 3,
       text: '[图片]',
       images: [],
-      segments: [{ kind: 'image', value: 'x' }]
+      segments: [{ kind: 'image', value: 'x' }],
+      payloadId: ''
     })
     const real =
       '<X_SEND_MSG docver="1"><MSG_ID>5</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;img&quot;:{&quot;t&quot;:&quot;feihu&quot;,&quot;v&quot;:&quot;5723|6825bf031f45b541a19c305eb5c898a1&quot;}}]}</MSG></X_SEND_MSG>'
@@ -98,7 +147,8 @@ describe('private messages', () => {
       msgId: 5,
       text: '[图片]',
       images: [{ id: 5723, type: 'feihu', value: '5723|6825bf031f45b541a19c305eb5c898a1' }],
-      segments: [{ kind: 'image', value: '5723|6825bf031f45b541a19c305eb5c898a1' }]
+      segments: [{ kind: 'image', value: '5723|6825bf031f45b541a19c305eb5c898a1' }],
+      payloadId: ''
     })
     const unknown =
       '<X_SEND_MSG docver="1"><MSG_ID>4</MSG_ID><RECEIPT>0</RECEIPT><MSG>{&quot;app&quot;:&quot;shiyeline&quot;,&quot;dt&quot;:[{&quot;voip&quot;:{}}]}</MSG></X_SEND_MSG>'
@@ -239,7 +289,8 @@ describe('private messages round-trip', () => {
       msgId: 11,
       text,
       images: [],
-      segments: [{ kind: 'text', text }]
+      segments: [{ kind: 'text', text }],
+      payloadId: expect.any(String)
     })
   })
 
@@ -251,7 +302,8 @@ describe('private messages round-trip', () => {
       msgId: 13,
       text,
       images: [],
-      segments: [{ kind: 'text', text }]
+      segments: [{ kind: 'text', text }],
+      payloadId: expect.any(String)
     })
   })
 
@@ -267,7 +319,8 @@ describe('private messages round-trip', () => {
         { kind: 'text', text: 'a' },
         { kind: 'image', value: 'x' },
         { kind: 'text', text: 'b' }
-      ]
+      ],
+      payloadId: ''
     })
   })
 

@@ -41,9 +41,14 @@ export interface PrivateServiceOptions {
       msgId: number,
       text: string,
       images: PrivateImageRef[],
-      segments: PrivateContentSegment[]
+      segments: PrivateContentSegment[],
+      payloadId: string
     ): void
     onUnsupported(ip: string, msgId: number): void
+    // 正在输入：type=0 表示开始输入，对端负责超时收起
+    onTyping(ip: string, type: number): void
+    // 对端撤回消息，targetId 是被撤回消息的载荷编号
+    onRecall(ip: string, msgId: number, targetId: string): void
     onAck(ip: string, msgId: number): void
     onReceipt(ip: string, msgId: number): void
     // 对端的 X_HANDSHARK 解析出新资料时触发，与状态推进无关
@@ -349,10 +354,22 @@ export class PrivateService {
     await Promise.all(closing)
   }
 
-  sendText(ip: string, msgId: number, text: string): boolean {
+  sendTyping(ip: string): boolean {
+    const session = this.sessions.get(ip)
+    return session !== undefined && session.state === 'ready' ? session.sendTyping() : false
+  }
+
+  sendRecall(ip: string, msgId: number, targetId: string): boolean {
+    const session = this.sessions.get(ip)
+    return session !== undefined && session.state === 'ready'
+      ? session.sendRecall(msgId, targetId)
+      : false
+  }
+
+  sendText(ip: string, msgId: number, text: string, payloadId?: string): boolean {
     const session = this.ensureSession(ip)
     if (session === null) return false
-    return session.sendText(msgId, text)
+    return session.sendText(msgId, text, payloadId)
   }
 
   // 会话缺失、已关闭或还没就绪时补一次客户端发起，避免对端重启后通道一直空着
@@ -675,9 +692,11 @@ export class PrivateService {
     }
     let session: PrivateSession
     const callbacks: SessionCallbacks = {
-      onText: (msgId, text, images, segments) =>
-        this.options.callbacks.onText(ip, msgId, text, images, segments),
+      onText: (msgId, text, images, segments, payloadId) =>
+        this.options.callbacks.onText(ip, msgId, text, images, segments, payloadId),
       onUnsupported: (msgId) => this.options.callbacks.onUnsupported(ip, msgId),
+      onTyping: (type) => this.options.callbacks.onTyping(ip, type),
+      onRecall: (msgId, targetId) => this.options.callbacks.onRecall(ip, msgId, targetId),
       onAck: (msgId) => this.options.callbacks.onAck(ip, msgId),
       onReceipt: (msgId) => this.options.callbacks.onReceipt(ip, msgId),
       onProfile: (profile, filePort, reversePort, folderPort, folderReversePort) => {

@@ -84,6 +84,8 @@ function options(
     callbacks: {
       onText: () => {},
       onUnsupported: () => {},
+      onTyping: () => {},
+      onRecall: () => {},
       onAck: () => {},
       onReceipt: () => {},
       onProfile: () => {},

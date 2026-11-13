@@ -147,6 +147,8 @@ export type AppEvent =
   | { type: 'conversation'; conversation: ConversationInfo }
   | { type: 'message'; message: MessageInfo }
   | { type: 'conversation-removed'; conversationId: string }
+  | { type: 'message-removed'; conversationId: string; messageId: number }
+  | { type: 'typing'; conversationId: string; typing: boolean }
   | { type: 'group'; group: GroupInfo }
   | { type: 'file'; file: FileTaskInfo }
   | { type: 'staged'; conversationId: string; attachments: StagedAttachment[] }

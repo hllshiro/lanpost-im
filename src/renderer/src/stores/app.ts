@@ -31,12 +31,15 @@ export const useAppStore = defineStore('app', () => {
   const previews = ref<Record<string, MessageInfo>>({})
   const loadingMessages = ref<Record<string, boolean>>({})
   const readMarks = ref<Record<string, number>>({})
+  // 会话 → 输入状态到期时间
+  const typing = ref<Record<string, number>>({})
   const loading = ref(false)
   const refreshing = ref(false)
   const sending = ref(false)
   const error = ref('')
 
   const draftTimers = new Map<string, number>()
+  const typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
   let initialized = false
 
   const unreadTotal = computed(() =>
@@ -142,6 +145,48 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 对端正在输入：按会话记到期时间，超时自动收起
+  function setTyping(conversationId: string, active: boolean): void {
+    const timer = typingTimers.get(conversationId)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      typingTimers.delete(conversationId)
+    }
+    if (!active) {
+      if (typing.value[conversationId] !== undefined) {
+        const next = { ...typing.value }
+        delete next[conversationId]
+        typing.value = next
+      }
+      return
+    }
+    typing.value = { ...typing.value, [conversationId]: Date.now() + 5000 }
+    typingTimers.set(
+      conversationId,
+      setTimeout(() => setTyping(conversationId, false), 5000)
+    )
+  }
+
+  function isTyping(conversationId: string): boolean {
+    return (typing.value[conversationId] ?? 0) > Date.now()
+  }
+
+  async function notifyTyping(conversationId: string): Promise<void> {
+    try {
+      await window.api.messages.typing(conversationId)
+    } catch {
+      // 输入状态只是提示，失败不影响发送
+    }
+  }
+
+  async function recallMessage(conversationId: string, messageId: number): Promise<void> {
+    try {
+      await window.api.messages.recall(conversationId, messageId)
+    } catch (reason) {
+      reportError(reason)
+    }
+  }
+
   function upsertFile(file: FileTaskInfo): void {
     const index = files.value.findIndex((item) => item.id === file.id)
     if (index >= 0) files.value[index] = file
@@ -187,6 +232,25 @@ export const useAppStore = defineStore('app', () => {
           ...staged.value.filter((item) => item.conversationId !== event.conversationId),
           ...event.attachments
         ]
+        break
+      case 'message-removed': {
+        const list = messages.value[event.conversationId]
+        if (list !== undefined) {
+          messages.value = {
+            ...messages.value,
+            [event.conversationId]: list.filter((message) => message.id !== event.messageId)
+          }
+        }
+        const preview = previews.value[event.conversationId]
+        if (preview !== undefined && preview.id === event.messageId) {
+          const next = { ...previews.value }
+          delete next[event.conversationId]
+          previews.value = next
+        }
+        break
+      }
+      case 'typing':
+        setTyping(event.conversationId, event.typing)
         break
       case 'conversation-removed': {
         conversations.value = conversations.value.filter((item) => item.id !== event.conversationId)
@@ -579,6 +643,7 @@ export const useAppStore = defineStore('app', () => {
     previews,
     loadingMessages,
     readMarks,
+    typing,
     loading,
     refreshing,
     sending,
@@ -605,6 +670,9 @@ export const useAppStore = defineStore('app', () => {
     removeStaged,
     markRead,
     markReadCurrent,
+    isTyping,
+    notifyTyping,
+    recallMessage,
     setPinned,
     setAlias,
     loadFavorites,

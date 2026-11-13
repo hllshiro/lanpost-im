@@ -54,6 +54,7 @@ import type {
 } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
 import type { Settings } from '../shared/settings'
+import { createPayloadId } from './protocol/private/messages'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
   PrivateCardNode,
@@ -158,6 +159,17 @@ function privateSeeds(settings: Settings): Array<{ ip: string; port?: number }> 
 // 交给私有通道后等 1005/1006 的期限；超时按发送失败处理，由用户重试
 const PRIVATE_SEND_TIMEOUT_MS = 30_000
 const PRIVATE_SEND_SWEEP_MS = 1000
+// 内网通与微信一样，超过两分钟不能撤回
+const RECALL_WINDOW_MS = 2 * 60 * 1000
+
+function payloadIdOf(meta: string): string {
+  try {
+    const parsed = JSON.parse(meta) as Record<string, unknown>
+    return typeof parsed.nwtPayloadId === 'string' ? parsed.nwtPayloadId : ''
+  } catch {
+    return ''
+  }
+}
 
 const IMAGE_PATH = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 
@@ -332,6 +344,8 @@ export class AppService {
   // 已经因 1019 反向请求开始推数据的文件，避免重复连接
   private readonly privateReverseStarted = new Set<string>()
   private pendingNwt: { source: string; data: NwtData; history: NwtHistory } | null = null
+  // 每个会话最近一次发「正在输入」的时间，避免每次按键都发
+  private readonly typingSentAt = new Map<string, number>()
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -440,9 +454,11 @@ export class AppService {
         broadcastIntervalMs: settings.network.broadcastInterval * 1000,
         seeds: privateSeeds(settings),
         callbacks: {
-          onText: (ip, msgId, text, images, segments) =>
-            this.handlePrivateText(ip, msgId, text, images, segments),
+          onText: (ip, msgId, text, images, segments, payloadId) =>
+            this.handlePrivateText(ip, msgId, text, images, segments, payloadId),
           onUnsupported: (ip, msgId) => logStartup(`私有通道收到暂不支持的消息 ${msgId}（${ip}）`),
+          onTyping: (ip, type) => this.handlePrivateTyping(ip, type),
+          onRecall: (ip, msgId, targetId) => this.handlePrivateRecall(ip, msgId, targetId),
           onAck: (ip, msgId) => {
             this.privateOutstanding.delete(msgId)
             this.handlePrivateStatus(ip, msgId, 'delivered')
@@ -1488,12 +1504,36 @@ export class AppService {
       throw new Error('内网通私有会话未就绪，请稍后重试')
     }
     const msgId = this.allocatePrivateSeq()
-    if (!privateService.sendText(peer.ip, msgId, request.text)) {
+    const payloadId = createPayloadId()
+    if (!privateService.sendText(peer.ip, msgId, request.text, payloadId)) {
       throw new Error('内网通私有会话未就绪，请稍后重试')
     }
-    const message = this.recordOutgoing(conversation.id, request.text, msgId)
+    const message = this.recordOutgoing(
+      conversation.id,
+      request.text,
+      msgId,
+      undefined,
+      JSON.stringify({ nwtPayloadId: payloadId })
+    )
     this.trackPrivateSend(peer.ip, conversation.id, msgId)
     return { message }
+  }
+
+  // 输入中：只对一对一在线联系人发送，三秒节流一次
+  notifyTyping(conversationId: string): void {
+    const service = this.privateService
+    if (service === null) return
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null || conversation.kind !== 'direct' || conversation.peerKey === null) {
+      return
+    }
+    const now = Date.now()
+    if (now - (this.typingSentAt.get(conversationId) ?? 0) < 3000) return
+    const peer = this.repos.peers.get(conversation.peerKey)
+    if (peer === null || !peer.online) return
+    if (service.sendTyping(peer.ip)) {
+      this.typingSentAt.set(conversationId, now)
+    }
   }
 
   broadcastText(text: string): number {
@@ -1529,12 +1569,19 @@ export class AppService {
     let count = 0
     for (const peer of targets) {
       const msgId = this.allocatePrivateSeq()
-      if (!service.sendText(peer.ip, msgId, body)) continue
+      const payloadId = createPayloadId()
+      if (!service.sendText(peer.ip, msgId, body, payloadId)) continue
       const conversation = this.repos.conversations.ensureDirect(
         peer.key,
         peer.alias.trim() || peer.name || peer.user || peer.ip
       )
-      this.recordOutgoing(conversation.id, body, msgId)
+      this.recordOutgoing(
+        conversation.id,
+        body,
+        msgId,
+        undefined,
+        JSON.stringify({ nwtPayloadId: payloadId })
+      )
       this.trackPrivateSend(peer.ip, conversation.id, msgId)
       count += 1
     }
@@ -3510,7 +3557,8 @@ export class AppService {
     msgId: number,
     text: string,
     images: PrivateImageRef[],
-    segments: PrivateContentSegment[]
+    segments: PrivateContentSegment[],
+    payloadId: string
   ): void {
     const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
@@ -3520,7 +3568,11 @@ export class AppService {
     const peer = this.repos.peers.get(peerKey)
     const stickers = images.filter((ref) => ref.sticker === true)
     const photos = images.filter((ref) => ref.sticker !== true)
-    const metaRecord: Record<string, unknown> = { source: 'private', msgId: String(msgId) }
+    const metaRecord: Record<string, unknown> = {
+      source: 'private',
+      msgId: String(msgId),
+      nwtPayloadId: payloadId
+    }
     if (stickers.length > 0) metaRecord.sticker = stickers[0].value
     if (segments.length > 0) metaRecord.segments = segments
     const meta = JSON.stringify(metaRecord)
@@ -3750,6 +3802,100 @@ export class AppService {
         }
       }
     }
+  }
+
+  // 正在输入：按会话通知界面，界面自己按超时收起
+  private handlePrivateTyping(ip: string, type: number): void {
+    const peerKey = this.registry.peerKeyForIp(ip)
+    if (peerKey === null) return
+    const peer = this.repos.peers.get(peerKey)
+    const conversation = this.repos.conversations.ensureDirect(
+      peerKey,
+      peer?.alias || peer?.name || ip
+    )
+    this.emit({ type: 'typing', conversationId: conversation.id, typing: type === 0 })
+  }
+
+  // 对端撤回：找到原消息删掉，留一条「某某撤回了一条消息」的系统提示
+  private handlePrivateRecall(ip: string, msgId: number, targetId: string): void {
+    void msgId
+    const peerKey = this.registry.peerKeyForIp(ip)
+    if (peerKey === null) return
+    const peer = this.repos.peers.get(peerKey)
+    const conversationId = directConversationId(peerKey)
+    const message = this.repos.messages.findByPayloadId(conversationId, targetId)
+    if (message === null) {
+      logStartup(`撤回找不到原消息 会话=${conversationId} 目标=${targetId}`)
+      return
+    }
+    const name = peer?.alias || peer?.name || ip
+    this.dropMessage(conversationId, message.id)
+    const notice = this.repos.messages.insertIncoming(
+      conversationId,
+      `${name} 撤回了一条消息`,
+      0,
+      'system'
+    )
+    this.repos.conversations.touch(conversationId, Date.now(), 0)
+    this.emit({ type: 'message-removed', conversationId, messageId: message.id })
+    this.emit({ type: 'message', message: notice })
+    this.emitConversation(conversationId)
+    logStartup(`对端撤回消息 会话=${conversationId} 目标=${targetId}`)
+  }
+
+  // 撤回自己的消息：两分钟内有效，删掉本地消息并通知对端
+  recallMessage(conversationId: string, messageId: number): void {
+    const conversation = this.repos.conversations.get(conversationId)
+    if (conversation === null) {
+      throw new Error('会话不存在')
+    }
+    if (conversation.kind !== 'direct' || conversation.peerKey === null) {
+      throw new Error('群消息暂不支持撤回')
+    }
+    const message = this.repos.messages.getMessage(messageId)
+    if (message === null || message.direction !== 'out' || message.kind === 'system') {
+      throw new Error('只能撤回自己发送的消息')
+    }
+    if (Date.now() - message.createdAt > RECALL_WINDOW_MS) {
+      throw new Error('超过 2 分钟不能撤回')
+    }
+    const payloadId = payloadIdOf(message.meta)
+    if (payloadId === '') {
+      throw new Error('这条消息不支持撤回')
+    }
+    const peer = this.repos.peers.get(conversation.peerKey)
+    const service = this.privateService
+    if (peer === null || service === null || !service.isReady(peer.ip)) {
+      throw new Error('联系人不在线')
+    }
+    const seq = this.allocatePrivateSeq()
+    if (!service.sendRecall(peer.ip, seq, payloadId)) {
+      throw new Error('内网通私有会话未就绪，请稍后重试')
+    }
+    this.dropMessage(conversationId, message.id)
+    const notice = this.repos.messages.insertOutgoing(
+      conversationId,
+      '你撤回了一条消息',
+      0,
+      'system'
+    )
+    this.repos.messages.setStatus(notice.id, 'sent')
+    this.repos.conversations.touch(conversationId, Date.now(), 0)
+    this.emit({ type: 'message-removed', conversationId, messageId: message.id })
+    this.emit({ type: 'message', message: notice })
+    this.emitConversation(conversationId)
+    logStartup(`撤回消息 会话=${conversationId} 消息=${messageId}`)
+  }
+
+  private dropMessage(conversationId: string, messageId: number): void {
+    const links = this.fileLinks.get(String(messageId))
+    void links
+    for (const [id, link] of this.fileLinks) {
+      if (link.messageId === messageId && link.conversationId === conversationId) {
+        this.fileLinks.delete(id)
+      }
+    }
+    this.repos.messages.deleteMessage(messageId)
   }
 
   // 就绪报文带对端用户号：联系人改成用户标识后再核对群资料

@@ -419,6 +419,24 @@ export class MessageRepository {
     return this.insert(conversationId, 'out', 'sending', text, remoteSeq, kind, meta)
   }
 
+  // 按载荷编号找消息：撤回消息里的 m 就是发送方原本的载荷编号
+  findByPayloadId(conversationId: string, payloadId: string): MessageInfo | null {
+    if (payloadId === '') return null
+    const row = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE conversation_id = ?
+         AND meta LIKE ? ORDER BY id DESC LIMIT 1`
+      )
+      .get(conversationId, `%"nwtPayloadId":"${payloadId}"%`) as MessageRow | undefined
+    return row === undefined ? null : mapMessage(row)
+  }
+
+  // 撤回：消息和它的文件任务一起删掉，气泡不再保留
+  deleteMessage(id: number): void {
+    this.db.prepare('DELETE FROM file_tasks WHERE message_id = ?').run(id)
+    this.db.prepare('DELETE FROM messages WHERE id = ?').run(id)
+  }
+
   setStatus(id: number, status: string): void {
     this.db.prepare('UPDATE messages SET status = ? WHERE id = ?').run(status, id)
   }

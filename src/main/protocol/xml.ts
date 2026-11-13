@@ -106,6 +106,11 @@ export interface ChatMsg {
   HideRecord: number
 }
 
+export interface Writting {
+  Docver: number
+  Type: number
+}
+
 export interface ChatMsgAck {
   Docver: number
   MsgID: number
@@ -186,6 +191,7 @@ export interface XmlTypes {
   X_SEND_MSG: ChatMsg
   X_SEND_MSG_ACK: ChatMsgAck
   X_SEND_RECEIPT: ChatReceipt
+  X_SEND_WRITTING: Writting
   X_SEND_FILE: SendFile
   X_OPERATE_SEND_FILE: OperateSendFile
   X_OPERATE_RECV_FILE: OperateRecvFile
@@ -380,6 +386,10 @@ const DECODERS: { [K in XmlTag]: (root: XmlNode) => XmlTypes[K] } = {
     Docver: num(root, '@_docver'),
     MsgID: num(root, 'MSG_ID')
   }),
+  X_SEND_WRITTING: (root) => ({
+    Docver: num(root, '@_docver'),
+    Type: num(root, 'TYPE')
+  }),
   X_SEND_FILE: (root) => ({
     Docver: num(root, '@_docver'),
     TaskID: str(root, 'TASK_ID'),
@@ -535,6 +545,7 @@ const ENCODERS: { [K in XmlTag]: (value: XmlTypes[K]) => XmlNode } = {
   }),
   X_SEND_MSG_ACK: (value) => ({ '@_docver': value.Docver, MSG_ID: value.MsgID }),
   X_SEND_RECEIPT: (value) => ({ '@_docver': value.Docver, MSG_ID: value.MsgID }),
+  X_SEND_WRITTING: (value) => ({ '@_docver': value.Docver, TYPE: value.Type }),
   X_SEND_FILE: (value) => ({
     '@_docver': value.Docver,
     TASK_ID: value.TaskID,
@@ -626,6 +637,10 @@ export function encodeChatMsg(value: ChatMsg): string {
 
 export function encodeChatMsgAck(value: ChatMsgAck): string {
   return encodeXml('X_SEND_MSG_ACK', value)
+}
+
+export function encodeWritting(value: Writting): string {
+  return encodeXml('X_SEND_WRITTING', value)
 }
 
 export function encodeChatReceipt(value: ChatReceipt): string {

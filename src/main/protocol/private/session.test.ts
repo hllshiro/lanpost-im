@@ -52,6 +52,8 @@ function makeSession(
     callbacks: {
       onText: (id, text) => events.push(`text:${id}:${text}`),
       onUnsupported: (id) => events.push(`unsupported:${id}`),
+      onTyping: (type) => events.push(`typing:${type}`),
+      onRecall: (id, target) => events.push(`recall:${id}:${target}`),
       onAck: (id) => events.push(`ack:${id}`),
       onReceipt: (id) => events.push(`receipt:${id}`),
       onProfile: (profile) => events.push(`profile:${profile.userId}`),

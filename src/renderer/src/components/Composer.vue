@@ -41,6 +41,7 @@ const emit = defineEmits<{
   'update:draft': [value: string]
   'send-rich': [parts: RichPart[]]
   'remove-staged': [id: string]
+  typing: []
 }>()
 
 const fileBusy = ref(false)
@@ -362,6 +363,9 @@ function schedulePrune(): void {
 function onInput(): void {
   refreshContent()
   schedulePrune()
+  if ((editor.value?.textContent ?? '').trim() !== '') {
+    emit('typing')
+  }
 }
 
 function collectParts(): RichPart[] {

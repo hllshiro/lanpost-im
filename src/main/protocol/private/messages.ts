@@ -14,7 +14,8 @@ import {
   encodeReady,
   encodeReverseFolderReq,
   encodeSendFile,
-  encodeSendFolder
+  encodeSendFolder,
+  encodeWritting
 } from '../xml'
 import type { Feature, Handshake, NetPorts, UserInfo, XmlTag, XmlTypes } from '../xml'
 import { encodeBeacon } from './beacon'
@@ -25,6 +26,7 @@ const CMD = {
   HANDSHAKE: 1000,
   CHANGE_INFO: 1003,
   SEND_MSG: 1004,
+  SEND_WRITTING: 1008,
   SEND_MSG_ACK: 1005,
   SEND_RECEIPT: 1006,
   SEND_FILE: 1009,
@@ -130,8 +132,12 @@ export type IncomingPrivate =
       text: string
       images: PrivateImageRef[]
       segments: PrivateContentSegment[]
+      // 载荷里的 32 位消息号，撤回时用它指向原消息
+      payloadId: string
     }
   | { kind: 'text-unsupported'; msgId: number }
+  | { kind: 'typing'; type: number }
+  | { kind: 'recall'; msgId: number; targetId: string }
   | { kind: 'ack'; msgId: number }
   | { kind: 'receipt'; msgId: number }
   | {
@@ -288,8 +294,12 @@ export function changeInfoXml(profile: PrivateProfile, userId: string): string {
   return encodeChangeInfo({ Docver: DOCVER, ...userInfo(profile, userId) })
 }
 
-function textJsonBody(text: string): string {
-  const id = randomBytes(16).toString('hex')
+export function createPayloadId(): string {
+  return randomBytes(16).toString('hex')
+}
+
+function textJsonBody(text: string, payloadId = createPayloadId()): string {
+  const id = payloadId
   return [
     '{',
     '   "app" : "shiyeline",',
@@ -332,17 +342,63 @@ function escapeMsgBody(xml: string): string {
   return `${xml.slice(0, start + open.length)}${body}${xml.slice(end)}`
 }
 
-export function sendMsgXml(msgId: number, text: string): string {
+export function sendMsgXml(msgId: number, text: string, payloadId?: string): string {
   const xml = encodeChatMsg({
     Docver: DOCVER,
     MsgID: msgId,
     Receipt: 0,
-    Msg: textJsonBody(text),
+    Msg: textJsonBody(text, payloadId),
     MsgTime: 0,
     Offline: 0,
     HideRecord: 0
   })
   return escapeMsgBody(xml)
+}
+
+// 正在输入：TYPE=0 是开始输入，对端收到后自己按超时收起
+export function sendWrittingXml(type = 0): string {
+  return encodeWritting({ Docver: DOCVER, Type: type })
+}
+
+// 撤回：内网通把撤回放在普通消息的载荷里，dt 里是 {"retrieve":{"m":"<原消息号>"}}
+export function recallMsgXml(msgId: number, targetId: string): string {
+  const xml = encodeChatMsg({
+    Docver: DOCVER,
+    MsgID: msgId,
+    Receipt: 0,
+    Msg: recallJsonBody(targetId),
+    MsgTime: 0,
+    Offline: 0,
+    HideRecord: 0
+  })
+  return escapeMsgBody(xml)
+}
+
+function recallJsonBody(targetId: string): string {
+  const id = randomBytes(16).toString('hex')
+  return [
+    '{',
+    '   "app" : "shiyeline",',
+    '   "dt" : [',
+    '      {',
+    '         "retrieve" : {',
+    `            "m" : ${JSON.stringify(targetId)}`,
+    '         }',
+    '      },',
+    '      {',
+    '         "retrieve" : {',
+    `            "v" : ${JSON.stringify(targetId)}`,
+    '         }',
+    '      }',
+    '   ],',
+    '   "ft" : {',
+    '      "s" : "10"',
+    '   },',
+    `   "id" : "${id}",`,
+    '   "type" : "0",',
+    '   "ver" : "6.0"',
+    '}'
+  ].join('\n')
 }
 
 export function sendMsgAckXml(msgId: number): string {
@@ -855,6 +911,44 @@ function imageRefsFromJson(raw: string): PrivateImageRef[] {
   return refs
 }
 
+// 载荷最外层的 id 是发送方给这条消息的 32 位编号，撤回就是按它找回原消息
+function payloadIdFromJson(raw: string): string {
+  const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+  try {
+    const parsed = JSON.parse(json) as unknown
+    if (typeof parsed !== 'object' || parsed === null) return ''
+    const id = (parsed as { id?: unknown }).id
+    return typeof id === 'string' ? id : ''
+  } catch {
+    return ''
+  }
+}
+
+// 撤回标记：dt 里出现 retrieve.m，值是被撤回消息的编号
+function recallTargetFromJson(raw: string): string {
+  const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(json) as unknown
+  } catch {
+    return ''
+  }
+  if (typeof parsed !== 'object' || parsed === null) return ''
+  const dt = (parsed as { dt?: unknown }).dt
+  if (!Array.isArray(dt)) return ''
+  for (const item of dt) {
+    if (typeof item !== 'object' || item === null) continue
+    const retrieve = (item as { retrieve?: unknown }).retrieve
+    if (typeof retrieve !== 'object' || retrieve === null) continue
+    // 真实客户端把目标编号放在 v，m 也带一份；两个字段都接受
+    const value = (retrieve as { v?: unknown }).v
+    if (typeof value === 'string' && value !== '') return value
+    const target = (retrieve as { m?: unknown }).m
+    if (typeof target === 'string' && target !== '') return target
+  }
+  return ''
+}
+
 function textFromJson(raw: string): string | null {
   const json = raw.replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"')
   let parsed: unknown
@@ -1041,6 +1135,10 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
       if (msg === null) {
         return unrecognized(cmd)
       }
+      const targetId = recallTargetFromJson(msg.Msg)
+      if (targetId !== '') {
+        return { kind: 'recall', msgId: msg.MsgID, targetId }
+      }
       const images = imageRefsFromJson(msg.Msg)
       const text = textFromJson(msg.Msg)
       if (text === null && images.length === 0) {
@@ -1061,8 +1159,13 @@ export function parsePrivate(cmd: number, xml: string): IncomingPrivate {
             ? textOnly
             : (text ?? (stickersOnly ? '' : '[图片]')),
         images,
-        segments
+        segments,
+        payloadId: payloadIdFromJson(msg.Msg)
       }
+    }
+    case CMD.SEND_WRITTING: {
+      const writting = decodePrivate('X_SEND_WRITTING', xml)
+      return writting === null ? unrecognized(cmd) : { kind: 'typing', type: writting.Type }
     }
     case CMD.SEND_MSG_ACK: {
       const ack = decodePrivate('X_SEND_MSG_ACK', xml)

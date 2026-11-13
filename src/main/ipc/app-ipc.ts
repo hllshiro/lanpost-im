@@ -17,6 +17,12 @@ export function registerAppIpc(service: AppService): void {
     service.listAllMessages(conversationId)
   )
   ipcMain.handle(IPC.messageSend, (_event, request) => service.sendText(request))
+  ipcMain.handle(IPC.messageRecall, (_event, conversationId: string, messageId: number) =>
+    service.recallMessage(conversationId, messageId)
+  )
+  ipcMain.handle(IPC.messageTyping, (_event, conversationId: string) =>
+    service.notifyTyping(conversationId)
+  )
   ipcMain.handle(IPC.messageBroadcast, (_event, request) => ({
     count: service.broadcastText(request.text)
   }))

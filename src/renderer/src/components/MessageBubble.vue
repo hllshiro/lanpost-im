@@ -17,9 +17,22 @@ const props = defineProps<{
   ownInitial: string
   otherInitial: string
   avatarMd5?: string
+  group: boolean
 }>()
 
 const store = useAppStore()
+
+// 自己两分钟内发出的一对一消息可以撤回，群消息暂不提供
+const recallable = computed(() => {
+  if (!props.own || props.group || props.message.kind === 'system') return false
+  if (Date.now() - props.message.createdAt > 2 * 60 * 1000) return false
+  try {
+    const meta = JSON.parse(props.message.meta) as Record<string, unknown>
+    return typeof meta.nwtPayloadId === 'string' && meta.nwtPayloadId !== ''
+  } catch {
+    return false
+  }
+})
 
 const statusIcon = computed(() => {
   switch (props.message.status) {
@@ -44,6 +57,7 @@ const statusClass = computed(() => {
 const emit = defineEmits<{
   preview: [file: FileTaskInfo]
   menu: [file: FileTaskInfo, event: MouseEvent]
+  recall: []
 }>()
 
 function previewImage(file: FileTaskInfo): void {
@@ -265,6 +279,7 @@ async function revealFolder(): Promise<void> {
       </span>
 
       <div class="content">
+        <button v-if="recallable" class="recall-link" @click="emit('recall')">撤回</button>
         <span v-if="senderLabel !== ''" class="sender">{{ senderLabel }}</span>
         <div v-if="message.kind === 'folder'" class="bubble folder-bubble">
           <div class="folder-card">
@@ -424,11 +439,34 @@ async function revealFolder(): Promise<void> {
 }
 
 .content {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
   /* 宽窗口下气泡贴着两侧，正文行宽仍控制在易读范围 */
   max-width: min(60%, 640px);
+}
+
+.recall-link {
+  position: absolute;
+  top: -2px;
+  right: 0;
+  transform: translateY(-100%);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  font-size: 11px;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.row:hover .recall-link {
+  opacity: 1;
+}
+
+.recall-link:hover {
+  color: var(--accent);
 }
 
 .row.own .content {

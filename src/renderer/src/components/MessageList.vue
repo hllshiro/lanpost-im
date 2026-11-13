@@ -21,10 +21,12 @@ const props = defineProps<{
   ownAvatarMd5: string
   peerAvatarMd5: string
   senderAvatars: Record<string, string>
+  group: boolean
 }>()
 
 const emit = defineEmits<{
   read: []
+  recall: [messageId: number]
 }>()
 
 type Row =
@@ -252,8 +254,10 @@ function onCopy(event: ClipboardEvent): void {
             :own-initial="ownInitial"
             :other-initial="otherInitial"
             :avatar-md5="bubbleAvatar(row)"
+            :group="group"
             @preview="openViewer"
             @menu="openMenu"
+            @recall="emit('recall', row.message.id)"
           />
         </template>
 

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref } from 'vue'
 import { useEventListener } from '@vueuse/core'
 import { MessageSquare, Pin, RefreshCw, Search, Users, X } from '@lucide/vue'
 import type { ConversationInfo, GroupInfo, MessageInfo, PeerInfo } from '../../../shared/domain'
+import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import GroupMark from './GroupMark.vue'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
@@ -16,6 +17,8 @@ const props = defineProps<{
   loading: boolean
   refreshing: boolean
 }>()
+
+const store = useAppStore()
 
 const emit = defineEmits<{
   select: [id: string]
@@ -144,6 +147,7 @@ const emptyHint = computed(() => {
 function previewOf(conversation: ConversationInfo): string {
   const draft = conversation.draft.replace(/\s+/g, ' ').trim()
   if (draft) return `[草稿] ${draft}`
+  if (store.isTyping(conversation.id)) return '正在输入…'
   const message = props.previews[conversation.id]
   if (message) return previewText(message)
   return '暂无消息'
