@@ -167,6 +167,32 @@ export class PeerRegistry {
     if (!wasOnline) this.emit()
   }
 
+  // 只是收到发现通告：只更新在线与活跃时间，不把会话标记成就绪
+  markPrivatePeerSeen(ip: string, userId: string): PeerInfo | null {
+    let key = this.ipIndex.get(ip)
+    if (key === undefined && userId !== '') {
+      const byUser = [...this.peers.values()].find(
+        (peer) => peer.key === userId || peer.user === userId
+      )
+      if (byUser !== undefined) {
+        key = byUser.key
+        if (byUser.ip !== ip) {
+          this.ipIndex.delete(byUser.ip)
+          byUser.ip = ip
+        }
+        this.ipIndex.set(ip, key)
+      }
+    }
+    if (key === undefined) return null
+    const peer = this.peers.get(key)
+    if (peer === undefined) return null
+    const wasOnline = peer.online
+    peer.online = true
+    peer.lastSeen = Date.now()
+    if (!wasOnline) this.emit()
+    return clonePeer(peer)
+  }
+
   markPrivatePeerOffline(ip: string): void {
     const key = this.ipIndex.get(ip)
     if (key === undefined) return

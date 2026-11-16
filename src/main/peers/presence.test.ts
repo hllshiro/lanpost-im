@@ -26,19 +26,21 @@ function peer(overrides: Partial<PeerInfo> = {}): PeerInfo {
 }
 
 describe('applyPresence', () => {
-  it('carries the private user id and follows the session state', () => {
+  it('carries the private user id and follows presence flags', () => {
     const online = applyPresence(peer({ online: false, ready: false }), {
-      ready: true,
+      online: true,
+      ready: false,
       privateUserId: 'aaaa'
     })
-    expect(online).toMatchObject({ online: true, ready: true, privateUserId: 'aaaa' })
+    expect(online).toMatchObject({ online: true, ready: false, privateUserId: 'aaaa' })
 
-    const offline = applyPresence(peer(), { ready: false, privateUserId: '' })
+    const offline = applyPresence(peer(), { online: false, ready: false, privateUserId: '' })
     expect(offline).toMatchObject({ online: false, ready: false, privateUserId: '' })
   })
 
   it('keeps other peer fields untouched', () => {
     const result = applyPresence(peer({ alias: '别名', unread: 3 }), {
+      online: true,
       ready: true,
       privateUserId: 'bbbb'
     })

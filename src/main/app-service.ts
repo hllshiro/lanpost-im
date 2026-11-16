@@ -74,6 +74,7 @@ import type { SessionState } from './protocol/private/session'
 import { fileTimeFromMs } from './protocol/private/messages'
 import { PeerRegistry } from './peers/registry'
 import { applyPresence } from './peers/presence'
+import { reconcileDirectConversations } from './store/peer-conversations'
 import { PrivateFolderTransfer, type OutgoingFolder } from './files/folder-transfer'
 import { scanFolder } from './files/folder-info'
 import { PrivateFileTransfer } from './files/private-transfer'
@@ -281,6 +282,10 @@ export class AppService {
   private lastStatus = 0
   private lastPrivateProfile: PrivateProfile | null = null
   private privateService: PrivateService | null = null
+  // 最近一次收到 9011 发现通告的时间，按远端地址记录
+  private readonly discoveredAt = new Map<string, number>()
+  private discoveryTtlMs = 90_000
+  private presenceTimer: ReturnType<typeof setInterval> | null = null
   private privateFiles: PrivateFileTransfer | null = null
   private readonly privateFileTasks = new Map<
     number,
@@ -398,8 +403,10 @@ export class AppService {
     this.importLegacyHistory()
     this.ensurePrivateId()
     this.started = true
+    this.reconcileConversations()
     await this.startPrivateService()
     this.handlePeers(this.registry.getPeers())
+    this.startPresenceSweep()
     this.notifications.setUnread(this.unreadTotal())
   }
 
@@ -421,6 +428,7 @@ export class AppService {
       const settings = this.settings.get()
       const userId = privateUserId(settings)
       const profile = privateProfile(settings)
+      this.discoveryTtlMs = Math.max(settings.network.broadcastInterval * 3000, 90_000)
       const filePort = settings.network.privateFilePort
       const transfer = new PrivateFileTransfer({
         bindAddr: settings.network.bindAddr,
@@ -527,6 +535,8 @@ export class AppService {
           onFileReverse: (ip, taskId) => this.handlePrivateFileReverse(ip, taskId),
           onSendFailed: (ip, msgId) => this.handlePrivateSendFailed(ip, msgId),
           onState: (ip, state, remote) => this.handlePrivateState(ip, state, remote),
+          onPeerLeft: (ip) => this.handlePrivatePeerLeft(ip),
+          onDiscovered: (ip, userId) => this.handlePrivateDiscovered(ip, userId),
           onActivity: (ip) => this.registry.touchPrivatePeer(ip),
           onLog: (message) => logStartup('private: ' + message),
           onError: (error) => logStartup('private error: ' + error.message)
@@ -1428,6 +1438,10 @@ export class AppService {
 
   async stop(): Promise<void> {
     this.started = false
+    if (this.presenceTimer !== null) {
+      clearInterval(this.presenceTimer)
+      this.presenceTimer = null
+    }
     this.notifications.stop()
     const privateService = this.privateService
     this.privateService = null
@@ -1440,12 +1454,16 @@ export class AppService {
     this.privateFileTasks.clear()
     this.privateIncomingFiles.clear()
     this.stopPrivateSweep()
-    if (privateFiles !== null) {
-      await privateFiles.stop()
-    }
+    // 先停私有会话：它对每个在线对端发 DISCONNECT，不能排在异步文件通道后面，
+    // 否则进程可能在 await 期间退出，对端要等 30 多秒的重传超时才显示离线
+    const closing: Array<Promise<void>> = []
     if (privateService !== null) {
-      await privateService.stop()
+      closing.push(privateService.stop())
     }
+    if (privateFiles !== null) {
+      closing.push(privateFiles.stop())
+    }
+    await Promise.all(closing)
   }
 
   snapshot(): AppSnapshot {
@@ -1474,11 +1492,15 @@ export class AppService {
   // 头像文件还没取回来时不把 md5 发给界面，避免渲染出坏图
   private peerList(): PeerInfo[] {
     const service = this.privateService
+    const now = Date.now()
     return this.repos.peers.list().map((peer) => {
       const md5 = peer.avatarMd5 ?? ''
+      const ready = service !== null && service.isReady(peer.ip)
+      const discovered = (this.discoveredAt.get(peer.ip) ?? 0) > now - this.discoveryTtlMs
       return {
         ...applyPresence(peer, {
-          ready: service !== null && service.isReady(peer.ip),
+          online: ready || discovered,
+          ready,
           privateUserId: service?.peerUserId(peer.ip) ?? ''
         }),
         avatarMd5: md5 !== '' && this.avatars.has(md5) ? md5 : ''
@@ -1710,7 +1732,11 @@ export class AppService {
   }
 
   refreshPeers(): void {
-    this.privateService?.refresh()
+    const service = this.privateService
+    service?.refresh(
+      this.repos.peers.list().map((peer) => ({ ip: peer.ip, port: service.peerPort(peer.ip) }))
+    )
+    this.reconcileConversations()
     this.handlePeers(this.registry.getPeers())
   }
 
@@ -1942,15 +1968,23 @@ export class AppService {
     if (peer === null) {
       throw new Error('联系人不存在')
     }
-    const conversationId = directConversationId(peerKey)
-    this.repos.conversations.remove(conversationId)
+    // 同一个联系人可能留下按地址、按用户号命名的多条会话，一并删掉
+    const identities = new Set(
+      [peerKey, peer.key, peer.user, peer.ip].filter((value) => value !== '')
+    )
+    for (const conversation of this.repos.conversations.list()) {
+      if (conversation.kind !== 'direct' || conversation.peerKey === null) continue
+      if (!identities.has(conversation.peerKey)) continue
+      this.repos.conversations.remove(conversation.id)
+      this.emit({ type: 'conversation-removed', conversationId: conversation.id })
+    }
     this.repos.peers.remove(peerKey)
     this.registry.forget(peerKey)
     // 会话不断开的话，刷新时不会再握手，联系人好像永远回不来
     if (peer.ip !== '') {
       this.privateService?.dropPeer(peer.ip)
+      this.discoveredAt.delete(peer.ip)
     }
-    this.emit({ type: 'conversation-removed', conversationId })
     this.emit({ type: 'peers', peers: this.peerList() })
     logStartup(`删除联系人 ${peerKey}`)
   }
@@ -3924,12 +3958,68 @@ export class AppService {
     if (state === 'closed') {
       // 新会话可能已经就绪，旧的关闭事件不能把在线状态改回离线
       if (this.privateService?.isReady(ip)) return
+      // 通告还新鲜说明对端在线，保持在线并立即重拨；通告过期就按真正离线处理
+      const keepPresence = this.discoveredRecently(ip, 35_000)
+      if (!keepPresence) this.discoveredAt.delete(ip)
       this.registry.markPrivatePeerOffline(ip)
       for (const entry of Array.from(this.privateOutstanding.values())) {
         if (entry.ip === ip) {
           this.failPrivateSend(entry)
         }
       }
+      if (keepPresence && this.started && this.registry.peerKeyForIp(ip) !== null) {
+        this.privateService?.redial(ip)
+      }
+    }
+  }
+
+  // 对端主动退出：发现状态立即作废，不能靠最后一次通告继续显示在线
+  private handlePrivatePeerLeft(ip: string): void {
+    this.discoveredAt.delete(ip)
+  }
+
+  // 收到对方的发现通告：先按「发现到的人」显示在线，HANDSHAKE 完成后再补资料
+  private handlePrivateDiscovered(ip: string, userId: string): void {
+    this.discoveredAt.set(ip, Date.now())
+    if (!this.started) return
+    this.registry.markPrivatePeerSeen(ip, userId)
+  }
+
+  private discoveredRecently(ip: string, windowMs: number): boolean {
+    const seen = this.discoveredAt.get(ip) ?? 0
+    return seen > 0 && Date.now() - seen < windowMs
+  }
+
+  private startPresenceSweep(): void {
+    if (this.presenceTimer !== null) return
+    this.presenceTimer = setInterval(() => this.expireDiscoveredPresence(), 5000)
+    this.presenceTimer.unref()
+  }
+
+  private expireDiscoveredPresence(): void {
+    const now = Date.now()
+    const expired: string[] = []
+    for (const [ip, at] of this.discoveredAt) {
+      if (now - at < this.discoveryTtlMs) continue
+      this.discoveredAt.delete(ip)
+      expired.push(ip)
+    }
+    for (const ip of expired) {
+      if (this.privateService?.isReady(ip)) continue
+      this.registry.markPrivatePeerOffline(ip)
+    }
+  }
+
+  // 同一联系人历史上可能同时存在按地址和按用户号命名的会话，统一并到当前用户号
+  private reconcileConversations(): void {
+    const merges = reconcileDirectConversations(this.db)
+    for (const merge of merges) {
+      this.emit({ type: 'conversation-removed', conversationId: merge.from })
+      const conversation = this.repos.conversations.get(merge.to)
+      if (conversation !== null) {
+        this.emit({ type: 'conversation', conversation })
+      }
+      logStartup(`合并重复会话 ${merge.from} → ${merge.to}`)
     }
   }
 
@@ -3963,6 +4053,7 @@ export class AppService {
         }
       }
     }
+    this.reconcileConversations()
   }
 
   // 正在输入：按会话通知界面，界面自己按超时收起

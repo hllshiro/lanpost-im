@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite'
+import { mergeDirectConversation } from './peer-conversations'
 
 interface PeerRow {
   key: string
@@ -6,12 +7,6 @@ interface PeerRow {
   last_seen: number
   online: number
   ready: number
-}
-
-interface ConversationRow {
-  id: string
-  unread: number
-  last_message_at: number
 }
 
 // 5.0 起消息带来源标识：迁移过的内网通记录用它去重，重复导入不会产生重复消息
@@ -69,43 +64,7 @@ export function renamePeerKey(db: DatabaseSync, from: string, to: string): void 
 
     const fromConversation = `direct:${from}`
     const toConversation = `direct:${to}`
-    const conversation = db
-      .prepare('SELECT id, unread, last_message_at FROM conversations WHERE id = ?')
-      .get(fromConversation) as ConversationRow | undefined
-    const existing = db.prepare('SELECT id FROM conversations WHERE id = ?').get(toConversation)
-    if (conversation !== undefined) {
-      if (existing === undefined) {
-        db.prepare('UPDATE conversations SET id = ?, peer_key = ? WHERE id = ?').run(
-          toConversation,
-          to,
-          fromConversation
-        )
-        db.prepare('UPDATE messages SET conversation_id = ? WHERE conversation_id = ?').run(
-          toConversation,
-          fromConversation
-        )
-        db.prepare('UPDATE file_tasks SET conversation_id = ? WHERE conversation_id = ?').run(
-          toConversation,
-          fromConversation
-        )
-      } else {
-        db.prepare('UPDATE messages SET conversation_id = ? WHERE conversation_id = ?').run(
-          toConversation,
-          fromConversation
-        )
-        db.prepare('UPDATE file_tasks SET conversation_id = ? WHERE conversation_id = ?').run(
-          toConversation,
-          fromConversation
-        )
-        db.prepare(
-          `UPDATE conversations SET
-             unread = unread + ?,
-             last_message_at = MAX(last_message_at, ?)
-           WHERE id = ?`
-        ).run(conversation.unread, conversation.last_message_at, toConversation)
-        db.prepare('DELETE FROM conversations WHERE id = ?').run(fromConversation)
-      }
-    }
+    mergeDirectConversation(db, fromConversation, toConversation, to)
     db.exec('RELEASE rename_peer_key')
   } catch (error) {
     db.exec('ROLLBACK TO rename_peer_key')

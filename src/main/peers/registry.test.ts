@@ -43,6 +43,28 @@ function input(
 }
 
 describe('PeerRegistry', () => {
+  it('marks a known peer online when its beacon is seen, even by user id lookup', () => {
+    const events: PeerInfo[][] = []
+    const registry = new PeerRegistry([seedPeer({ key: '10.0.0.1', ip: '10.0.0.1', user: '' })], {
+      onPeers: (peers) => events.push(peers)
+    })
+    expect(registry.getPeers()[0].online).toBe(false)
+
+    const byAddress = registry.markPrivatePeerSeen('10.0.0.1', 'bob')
+    expect(byAddress).toMatchObject({ online: true, ready: false })
+    expect(events.at(-1)?.[0].online).toBe(true)
+    registry.markPrivatePeerOffline('10.0.0.1')
+
+    // 联系人键已经是用户号，但地址换了：发现报文要能按用户号找回并改绑地址
+    const registry2 = new PeerRegistry([seedPeer({ key: 'bob', ip: '10.0.0.9', user: 'bob' })], {
+      onPeers: () => {}
+    })
+    const byUser = registry2.markPrivatePeerSeen('10.0.0.7', 'bob')
+    expect(byUser).toMatchObject({ key: 'bob', ip: '10.0.0.7', online: true })
+    expect(registry2.peerKeyForIp('10.0.0.7')).toBe('bob')
+    expect(registry2.markPrivatePeerSeen('10.0.0.8', 'nobody')).toBeNull()
+  })
+
   it('seeds historical peers offline and keys a new user by their own id', () => {
     const events: PeerInfo[][] = []
     const registry = new PeerRegistry([seedPeer()], { onPeers: (peers) => events.push(peers) })

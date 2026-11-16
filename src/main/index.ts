@@ -322,16 +322,27 @@ if (!gotLock) {
     setQuitting(true)
   })
 
-  app.on('will-quit', () => {
+  let stopping = false
+  app.on('will-quit', (event) => {
+    if (stopping) return
+    // 退出前要等私有会话把 DISCONNECT 发出去，否则对端只能等重传超时
+    event.preventDefault()
+    stopping = true
     if (idleTimer !== null) {
       clearInterval(idleTimer)
       idleTimer = null
     }
     unregisterGlobalShortcuts()
-    void service?.stop()
-    database?.close()
-    database = null
-    destroyTray()
+    void (async () => {
+      try {
+        await service?.stop()
+      } finally {
+        database?.close()
+        database = null
+        destroyTray()
+        app.exit(0)
+      }
+    })()
   })
 
   app.on('window-all-closed', () => {

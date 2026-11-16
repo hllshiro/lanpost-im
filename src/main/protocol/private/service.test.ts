@@ -113,6 +113,8 @@ function options(
       onChangeInfo: () => {},
       onSendFailed: () => {},
       onState: () => {},
+      onPeerLeft: () => {},
+      onDiscovered: () => {},
       onActivity: () => {},
       onLog: () => {},
       onError: () => {},
@@ -533,6 +535,106 @@ describe('private service', () => {
     expect(profiles).toEqual([['127.0.0.1', 'peer-user']])
     expect(texts).toEqual([['127.0.0.1', 77, '先到的手势资料']])
     acknowledgePending(peer, service.localEnetPort, sessionId)
+  })
+
+  it('reports discovered peers from beacons', async () => {
+    const peer = await fakePeer()
+    const beaconPort = await freeUdpPort()
+    const discovered: Array<[string, string]> = []
+    const service = new PrivateService({
+      ...options(peer.port, {
+        onDiscovered: (ip, userId) => discovered.push([ip, userId])
+      }),
+      beaconPort,
+      seeds: []
+    })
+    await service.start()
+    cleanups.push(() => void service.stop())
+    peer.socket.send(
+      encodeBeacon({
+        type: 1,
+        ip: '127.0.0.1',
+        broadcast: '127.0.0.255',
+        userId: 'peer-user',
+        peerId: Buffer.alloc(16, 2),
+        enetPort: peer.port
+      }),
+      beaconPort,
+      '127.0.0.1'
+    )
+    await waitFor(() => (discovered.length > 0 ? discovered : null))
+    expect(discovered[0]).toEqual(['127.0.0.1', 'peer-user'])
+  })
+
+  it('forced refresh replaces a session that never finished connecting', async () => {
+    const peer = await fakePeer()
+    const service = new PrivateService(options(peer.port))
+    await service.start()
+    cleanups.push(() => void service.stop())
+    const first = await waitFor(
+      () => peer.received.find((d) => isCommand(d, ENET_CMD_CONNECT)) ?? null
+    )
+    const firstId = parseConnectPayload(decodeDatagram(first).commands[0].payload).connectId
+    peer.received.length = 0
+
+    service.refresh()
+    const second = await waitFor(
+      () => peer.received.find((d) => isCommand(d, ENET_CMD_CONNECT)) ?? null
+    )
+    const secondId = parseConnectPayload(decodeDatagram(second).commands[0].payload).connectId
+    expect(secondId).not.toBe(firstId)
+  })
+
+  it('redials a peer that keeps sending traffic for a session we no longer have', async () => {
+    const peer = await fakePeer()
+    const discovered: string[] = []
+    const service = new PrivateService({
+      ...options(peer.port, { onDiscovered: (ip) => discovered.push(ip) }),
+      seeds: []
+    })
+    await service.start()
+    cleanups.push(() => void service.stop())
+    peer.received.length = 0
+
+    peer.socket.send(
+      reliableDatagram(1, 1004, sendMsgXml(5, '旧会话的心跳'), 2),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    const connect = await waitFor(
+      () => peer.received.find((d) => isCommand(d, ENET_CMD_CONNECT)) ?? null
+    )
+    expect(connect).not.toBeNull()
+    expect(discovered).toContain('127.0.0.1')
+  })
+
+  it('notifies the peer when a ready session stops', async () => {
+    const [portA, portB] = await twoFreePorts()
+    const left: string[] = []
+    const closed: string[] = []
+    const a = new PrivateService({
+      ...options(portB),
+      localIp: '127.0.0.2',
+      bindAddr: '127.0.0.2',
+      enetPort: portA,
+      seeds: [{ ip: '127.0.0.1', port: portB }]
+    })
+    const b = new PrivateService({
+      ...options(portA, {
+        onPeerLeft: (ip) => left.push(ip),
+        onState: (_ip, state) => closed.push(state)
+      }),
+      localIp: '127.0.0.1',
+      enetPort: portB,
+      seeds: []
+    })
+    cleanups.push(() => void b.stop())
+    await Promise.all([a.start(), b.start()])
+    await waitFor(() => (a.isReady('127.0.0.1') && b.isReady('127.0.0.2') ? true : null), 5000)
+
+    await a.stop()
+    await waitFor(() => (left.length > 0 || closed.includes('closed') ? true : null), 3000)
+    expect(left).toEqual(['127.0.0.2'])
   })
 
   it('rejects an invalid local address before binding', async () => {

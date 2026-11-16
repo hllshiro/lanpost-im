@@ -121,6 +121,7 @@ const VERIFY_MAX_RETRIES = 6
 const RETRANSMIT_BACKOFF = 1.5
 const HEARTBEAT_INTERVAL_MS = 30_000
 const SESSION_TIMEOUT_MS = 120_000
+const HANDSHAKE_TIMEOUT_MS = 10_000
 
 export type SessionState = 'idle' | 'connecting' | 'verifying' | 'handshaking' | 'ready' | 'closed'
 
@@ -239,6 +240,7 @@ export class PrivateSession {
   private readonly callbacks: SessionCallbacks
   private readonly hello: Buffer
   private currentState: SessionState = 'idle'
+  private closedByPeerFlag = false
   private reliable: ReliableEnd | null = null
   private peerId = 0
   private sessionId = 0
@@ -286,6 +288,11 @@ export class PrivateSession {
     return this.connectId
   }
 
+  // 本次关闭是否由对端主动退出触发
+  get closedByPeer(): boolean {
+    return this.closedByPeerFlag
+  }
+
   start(): void {
     if (this.role !== 'client' || this.currentState !== 'idle') return
     const now = this.now()
@@ -311,6 +318,14 @@ export class PrivateSession {
     const now = this.now()
     if (now - this.lastInboundAt >= SESSION_TIMEOUT_MS) {
       this.callbacks.onLog(`私有会话 ${this.remoteLabel} 超过 120 秒没有入站报文，关闭`)
+      this.shutdown(true)
+      return
+    }
+    if (
+      (this.currentState === 'verifying' || this.currentState === 'handshaking') &&
+      now - this.lastInboundAt >= HANDSHAKE_TIMEOUT_MS
+    ) {
+      this.callbacks.onLog(`私有会话 ${this.remoteLabel} 握手超过 10 秒没有进展，关闭`)
       this.shutdown(true)
       return
     }
@@ -578,6 +593,7 @@ export class PrivateSession {
     this.lastInboundAt = this.now()
     if (this.hasDisconnect(data)) {
       this.callbacks.onLog(`私有会话 ${this.remoteLabel} 收到对端 DISCONNECT，关闭`)
+      this.closedByPeerFlag = true
       this.shutdown(false)
       return
     }
@@ -941,6 +957,7 @@ export class PrivateSession {
       case 'heartbeat':
         return
       case 'quit':
+        this.closedByPeerFlag = true
         this.shutdown(false)
         return
       default:
@@ -981,8 +998,26 @@ export class PrivateSession {
   // 关闭时放弃重传队列；对端已被判定超时的情况下只改状态，不再发 X_QUIT
   private shutdown(sendQuit: boolean): void {
     if (this.currentState === 'closed') return
-    if (sendQuit && this.reliable !== null) {
-      this.reliable.send(encodeFrame(CMD_QUIT, quitXml()))
+    if (sendQuit) {
+      if (this.reliable !== null) {
+        this.reliable.send(encodeFrame(CMD_QUIT, quitXml()))
+      }
+      // 可靠通道要等 ACK，退出时来不及重传；再发一条不可靠的 DISCONNECT 让对端立刻下线
+      this.sendRaw(
+        encodeDatagram(
+          this.peerId,
+          this.now() & 0xffff,
+          [
+            {
+              command: ENET_CMD_DISCONNECT,
+              channelId: 0xff,
+              reliableSeq: 0,
+              payload: Buffer.alloc(4)
+            }
+          ],
+          this.sessionId
+        )
+      )
     }
     this.reliable = null
     this.setState('closed')
