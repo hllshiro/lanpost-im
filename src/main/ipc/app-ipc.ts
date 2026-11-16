@@ -2,6 +2,7 @@ import { app, ipcMain } from 'electron'
 import { getMainWindow } from '../window'
 import { IPC } from '../../shared/ipc'
 import type { AppService } from '../app-service'
+import { exportLogs, openLogsDirectory } from '../logs'
 
 export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.appQuit, () => {
@@ -10,6 +11,8 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.appMinimize, () => {
     getMainWindow()?.hide()
   })
+  ipcMain.handle(IPC.appOpenLogs, () => openLogsDirectory())
+  ipcMain.handle(IPC.appExportLogs, () => exportLogs())
   ipcMain.handle(IPC.filePickReceiveDir, () => service.pickReceiveDir())
   ipcMain.handle(IPC.filePastePaths, () => service.clipboardPaths())
   ipcMain.handle(IPC.snapshot, () => service.snapshot())

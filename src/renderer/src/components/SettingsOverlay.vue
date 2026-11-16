@@ -86,6 +86,8 @@ const confirmingReset = ref(false)
 const recording = ref<ShortcutAction | null>(null)
 const recordTip = ref('')
 const startAtLoginBusy = ref(false)
+const logBusy = ref(false)
+const logNote = ref('')
 const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 const firewall = ref<FirewallStatus | null>(null)
@@ -295,6 +297,27 @@ function savePrivateSeeds(): void {
 function setDensity(density: Settings['appearance']['density']): void {
   settings.value.appearance.density = density
   saveField('appearance', { density })
+}
+
+async function openLogs(): Promise<void> {
+  try {
+    await window.api.app.openLogs()
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  }
+}
+
+async function exportLogs(): Promise<void> {
+  if (logBusy.value) return
+  logBusy.value = true
+  error.value = ''
+  try {
+    logNote.value = `已导出到 ${await window.api.app.exportLogs()}`
+  } catch (reason) {
+    error.value = errorMessage(reason)
+  } finally {
+    logBusy.value = false
+  }
 }
 
 async function setStartAtLogin(enabled: boolean): Promise<void> {
@@ -1045,8 +1068,7 @@ onBeforeUnmount(() => {
             <div class="row-text">
               <span class="label">调试日志</span>
               <p class="hint">
-                记录联系人在线变化、会话、消息与文件传输等详细信息，写入数据目录的 debug.log（超过 5
-                MB 自动轮换）。发行版默认关闭，开发环境默认开启。
+                记录联系人在线变化、会话、消息与文件传输等详细信息。发行版默认关闭，开发环境默认开启。
               </p>
             </div>
             <div class="control control-auto">
@@ -1054,6 +1076,22 @@ onBeforeUnmount(() => {
                 :model-value="settings.general.debugLog"
                 @update:model-value="saveField('general', { debugLog: $event })"
               />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">日志文件</span>
+              <p class="hint">
+                日志保存在数据目录的 logs 文件夹。调试日志每次启动生成新文件，最多保留 20
+                个；错误日志始终记录。 导出会打包到系统下载目录。
+              </p>
+              <p v-if="logNote" class="hint log-note">{{ logNote }}</p>
+            </div>
+            <div class="control control-auto log-actions">
+              <button class="mini" @click="openLogs">打开日志目录</button>
+              <button class="mini" :disabled="logBusy" @click="exportLogs">
+                {{ logBusy ? '导出中…' : '导出日志' }}
+              </button>
             </div>
           </div>
           <div class="row">
@@ -1482,6 +1520,16 @@ onBeforeUnmount(() => {
   background: #ffffff;
   color: var(--text);
   font-size: 12px;
+}
+
+.log-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.log-note {
+  color: #3d7a52;
+  word-break: break-all;
 }
 
 .mini:hover:not(:disabled) {

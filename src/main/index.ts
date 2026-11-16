@@ -30,7 +30,8 @@ import {
   type ShortcutHandlers
 } from './shortcuts'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
-import { configureDebugLog, debugLog } from './debug-log'
+import { configureDebugLog, debugLog, errorLog } from './debug-log'
+import { logsDirectory } from './logs'
 
 app.setName(APP_NAME_EN)
 
@@ -105,13 +106,17 @@ if (dataDirOverride) {
 }
 
 logStartup(`starting, userData=${app.getPath('userData')}, packaged=${app.isPackaged}`)
+// 先挂上日志目录，即使调试日志关闭，启动阶段的错误也会写入 logs/error.log
+configureDebugLog({ enabled: false, dir: logsDirectory() })
 
 process.on('uncaughtException', (error) => {
   logStartup('uncaughtException: ' + errorMessage(error))
+  errorLog('process', 'uncaughtException', error)
 })
 
 process.on('unhandledRejection', (error) => {
   logStartup('unhandledRejection: ' + errorMessage(error))
+  errorLog('process', 'unhandledRejection', error)
 })
 
 const gotLock = app.requestSingleInstanceLock()
@@ -143,13 +148,13 @@ if (!gotLock) {
       const settings = new SettingsStore(settingsFile, currentIdentityDefaults(), {
         general: { debugLog: is.dev }
       })
-      const debugFile = join(app.getPath('userData'), 'debug.log')
-      configureDebugLog({ enabled: settings.get().general.debugLog, file: debugFile })
+      configureDebugLog({ enabled: settings.get().general.debugLog, dir: logsDirectory() })
       debugLog('app', '启动', {
         version: app.getVersion(),
         packaged: app.isPackaged,
         dev: is.dev,
         userData: app.getPath('userData'),
+        logs: logsDirectory(),
         debugLog: settings.get().general.debugLog
       })
 
@@ -212,7 +217,7 @@ if (!gotLock) {
         onSettingsChanged: (next) => {
           configureDebugLog({
             enabled: next.general.debugLog,
-            file: join(app.getPath('userData'), 'debug.log')
+            dir: logsDirectory()
           })
           debugLog('settings', '设置变更', next.general)
           appService.applySettings(next)

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { logStartup } from './startup-log'
+import { errorLog } from './debug-log'
 
 let mainWindow: BrowserWindow | null = null
 let quitting = false
@@ -47,12 +48,17 @@ export function createMainWindow(startHidden = false): BrowserWindow {
 
   window.webContents.on('console-message', (_event, level: number, message: string) => {
     logStartup(`renderer console[${level}]: ${message}`)
+    if (level >= 3) {
+      errorLog('renderer', message)
+    }
   })
   window.webContents.on('did-fail-load', (_event, code, description, url) => {
     logStartup(`did-fail-load ${code} ${description} ${url}`)
+    errorLog('window', 'did-fail-load', { code, description, url })
   })
   window.webContents.on('render-process-gone', (_event, details) => {
     logStartup(`render-process-gone: ${JSON.stringify(details)}`)
+    errorLog('window', 'render-process-gone', details)
   })
   window.webContents.on('did-finish-load', () => {
     if (!is.dev) {

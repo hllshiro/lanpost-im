@@ -76,7 +76,9 @@ export const IPC = {
   filePickReceiveDir: 'files:pick-receive-dir',
   filePastePaths: 'files:paste-paths',
   appQuit: 'app:quit',
-  appMinimize: 'app:minimize'
+  appMinimize: 'app:minimize',
+  appOpenLogs: 'app:open-logs',
+  appExportLogs: 'app:export-logs'
 } as const
 
 export interface AppInfo {
@@ -181,6 +183,10 @@ export type Api = {
     quit(): Promise<void>
     // 收到托盘：窗口隐藏，程序继续在后台运行
     minimize(): Promise<void>
+    // 打开数据目录下的 logs 文件夹
+    openLogs(): Promise<void>
+    // 把 logs 打包到下载目录，返回生成的 tar.gz 路径
+    exportLogs(): Promise<string>
   }
   state: {
     snapshot(): Promise<AppSnapshot>

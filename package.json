@@ -1,6 +1,6 @@
 {
   "name": "lanpost-im",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "packageManager": "pnpm@12.15.0",
   "description": "内网传书（Lanpost-IM）—— 基于 IPMSG 的跨平台局域网即时通信",
   "main": "./out/main/index.js",
@@ -34,6 +34,7 @@
     "iconv-lite": "^0.7.3",
     "pinia": "^4.1.0",
     "pinyin-pro": "^3.29.5",
+    "tar": "^7.5.23",
     "zod": "^4.6.7"
   },
   "devDependencies": {

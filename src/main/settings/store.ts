@@ -17,7 +17,7 @@ import {
   type SettingsPatch
 } from '../../shared/settings'
 import { mergeSettings } from '../../shared/settings-merge'
-import { debugLog } from '../debug-log'
+import { debugLog, errorLog } from '../debug-log'
 
 export class SettingsStore {
   private settings: Settings
@@ -71,7 +71,8 @@ export class SettingsStore {
       }
       // 缺字段（例如新版本新增的开关）沿用本次运行的默认值，而不是静态 schema 默认值
       return settingsSchema.parse(mergeSettings(this.defaults, parsed as SettingsPatch))
-    } catch {
+    } catch (error) {
+      errorLog('settings', '读取设置失败，使用默认值', error)
       this.backup()
       return structuredClone(this.defaults)
     }

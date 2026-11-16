@@ -6,7 +6,9 @@ const api: Api = {
   app: {
     info: () => ipcRenderer.invoke(IPC.appInfo),
     quit: () => ipcRenderer.invoke(IPC.appQuit),
-    minimize: () => ipcRenderer.invoke(IPC.appMinimize)
+    minimize: () => ipcRenderer.invoke(IPC.appMinimize),
+    openLogs: () => ipcRenderer.invoke(IPC.appOpenLogs),
+    exportLogs: () => ipcRenderer.invoke(IPC.appExportLogs)
   },
   state: {
     snapshot: () => ipcRenderer.invoke(IPC.snapshot),

@@ -116,7 +116,7 @@ import { FavoriteStore } from './emotion/favorites'
 import { AvatarStore } from './avatar/store'
 import { findUtf16Md5 } from './avatar/scan'
 import { logStartup } from './startup-log'
-import { debugLog } from './debug-log'
+import { debugLog, errorLog } from './debug-log'
 
 function privateProfile(settings: Settings): PrivateProfile {
   return {
@@ -553,7 +553,10 @@ export class AppService {
           onDiscovered: (ip, userId) => this.handlePrivateDiscovered(ip, userId),
           onActivity: (ip) => this.registry.touchPrivatePeer(ip),
           onLog: (message) => logStartup('private: ' + message),
-          onError: (error) => logStartup('private error: ' + error.message)
+          onError: (error) => {
+            logStartup('private error: ' + error.message)
+            errorLog('protocol', '私有通道错误', error)
+          }
         }
       })
       // 先挂上引用再启动：启动过程中就可能完成握手，联系人事件要能查到会话状态
@@ -566,6 +569,7 @@ export class AppService {
       }
     } catch (error) {
       logStartup('private service start failed: ' + (error as Error).message)
+      errorLog('protocol', '私有通道启动失败', error)
     }
   }
 
@@ -590,6 +594,7 @@ export class AppService {
         },
         onError: (taskId, error) => {
           logStartup(`私有文件夹接收失败 任务=${taskId}：${error.message}`)
+          errorLog('folder', '文件夹接收失败', { taskId, error })
           this.handleFolderError(taskId)
         }
       },
@@ -4784,6 +4789,7 @@ export class AppService {
     const entry = this.privateFileTasks.get(fileId)
     if (entry === undefined) return
     logStartup(`私有文件失败 ${fileId}: ${error.message}`)
+    errorLog('file', '私有文件传输失败', { fileId, message: error.message })
     this.updatePrivateFileTask(entry.fileTaskId, 'failed', 0, error.message)
     this.privateFileTasks.delete(fileId)
   }

@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { debugLog } from './debug-log'
 
 export function startupLogFile(): string {
-  return join(app.getPath('userData'), 'startup.log')
+  return join(app.getPath('userData'), 'logs', 'startup.log')
 }
 
 export function logStartup(message: string): void {
