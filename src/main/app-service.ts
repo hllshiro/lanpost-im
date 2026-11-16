@@ -1492,16 +1492,18 @@ export class AppService {
   // 头像文件还没取回来时不把 md5 发给界面，避免渲染出坏图
   private peerList(): PeerInfo[] {
     const service = this.privateService
-    const now = Date.now()
     return this.repos.peers.list().map((peer) => {
       const md5 = peer.avatarMd5 ?? ''
-      const ready = service !== null && service.isReady(peer.ip)
-      const discovered = (this.discoveredAt.get(peer.ip) ?? 0) > now - this.discoveryTtlMs
+      const ips = this.registry.ipsForPeer(peer.key)
+      const addresses = ips.length > 0 ? ips : [peer.ip]
+      const ready = service !== null && addresses.some((ip) => service.isReady(ip))
+      const discovered = addresses.some((ip) => this.discoveredRecently(ip, this.discoveryTtlMs))
       return {
         ...applyPresence(peer, {
           online: ready || discovered,
           ready,
-          privateUserId: service?.peerUserId(peer.ip) ?? ''
+          privateUserId:
+            addresses.map((ip) => service?.peerUserId(ip) ?? '').find((id) => id !== '') ?? ''
         }),
         avatarMd5: md5 !== '' && this.avatars.has(md5) ? md5 : ''
       }
@@ -3956,8 +3958,17 @@ export class AppService {
       return
     }
     if (state === 'closed') {
+      const service = this.privateService
+      // 同一联系人的另一个地址还有就绪会话时不能报下线
+      const peerKey = this.registry.peerKeyForIp(ip)
+      if (peerKey !== null && service !== null) {
+        const otherReady = this.registry
+          .ipsForPeer(peerKey)
+          .some((address) => address !== ip && service.isReady(address))
+        if (otherReady) return
+      }
       // 新会话可能已经就绪，旧的关闭事件不能把在线状态改回离线
-      if (this.privateService?.isReady(ip)) return
+      if (service?.isReady(ip)) return
       // 通告还新鲜说明对端在线，保持在线并立即重拨；通告过期就按真正离线处理
       const keepPresence = this.discoveredRecently(ip, 35_000)
       if (!keepPresence) this.discoveredAt.delete(ip)
@@ -4005,6 +4016,18 @@ export class AppService {
       expired.push(ip)
     }
     for (const ip of expired) {
+      const peerKey = this.registry.peerKeyForIp(ip)
+      const stillOnline =
+        peerKey !== null &&
+        this.registry
+          .ipsForPeer(peerKey)
+          .some(
+            (address) =>
+              address !== ip &&
+              (this.privateService?.isReady(address) === true ||
+                this.discoveredRecently(address, this.discoveryTtlMs))
+          )
+      if (stillOnline) continue
       if (this.privateService?.isReady(ip)) continue
       this.registry.markPrivatePeerOffline(ip)
     }
@@ -4192,6 +4215,9 @@ export class AppService {
       renamePeerKey(this.db, from, to)
       this.db.prepare('UPDATE peers SET user = ? WHERE key = ?').run(to, to)
       logStartup(`联系人改名 ${from} -> ${to}`)
+      // 旧会话在 renamePeerKey 里被改名或并入目标；界面必须收到旧编号的移除事件，
+      // 否则会留下一条找不到联系人的会话，状态显示成离线
+      this.emit({ type: 'conversation-removed', conversationId: directConversationId(from) })
       const conversation = this.repos.conversations.get(directConversationId(to))
       if (conversation !== null) {
         this.emit({ type: 'conversation', conversation })

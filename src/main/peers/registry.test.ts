@@ -55,13 +55,14 @@ describe('PeerRegistry', () => {
     expect(events.at(-1)?.[0].online).toBe(true)
     registry.markPrivatePeerOffline('10.0.0.1')
 
-    // 联系人键已经是用户号，但地址换了：发现报文要能按用户号找回并改绑地址
+    // 联系人键已经是用户号，但地址换了：发现报文要能按用户号找回并记录新地址
     const registry2 = new PeerRegistry([seedPeer({ key: 'bob', ip: '10.0.0.9', user: 'bob' })], {
       onPeers: () => {}
     })
     const byUser = registry2.markPrivatePeerSeen('10.0.0.7', 'bob')
-    expect(byUser).toMatchObject({ key: 'bob', ip: '10.0.0.7', online: true })
+    expect(byUser).toMatchObject({ key: 'bob', ip: '10.0.0.9', online: true })
     expect(registry2.peerKeyForIp('10.0.0.7')).toBe('bob')
+    expect(registry2.ipsForPeer('bob').sort()).toEqual(['10.0.0.7', '10.0.0.9'])
     expect(registry2.markPrivatePeerSeen('10.0.0.8', 'nobody')).toBeNull()
   })
 
@@ -104,6 +105,7 @@ describe('PeerRegistry', () => {
     expect(changes).toEqual([['10.0.0.9', 'frank']])
     expect(registry.getPeers().map((peer) => peer.key)).toEqual(['frank'])
     expect(registry.peerKeyForIp('10.0.0.9')).toBe('frank')
+    expect(registry.ipsForPeer('frank')).toEqual(['10.0.0.9'])
   })
 
   it('就绪回调带来用户号时改名', () => {
@@ -118,6 +120,7 @@ describe('PeerRegistry', () => {
     expect(changes).toEqual([['10.0.0.8', 'heidi']])
     expect(registry.getPeers().map((peer) => [peer.key, peer.user])).toEqual([['heidi', 'heidi']])
     expect(registry.peerKeyForIp('10.0.0.8')).toBe('heidi')
+    expect(registry.ipsForPeer('heidi')).toEqual(['10.0.0.8'])
   })
 
   it('同一地址换成另一个用户时单独建联系人', () => {
@@ -130,14 +133,23 @@ describe('PeerRegistry', () => {
     expect(registry.peerKeyForIp('10.0.0.11')).toBe('judy')
   })
 
-  it('keeps one peer when the address changes', () => {
+  it('moves a reused address to the new user', () => {
+    const registry = new PeerRegistry([], { onPeers: () => {} })
+    registry.upsertPrivatePeer(input({ ip: '10.0.0.11', userId: 'ivan' }))
+    registry.upsertPrivatePeer(input({ ip: '10.0.0.11', userId: 'judy' }))
+    expect(registry.ipsForPeer('ivan')).toEqual([])
+    expect(registry.ipsForPeer('judy')).toEqual(['10.0.0.11'])
+  })
+
+  it('keeps one peer when the address changes and remembers both addresses', () => {
     const registry = new PeerRegistry([], { onPeers: () => {} })
     const first = registry.upsertPrivatePeer(input({ ip: '10.0.0.5', userId: 'dave' }))
     const second = registry.upsertPrivatePeer(input({ ip: '10.0.0.6', userId: 'dave' }))
     expect(second.key).toBe(first.key)
     expect(registry.getPeers()).toHaveLength(1)
-    expect(registry.peerKeyForIp('10.0.0.5')).toBeNull()
+    expect(registry.peerKeyForIp('10.0.0.5')).toBe('dave')
     expect(registry.peerKeyForIp('10.0.0.6')).toBe('dave')
+    expect(registry.ipsForPeer('dave').sort()).toEqual(['10.0.0.5', '10.0.0.6'])
   })
 
   it('keeps the key stable when the profile changes', () => {

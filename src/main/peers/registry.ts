@@ -50,6 +50,8 @@ function clonePeer(peer: PeerInfo): PeerInfo {
 export class PeerRegistry {
   private readonly peers = new Map<string, PeerInfo>()
   private readonly ipIndex = new Map<string, string>()
+  // 同一联系人可能在多网卡上被看到多个地址，在线判断要看全部地址
+  private readonly peerIps = new Map<string, Set<string>>()
   private readonly callbacks: PeerRegistryCallbacks
 
   constructor(seed: PeerInfo[], callbacks: PeerRegistryCallbacks) {
@@ -66,6 +68,7 @@ export class PeerRegistry {
     for (const peer of seed) {
       if (peer.ip === '' || peer.key === '') continue
       this.peers.set(peer.key, { ...peer, online: false, ready: false, port: 0 })
+      this.rememberIp(peer.key, peer.ip)
     }
     for (const [ip, entry] of latest) {
       this.ipIndex.set(ip, entry.key)
@@ -78,6 +81,19 @@ export class PeerRegistry {
 
   peerKeyForIp(ip: string): string | null {
     return this.ipIndex.get(ip) ?? null
+  }
+
+  // 这个联系人被看到过的全部地址，用于跨网卡判断在线状态
+  ipsForPeer(key: string): string[] {
+    return [...(this.peerIps.get(key) ?? [])]
+  }
+
+  private rememberIp(key: string, ip: string): void {
+    if (ip === '') return
+    const set = this.peerIps.get(key) ?? new Set<string>()
+    set.add(ip)
+    this.peerIps.set(key, set)
+    this.ipIndex.set(ip, key)
   }
 
   upsertPrivatePeer(input: PrivatePeerInput): PeerInfo {
@@ -93,12 +109,21 @@ export class PeerRegistry {
         this.peers.delete(previousKey)
         previous.key = targetKey
         this.peers.set(targetKey, previous)
+        const ips = this.peerIps.get(previousKey)
+        this.peerIps.delete(previousKey)
+        if (ips !== undefined) this.peerIps.set(targetKey, ips)
+        for (const [address, mapped] of this.ipIndex) {
+          if (mapped === previousKey) this.ipIndex.set(address, targetKey)
+        }
         this.callbacks.onPeerKeyChanged?.(previousKey, targetKey)
       } else if (previous !== undefined && input.userId === '') {
         // 还没拿到标识时先沿用地址上的记录
         key = previousKey
+      } else if (previous !== undefined) {
+        // 同一地址换成了另一个用户：这个地址不再属于旧联系人
+        this.peerIps.get(previousKey)?.delete(input.ip)
       }
-      // 同一地址换成了另一个用户：按新的用户标识单独建一条，避免沿用上一个人的资料与头像
+      // 按新的用户标识单独建一条，避免沿用上一个人的资料与头像
     }
     let peer = this.peers.get(key)
     if (peer === undefined) {
@@ -106,7 +131,7 @@ export class PeerRegistry {
       this.peers.set(key, peer)
     }
     if (peer.ip !== input.ip) {
-      this.ipIndex.delete(peer.ip)
+      // 保留旧地址的映射：对端换了网卡时，旧地址上的会话与消息仍要能找到这个联系人
       peer.ip = input.ip
     }
     peer.port = 0
@@ -121,6 +146,7 @@ export class PeerRegistry {
     peer.ready = input.online
     peer.lastSeen = now
     this.ipIndex.set(input.ip, key)
+    this.rememberIp(key, input.ip)
     this.emit()
     return clonePeer(peer)
   }
@@ -140,6 +166,12 @@ export class PeerRegistry {
     peer.key = userId
     peer.user = userId
     this.peers.set(userId, peer)
+    const ips = this.peerIps.get(currentKey)
+    this.peerIps.delete(currentKey)
+    if (ips !== undefined) this.peerIps.set(userId, ips)
+    for (const [address, mapped] of this.ipIndex) {
+      if (mapped === currentKey) this.ipIndex.set(address, userId)
+    }
     this.ipIndex.set(ip, userId)
     this.callbacks.onPeerKeyChanged?.(currentKey, userId)
     this.emit()
@@ -149,6 +181,7 @@ export class PeerRegistry {
   // 联系人被并入别的联系人后从内存里移除，避免列表继续显示
   forget(key: string): void {
     if (!this.peers.delete(key)) return
+    this.peerIps.delete(key)
     for (const [ip, mapped] of this.ipIndex) {
       if (mapped === key) this.ipIndex.delete(ip)
     }
@@ -176,16 +209,14 @@ export class PeerRegistry {
       )
       if (byUser !== undefined) {
         key = byUser.key
-        if (byUser.ip !== ip) {
-          this.ipIndex.delete(byUser.ip)
-          byUser.ip = ip
-        }
-        this.ipIndex.set(ip, key)
+        // 多网卡/地址变化时保留原来的主地址，等握手完成再由资料更新
+        if (byUser.ip === '') byUser.ip = ip
       }
     }
     if (key === undefined) return null
     const peer = this.peers.get(key)
     if (peer === undefined) return null
+    this.rememberIp(key, ip)
     const wasOnline = peer.online
     peer.online = true
     peer.lastSeen = Date.now()

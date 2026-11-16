@@ -40,6 +40,8 @@ export const useAppStore = defineStore('app', () => {
 
   const draftTimers = new Map<string, number>()
   const typingTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // 联系人/会话结构变化计数：快照请求期间有新事件时，快照可能已经落后
+  let structureRevision = 0
   let initialized = false
 
   const unreadTotal = computed(() =>
@@ -194,6 +196,14 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function handleEvent(event: AppEvent): void {
+    if (
+      event.type === 'peers' ||
+      event.type === 'conversation' ||
+      event.type === 'conversation-removed' ||
+      event.type === 'group'
+    ) {
+      structureRevision += 1
+    }
     switch (event.type) {
       case 'peers':
         peers.value = event.peers
@@ -280,8 +290,16 @@ export const useAppStore = defineStore('app', () => {
   async function loadSnapshot(): Promise<void> {
     loading.value = true
     try {
-      const snapshot = await window.api.state.snapshot()
-      applySnapshot(snapshot)
+      // 结构事件会在快照返回前后改变联系人/会话；最多重取几次，避免旧快照把新状态覆盖回去
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const revision = structureRevision
+        const snapshot = await window.api.state.snapshot()
+        // 最后一次即使仍有新事件也用这份快照，避免初始化时永远拿不到完整数据
+        if (structureRevision === revision || attempt === 2) {
+          applySnapshot(snapshot)
+          break
+        }
+      }
     } catch (reason) {
       reportError(reason)
     } finally {
@@ -294,10 +312,9 @@ export const useAppStore = defineStore('app', () => {
     if (refreshing.value) return
     refreshing.value = true
     try {
+      // 主进程会广播联系人并推送 peers/会话事件，直接以事件为准；
+      // 再拉一次快照会和这些事件竞争，可能把刚上线的人短暂覆盖成离线
       await window.api.peers.refresh()
-      // 给对端留出应答时间，再拉一次完整快照。
-      await new Promise((resolve) => setTimeout(resolve, 700))
-      await loadSnapshot()
     } catch (reason) {
       reportError(reason)
     } finally {
