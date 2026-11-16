@@ -28,6 +28,7 @@ import {
   type Settings,
   type SettingsPatch
 } from '../../../shared/settings'
+import { mergeSettings } from '../../../shared/settings-merge'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
@@ -93,6 +94,8 @@ const nwtBusy = ref(false)
 const nwtResult = ref('')
 const nwtPreview = ref<NwtImportPreview | null>(null)
 let savedTimer: number | undefined
+// 设置补丁按顺序逐个提交；连续切换多个开关时不会互相覆盖
+let saveQueue: Promise<void> = Promise.resolve()
 
 const currentLabel = computed(
   () => categories.find((item) => item.id === current.value)?.label ?? ''
@@ -246,22 +249,34 @@ async function repairFirewall(): Promise<void> {
 }
 
 async function pushPatch(patch: SettingsPatch): Promise<void> {
+  // 先在界面上生效：连续切换多个开关时不必等上一次保存往返
+  settings.value = mergeSettings(settings.value, patch)
   pending.value += 1
   error.value = ''
-  try {
-    const next = await window.api.settings.update(patch)
-    applySettings(next)
-    emit('saved', next)
-    saved.value = true
-    if (savedTimer !== undefined) window.clearTimeout(savedTimer)
-    savedTimer = window.setTimeout(() => {
-      saved.value = false
-    }, 1800)
-  } catch (reason) {
-    error.value = errorMessage(reason)
-  } finally {
-    pending.value -= 1
-  }
+  const run = saveQueue.then(async () => {
+    try {
+      const next = await window.api.settings.update(patch)
+      // 只应用最后一次响应，排队中的改动不会被旧快照覆盖
+      if (pending.value === 1) {
+        applySettings(next)
+        emit('saved', next)
+      }
+      saved.value = true
+      if (savedTimer !== undefined) window.clearTimeout(savedTimer)
+      savedTimer = window.setTimeout(() => {
+        saved.value = false
+      }, 1800)
+    } catch (reason) {
+      error.value = errorMessage(reason)
+      if (pending.value === 1) {
+        await loadSettings()
+      }
+    } finally {
+      pending.value -= 1
+    }
+  })
+  saveQueue = run
+  await run
 }
 
 function saveField<K extends Section>(section: K, patch: Partial<Settings[K]>): void {

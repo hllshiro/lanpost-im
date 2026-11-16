@@ -16,24 +16,7 @@ import {
   type Settings,
   type SettingsPatch
 } from '../../shared/settings'
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function mergeValue(base: unknown, patch: unknown): unknown {
-  if (!isRecord(base) || !isRecord(patch)) {
-    return patch
-  }
-  const next: Record<string, unknown> = { ...base }
-  for (const [key, value] of Object.entries(patch)) {
-    if (value === undefined) {
-      continue
-    }
-    next[key] = isRecord(value) && isRecord(next[key]) ? mergeValue(next[key], value) : value
-  }
-  return next
-}
+import { mergeSettings } from '../../shared/settings-merge'
 
 export class SettingsStore {
   private settings: Settings
@@ -57,7 +40,7 @@ export class SettingsStore {
   }
 
   update(patch: SettingsPatch): Settings {
-    const next = settingsSchema.parse(mergeValue(this.settings, patch))
+    const next = settingsSchema.parse(mergeSettings(this.settings, patch))
     next.version = SETTINGS_VERSION
     this.write(next)
     this.settings = next
