@@ -16,6 +16,7 @@ import {
   parseVerifyPayload
 } from './enet'
 import { decodeFrame, encodeFrame } from './frame'
+import { isPrivateUserId } from '../../../shared/private-id'
 import {
   changeInfoXml,
   recallMsgXml,
@@ -241,6 +242,7 @@ export class PrivateSession {
   private readonly hello: Buffer
   private currentState: SessionState = 'idle'
   private closedByPeerFlag = false
+  private wasReadyFlag = false
   private reliable: ReliableEnd | null = null
   private peerId = 0
   private sessionId = 0
@@ -291,6 +293,11 @@ export class PrivateSession {
   // 本次关闭是否由对端主动退出触发
   get closedByPeer(): boolean {
     return this.closedByPeerFlag
+  }
+
+  // 会话是否曾经完成过握手；没完成的断开只是握手重试，不代表对端下线
+  get wasReady(): boolean {
+    return this.wasReadyFlag
   }
 
   start(): void {
@@ -683,7 +690,7 @@ export class PrivateSession {
     const { peerId, connectId, outgoingSessionId } = parseVerifyPayload(payload)
     if (connectId !== this.connectId) {
       this.callbacks.onLog(
-        `私有会话 ${this.remoteLabel} 收到连接标识 ${connectId} 的 VERIFY_CONNECT，与本次连接 ${this.connectId} 不一致，忽略`
+        `私有会话 ${this.remoteLabel} 收到连接标识 ${connectId} 的 VERIFY_CONNECT，与本次连接 ${this.connectId} 不一致（角色 ${this.role}，状态 ${this.currentState}，载荷 ${payload.toString('hex').slice(0, 32)}），忽略`
       )
       return
     }
@@ -952,6 +959,12 @@ export class PrivateSession {
         if (this.currentState === 'handshaking') {
           this.enterReady()
         }
+        if (incoming.userId !== '' && !isPrivateUserId(incoming.userId)) {
+          // 下次排查握手异常时保留原始 X_READY，便于确认是版本差异还是解密失败
+          this.callbacks.onLog(
+            `X_READY 用户号异常（${incoming.userId.length} 字节），原文 ${xml.slice(0, 300)}`
+          )
+        }
         this.callbacks.onReady(incoming.userId)
         return
       case 'heartbeat':
@@ -969,6 +982,7 @@ export class PrivateSession {
 
   private enterReady(): void {
     this.lastHeartbeatAt = this.now()
+    this.wasReadyFlag = true
     this.setState('ready')
   }
 

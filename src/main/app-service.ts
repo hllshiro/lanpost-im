@@ -98,6 +98,7 @@ import { applyNwtImport, readNwtData, type NwtData } from './store/nwt-import'
 import { applyNwtHistory, readNwtHistory, type NwtHistory } from './store/nwt-history'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
+import { isPrivateUserId } from '../shared/private-id'
 import {
   isPresenceStatus,
   resolveIdlePresence,
@@ -291,6 +292,9 @@ export class AppService {
   private readonly macLookupAt = new Map<string, number>()
   private macSyncTimer: ReturnType<typeof setTimeout> | null = null
   private readonly debugFileStates = new Map<string, string>()
+  private peersFlushTimer: ReturnType<typeof setTimeout> | null = null
+  private pendingPeers: PeerInfo[] | null = null
+  private lastPeersDebugAt = 0
   private discoveryTtlMs = 90_000
   private presenceTimer: ReturnType<typeof setInterval> | null = null
   private privateFiles: PrivateFileTransfer | null = null
@@ -1456,6 +1460,10 @@ export class AppService {
       clearTimeout(this.macSyncTimer)
       this.macSyncTimer = null
     }
+    if (this.peersFlushTimer !== null) {
+      clearTimeout(this.peersFlushTimer)
+      this.peersFlushTimer = null
+    }
     this.notifications.stop()
     const privateService = this.privateService
     this.privateService = null
@@ -1512,10 +1520,13 @@ export class AppService {
       const ips = this.registry.ipsForPeer(peer.key)
       const addresses = ips.length > 0 ? ips : [peer.ip]
       const ready = service !== null && addresses.some((ip) => service.isReady(ip))
+      // 只有该地址当前归属的联系人记录才能用发现报文维持在线，
+      // 同一地址上的历史重复记录不能跟着一起亮
+      const owner = this.registry.peerKeyForIp(peer.ip) === peer.key
+      const discovered = owner && this.discoveredRecently(peer.ip, this.discoveryTtlMs)
       return {
         ...applyPresence(peer, {
-          // 同一地址可能挂着多条历史联系人记录，是否在线以注册表里这条记录为准
-          online: registered.get(peer.key)?.online ?? false,
+          online: (registered.get(peer.key)?.online ?? false) || discovered,
           ready,
           privateUserId:
             addresses.map((ip) => service?.peerUserId(ip) ?? '').find((id) => id !== '') ?? ''
@@ -3868,6 +3879,19 @@ export class AppService {
   }
 
   private handlePeers(peers: PeerInfo[]): void {
+    // 联系人事件在握手风暴里可能每秒几十次，合并成最多每 200 毫秒一次
+    this.pendingPeers = peers
+    if (this.peersFlushTimer !== null) return
+    this.peersFlushTimer = setTimeout(() => {
+      this.peersFlushTimer = null
+      const next = this.pendingPeers
+      this.pendingPeers = null
+      if (next !== null) this.flushPeers(next)
+    }, 200)
+    this.peersFlushTimer.unref()
+  }
+
+  private flushPeers(peers: PeerInfo[]): void {
     // 退出过程中数据库可能已经关闭，此时不再写联系人
     if (!this.started) return
     const aliases = new Map(this.repos.peers.list().map((peer) => [peer.key, peer.alias]))
@@ -4185,10 +4209,12 @@ export class AppService {
       }
       // 新会话可能已经就绪，旧的关闭事件不能把在线状态改回离线
       if (service?.isReady(ip)) return
-      // 通告还新鲜说明对端在线，保持在线并立即重拨；通告过期就按真正离线处理
+      // 通告还新鲜说明对端在线：保持在线并重拨；通告过期才按真正离线处理
       const keepPresence = this.discoveredRecently(ip, 35_000)
-      if (!keepPresence) this.discoveredAt.delete(ip)
-      this.registry.markPrivatePeerOffline(ip)
+      if (!keepPresence) {
+        this.discoveredAt.delete(ip)
+        this.registry.markPrivatePeerOffline(ip)
+      }
       for (const entry of Array.from(this.privateOutstanding.values())) {
         if (entry.ip === ip) {
           this.failPrivateSend(entry)
@@ -4268,9 +4294,16 @@ export class AppService {
   // 对端可能先发 X_READY 再发 X_HANDSHARK：资料一到就写进联系人表，
   // 否则入站文字会因为没有对应联系人的 IP 映射而被丢弃
   private upsertPrivatePeer(ip: string, profile: RemoteProfile): void {
+    const userId = isPrivateUserId(profile.userId) ? profile.userId : ''
+    if (userId !== profile.userId && profile.userId !== '') {
+      debugLog('presence', '忽略非法私有用户号', {
+        ip,
+        value: profile.userId.slice(0, 80)
+      })
+    }
     const key = this.registry.upsertPrivatePeer({
       ip,
-      userId: profile.userId,
+      userId,
       name: profile.name,
       group: profile.group,
       corporation: profile.corporation,
@@ -4396,11 +4429,12 @@ export class AppService {
   // 就绪报文带对端用户号：联系人改成用户标识后再核对群资料
   private handlePrivateReady(ip: string, userId: string): void {
     debugLog('presence', '对端握手就绪', { ip, userId })
-    if (userId !== '') {
-      this.registry.assignUserId(ip, userId)
+    const validUserId = isPrivateUserId(userId) ? userId : ''
+    if (validUserId !== '') {
+      this.registry.assignUserId(ip, validUserId)
     }
     this.flushQueuedMessages(ip)
-    this.reconcileGroups(ip, userId)
+    this.reconcileGroups(ip, validUserId)
   }
 
   // 对端上线：把离线期间排队的消息按顺序补发
@@ -4807,6 +4841,10 @@ export class AppService {
   private logDebugEvent(event: AppEvent): void {
     switch (event.type) {
       case 'peers': {
+        // 联系人风暴时最多每秒记一条，避免调试日志本身拖慢主进程
+        const now = Date.now()
+        if (now - this.lastPeersDebugAt < 1000) return
+        this.lastPeersDebugAt = now
         const online = event.peers.filter((peer) => peer.online)
         debugLog('peers', '联系人列表更新', {
           total: event.peers.length,

@@ -15,6 +15,7 @@ import type {
   RemoteProfile
 } from './messages'
 import { PrivateSession, type SessionCallbacks, type SessionState } from './session'
+import { isPrivateUserId } from '../../../shared/private-id'
 
 const COMMAND_MASK = 0x7f
 const DEFAULT_ENET_PORT = 9012
@@ -24,6 +25,8 @@ const DISCOVERY_BEACON_TYPES = [1, 2]
 const SESSION_REPLACE_MS = 8000
 // 同一个地址两次主动重拨之间的最小间隔
 const REDIAL_INTERVAL_MS = 3000
+// 连续握手失败时的最大退避时间
+const MAX_REDIAL_BACKOFF_MS = 60_000
 
 export interface PrivateServiceOptions {
   identity: { userId: string; peerId: Buffer }
@@ -219,6 +222,12 @@ export class PrivateService {
   private readonly peerFolderReversePorts = new Map<string, number>()
   private readonly sessionCreatedAt = new Map<string, number>()
   private readonly lastDialAt = new Map<string, number>()
+  // 连续握手失败的退避时间，成功后清空；避免对端反复 DISCONNECT 时形成连接风暴
+  private readonly dialBackoff = new Map<string, number>()
+  private readonly readySessions = new Set<string>()
+  private readonly unknownLogAt = new Map<string, number>()
+  // 对端主动退出后的短暂抑制：迟到的旧会话数据报不能把刚下线的联系人又点亮
+  private readonly recentlyLeft = new Map<string, number>()
 
   constructor(options: PrivateServiceOptions) {
     this.options = options
@@ -270,7 +279,9 @@ export class PrivateService {
     for (const [ip, port] of targets) {
       const existing = this.sessions.get(ip)
       if (existing !== undefined && existing.state === 'ready') continue
+      // 手动刷新重置退避，允许立即重连
       this.lastDialAt.delete(ip)
+      this.dialBackoff.delete(ip)
       this.peerPorts.set(ip, port)
       // 先建好新会话再关旧的，旧会话的关闭回调不会把新会话标成离线
       const replacement = this.createSession('client', ip, port)
@@ -279,7 +290,7 @@ export class PrivateService {
     }
   }
 
-  // 会话异常断开后立即重拨；正在进行的握手留出时间，避免把快成功的连接打断
+  // 会话异常断开后重拨；连续失败按 3/6/12/24/48/60 秒退避
   redial(ip: string): boolean {
     const existing = this.sessions.get(ip)
     if (existing !== undefined && existing.state === 'ready') return false
@@ -288,7 +299,8 @@ export class PrivateService {
       const started = this.sessionCreatedAt.get(ip) ?? 0
       if (now - started < SESSION_REPLACE_MS) return false
     }
-    if (now - (this.lastDialAt.get(ip) ?? 0) < REDIAL_INTERVAL_MS) return false
+    const backoff = this.dialBackoff.get(ip) ?? REDIAL_INTERVAL_MS
+    if (now - (this.lastDialAt.get(ip) ?? 0) < backoff) return false
     const port = this.peerPorts.get(ip)
     if (port === undefined) return false
     this.lastDialAt.set(ip, now)
@@ -315,6 +327,10 @@ export class PrivateService {
     this.peerFolderReversePorts.delete(ip)
     this.sessionCreatedAt.delete(ip)
     this.lastDialAt.delete(ip)
+    this.dialBackoff.delete(ip)
+    this.readySessions.delete(ip)
+    this.recentlyLeft.delete(ip)
+    this.unknownLogAt.delete(ip)
   }
 
   private replyAnnounce(rinfo: RemoteInfo): void {
@@ -408,6 +424,7 @@ export class PrivateService {
     const closing: Array<Promise<void>> = []
     const sessions = Array.from(this.sessions.values())
     this.sessions.clear()
+    this.running = false
     for (const session of sessions) {
       session.close()
     }
@@ -415,7 +432,6 @@ export class PrivateService {
     const discovery = this.discovery
     this.enet = null
     this.discovery = null
-    this.running = false
     // session.close() 已经把 DISCONNECT 交给 UDP 发送队列；socket 立刻关闭会把队列丢掉
     if (enet !== null) {
       await new Promise<void>((resolve) => setTimeout(resolve, 30))
@@ -451,9 +467,12 @@ export class PrivateService {
       const started = this.sessionCreatedAt.get(ip) ?? 0
       if (Date.now() - started < SESSION_REPLACE_MS) return existing
     }
+    const now = Date.now()
+    const backoff = this.dialBackoff.get(ip) ?? REDIAL_INTERVAL_MS
+    if (now - (this.lastDialAt.get(ip) ?? 0) < backoff) return null
     const port = this.peerPorts.get(ip)
     if (port === undefined) return null
-    this.lastDialAt.set(ip, Date.now())
+    this.lastDialAt.set(ip, now)
     const session = this.createSession('client', ip, port)
     existing?.closeSilently()
     session?.start()
@@ -729,10 +748,16 @@ export class PrivateService {
       return
     }
     const ip = rinfo.address
-    this.log(`对端 ${ip}:${rinfo.port} 仍在使用旧会话，重新发起连接`)
+    const now = Date.now()
+    // 对端刚主动退出，迟到的旧会话数据报（例如排在 DISCONNECT 后面的 X_QUIT）不再回拨
+    if (now - (this.recentlyLeft.get(ip) ?? 0) < 10_000) return
+    if (now - (this.unknownLogAt.get(ip) ?? 0) >= 5000) {
+      this.unknownLogAt.set(ip, now)
+      this.log(`对端 ${ip}:${rinfo.port} 仍在使用旧会话，重新发起连接`)
+    }
     this.options.callbacks.onDiscovered(ip, '')
     this.peerPorts.set(ip, rinfo.port)
-    this.lastDialAt.delete(ip)
+    // 遵守重拨退避，不能每收到一个旧会话数据报就重新连一次
     this.redial(ip)
   }
 
@@ -768,6 +793,7 @@ export class PrivateService {
       return
     }
     const ip = rinfo.address
+    this.recentlyLeft.delete(ip)
     this.options.callbacks.onDiscovered(ip, beacon.userId)
     this.peerPorts.set(ip, beacon.enetPort)
     const existing = this.sessions.get(ip)
@@ -855,10 +881,11 @@ export class PrivateService {
       onRemindFile: (groupId, name, size, folder) =>
         this.options.callbacks.onRemindFile(ip, groupId, name, size, folder),
       onReady: (userId) => {
-        if (userId !== '') {
-          this.peerUserIds.set(ip, userId)
+        const valid = isPrivateUserId(userId) ? userId : ''
+        if (valid !== '') {
+          this.peerUserIds.set(ip, valid)
         }
-        this.options.callbacks.onReady(ip, userId)
+        this.options.callbacks.onReady(ip, valid)
       },
       onChangeInfo: (profile) => {
         const merged = { ...profile, userId: this.peerUserIds.get(ip) ?? profile.userId }
@@ -890,10 +917,16 @@ export class PrivateService {
     this.sessions.set(ip, session)
     this.peerPorts.set(ip, remotePort)
     this.sessionCreatedAt.set(ip, Date.now())
+    this.readySessions.delete(ip)
     return session
   }
 
   private handleState(ip: string, state: SessionState, session: PrivateSession | null): void {
+    if (state === 'ready') {
+      this.readySessions.add(ip)
+      this.dialBackoff.delete(ip)
+      this.recentlyLeft.delete(ip)
+    }
     if (state === 'closed') {
       const current = this.sessions.get(ip)
       // 旧会话被新连接替换后关闭：新会话还在，不能报下线
@@ -901,7 +934,19 @@ export class PrivateService {
       if (session !== null && current === session) {
         this.sessions.delete(ip)
         this.sessionCreatedAt.delete(ip)
-        if (session.closedByPeer) {
+        if (this.readySessions.delete(ip)) {
+          // 曾经就绪的会话断开属于对端退出/网络问题，下次立即重拨
+          this.dialBackoff.delete(ip)
+        } else {
+          const next = Math.min(
+            (this.dialBackoff.get(ip) ?? REDIAL_INTERVAL_MS) * 2,
+            MAX_REDIAL_BACKOFF_MS
+          )
+          this.dialBackoff.set(ip, next)
+          this.log(`私有会话 ${ip} 握手未完成，下一次重拨间隔 ${next} 毫秒`)
+        }
+        if (session.closedByPeer && session.wasReady) {
+          this.recentlyLeft.set(ip, Date.now())
           this.options.callbacks.onPeerLeft(ip)
         }
       }

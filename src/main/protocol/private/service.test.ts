@@ -608,6 +608,47 @@ describe('private service', () => {
     expect(discovered).toContain('127.0.0.1')
   })
 
+  it('backs off when a peer keeps dropping sessions before they become ready', async () => {
+    const peer = await fakePeer()
+    const states: string[] = []
+    const service = new PrivateService({
+      ...options(peer.port, { onState: (_ip, state) => states.push(state) }),
+      seeds: [{ ip: '127.0.0.1', port: peer.port }]
+    })
+    await service.start()
+    cleanups.push(() => void service.stop())
+    await waitFor(() => (peer.received.length > 0 ? true : null))
+    peer.received.length = 0
+
+    peer.socket.send(disconnectDatagram(), service.localEnetPort, '127.0.0.1')
+    await waitFor(() => (states.includes('closed') ? true : null), 3000)
+    peer.received.length = 0
+    peer.socket.send(
+      reliableDatagram(1, 1004, sendMsgXml(5, '旧会话'), 2),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    await waitFor(
+      () => peer.received.find((data) => isCommand(data, ENET_CMD_CONNECT)) ?? null,
+      3000
+    )
+
+    // 第二次立即断开后，重拨必须退避，不能对每个旧会话数据报都重新连接
+    peer.socket.send(disconnectDatagram(), service.localEnetPort, '127.0.0.1')
+    await waitFor(
+      () => (states.filter((state) => state === 'closed').length >= 2 ? true : null),
+      3000
+    )
+    peer.received.length = 0
+    peer.socket.send(
+      reliableDatagram(2, 1004, sendMsgXml(6, '旧会话'), 2),
+      service.localEnetPort,
+      '127.0.0.1'
+    )
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(peer.received.some((data) => isCommand(data, ENET_CMD_CONNECT))).toBe(false)
+  })
+
   it('notifies the peer when a contact is dropped', async () => {
     const [portA, portB] = await twoFreePorts()
     const left: string[] = []
