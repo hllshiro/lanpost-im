@@ -46,15 +46,15 @@ function chooseTarget(key: string): void {
 }
 
 async function submit(): Promise<void> {
-  if (busy.value || target.value === null || originPeers.value.length === 0) return
+  const targetPeer = target.value
+  if (busy.value || targetPeer === null || originPeers.value.length === 0) return
+  const originKeys = originPeers.value.map((peer) => peer.key)
   busy.value = true
   error.value = ''
   try {
-    const result = await window.api.peers.merge(
-      target.value.key,
-      originPeers.value.map((peer) => peer.key)
-    )
-    emit('merged', { targetKey: target.value.key, result })
+    // 合并过程中主进程会推送联系人变化，target 可能立刻变成 null，先把参数固定下来
+    const result = await window.api.peers.merge(targetPeer.key, originKeys)
+    emit('merged', { targetKey: targetPeer.key, result })
   } catch (reason) {
     error.value = errorMessage(reason)
   } finally {

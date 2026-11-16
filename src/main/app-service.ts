@@ -1744,19 +1744,52 @@ export class AppService {
 
   // 把来源联系人的会话、消息与文件记录并入目标联系人
   mergePeers(targetKey: string, originKeys: string[]): PeerMergeResult {
-    const result = mergePeerRecords(this.db, targetKey, originKeys)
-    for (const origin of originKeys) {
+    const targetPeer = this.repos.peers.get(targetKey)
+    if (targetPeer === null) {
+      throw new Error('目标联系人不存在')
+    }
+    const service = this.privateService
+    const isOnline = (key: string): boolean => {
+      const peer = this.repos.peers.get(key)
+      if (peer === null) return false
+      const registered = this.registry.getPeers().find((item) => item.key === key)
+      return (registered?.online ?? false) || (service?.isReady(peer.ip) ?? false)
+    }
+    // 目标离线、来源里有人在线且带真实用户号时，保留在线的身份，避免合并后联系人消失
+    let effectiveTarget = targetKey
+    let sources = [...new Set(originKeys)].filter((key) => key !== '')
+    if (!isOnline(targetKey)) {
+      const live = sources.find((key) => {
+        const peer = this.repos.peers.get(key)
+        return peer !== null && peer.user !== '' && isOnline(key)
+      })
+      if (live !== undefined) {
+        effectiveTarget = live
+        sources = [targetKey, ...sources.filter((key) => key !== live)]
+      }
+    }
+    // 会话断开后行会被删掉，先把地址记下来
+    const sourceIps = sources
+      .map((key) => this.repos.peers.get(key)?.ip ?? '')
+      .filter((ip) => ip !== '')
+    const result = mergePeerRecords(this.db, effectiveTarget, sources)
+    for (const origin of sources) {
       this.registry.forget(origin)
     }
+    // 被合并掉的在线会话必须主动断开：否则它仍然占着对端会话，刷新时无法重新握手
+    for (const ip of sourceIps) {
+      this.privateService?.dropPeer(ip, true)
+      this.discoveredAt.delete(ip)
+    }
     logStartup(
-      `合并联系人 目标=${targetKey} 来源=${originKeys.join(',')} 消息=${result.messages} 跳过=${result.skipped}`
+      `合并联系人 目标=${effectiveTarget}（原目标 ${targetKey}）来源=${sources.join(',')} 消息=${result.messages} 跳过=${result.skipped}`
     )
     this.emit({ type: 'peers', peers: this.peerList() })
-    const conversation = this.repos.conversations.get(directConversationId(targetKey))
+    const conversation = this.repos.conversations.get(directConversationId(effectiveTarget))
     if (conversation !== null) {
       this.emit({ type: 'conversation', conversation })
     }
-    for (const origin of originKeys) {
+    for (const origin of sources) {
       this.emit({ type: 'conversation-removed', conversationId: directConversationId(origin) })
     }
     return result
@@ -1984,7 +2017,7 @@ export class AppService {
     this.registry.forget(peerKey)
     // 会话不断开的话，刷新时不会再握手，联系人好像永远回不来
     if (peer.ip !== '') {
-      this.privateService?.dropPeer(peer.ip)
+      this.privateService?.dropPeer(peer.ip, true)
       this.discoveredAt.delete(peer.ip)
     }
     this.emit({ type: 'peers', peers: this.peerList() })

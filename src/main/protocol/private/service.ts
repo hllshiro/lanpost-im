@@ -295,12 +295,13 @@ export class PrivateService {
     return session !== null
   }
 
-  // 删除联系人后断开与它的会话，刷新或对端下次通告时会重新握手
-  dropPeer(ip: string): void {
+  // 删除联系人/合并联系人时断开与它的会话；notify=true 时发 DISCONNECT 让对方立刻释放旧会话
+  dropPeer(ip: string, notify = false): void {
     const session = this.sessions.get(ip)
     if (session !== undefined) {
       this.sessions.delete(ip)
-      session.closeSilently()
+      if (notify) session.close()
+      else session.closeSilently()
     }
     this.peerProfiles.delete(ip)
     this.peerUserIds.delete(ip)
