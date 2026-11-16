@@ -60,4 +60,14 @@ describe('parseMac', () => {
     const output = '192.168.2.126 dev eth0 lladdr 02:11:22:33:44:55 REACHABLE'
     expect(parseMac(output, '192.168.2.125')).toBe('')
   })
+
+  it('does not match an address that is only a prefix of another', () => {
+    const output = [
+      '接口: 192.168.2.119 --- 0x8',
+      '  192.168.2.19           aa-bb-cc-dd-ee-01     动态',
+      '  192.168.2.190          02-11-22-33-44-55     动态'
+    ].join('\r\n')
+    expect(parseMac(output, '192.168.2.19')).toBe('aa:bb:cc:dd:ee:01')
+    expect(parseMac(output, '192.168.2.1')).toBe('')
+  })
 })

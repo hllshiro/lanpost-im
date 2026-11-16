@@ -288,6 +288,7 @@ export class AppService {
   private readonly discoveredAt = new Map<string, number>()
   // 读取网卡地址的节流时间，按地址记录
   private readonly macLookupAt = new Map<string, number>()
+  private macSyncTimer: ReturnType<typeof setTimeout> | null = null
   private discoveryTtlMs = 90_000
   private presenceTimer: ReturnType<typeof setInterval> | null = null
   private privateFiles: PrivateFileTransfer | null = null
@@ -412,6 +413,7 @@ export class AppService {
     this.handlePeers(this.registry.getPeers())
     this.autoMergeStoredMacs()
     this.syncPeerMacs()
+    this.scheduleMacSync(5000)
     this.startPresenceSweep()
     this.notifications.setUnread(this.unreadTotal())
   }
@@ -1448,6 +1450,10 @@ export class AppService {
       clearInterval(this.presenceTimer)
       this.presenceTimer = null
     }
+    if (this.macSyncTimer !== null) {
+      clearTimeout(this.macSyncTimer)
+      this.macSyncTimer = null
+    }
     this.notifications.stop()
     const privateService = this.privateService
     this.privateService = null
@@ -1498,15 +1504,16 @@ export class AppService {
   // 头像文件还没取回来时不把 md5 发给界面，避免渲染出坏图
   private peerList(): PeerInfo[] {
     const service = this.privateService
+    const registered = new Map(this.registry.getPeers().map((item) => [item.key, item]))
     return this.repos.peers.list().map((peer) => {
       const md5 = peer.avatarMd5 ?? ''
       const ips = this.registry.ipsForPeer(peer.key)
       const addresses = ips.length > 0 ? ips : [peer.ip]
       const ready = service !== null && addresses.some((ip) => service.isReady(ip))
-      const discovered = addresses.some((ip) => this.discoveredRecently(ip, this.discoveryTtlMs))
       return {
         ...applyPresence(peer, {
-          online: ready || discovered,
+          // 同一地址可能挂着多条历史联系人记录，是否在线以注册表里这条记录为准
+          online: registered.get(peer.key)?.online ?? false,
           ready,
           privateUserId:
             addresses.map((ip) => service?.peerUserId(ip) ?? '').find((id) => id !== '') ?? ''
@@ -1521,6 +1528,16 @@ export class AppService {
     void this.resolvePeerMacTable().catch((error: unknown) => {
       logStartup(`读取网卡地址表失败: ${error instanceof Error ? error.message : String(error)}`)
     })
+  }
+
+  // 启动和刷新后等握手稳定，再做一次网卡归并，避免刚连上时用的是旧记录
+  private scheduleMacSync(delayMs: number): void {
+    if (this.macSyncTimer !== null) clearTimeout(this.macSyncTimer)
+    this.macSyncTimer = setTimeout(() => {
+      this.macSyncTimer = null
+      this.syncPeerMacs()
+    }, delayMs)
+    this.macSyncTimer.unref()
   }
 
   private async resolvePeerMacTable(): Promise<void> {
@@ -1562,9 +1579,8 @@ export class AppService {
     this.macLookupAt.set(ip, now)
     const mac = await lookupMac(ip, this.privateService?.localAddress ?? '')
     if (mac === '') return
-    // 同一个地址上的历史重复联系人一起写，才能按 MAC 归组
+    // 只记录网卡地址；自动合并只在启动或手动刷新时执行，避免运行中反复改联系人
     this.repos.peers.setMacByIp(ip, mac)
-    this.autoMergeByMac(mac)
   }
 
   private autoMergeStoredMacs(): void {
@@ -1588,35 +1604,43 @@ export class AppService {
   private autoMergeByMac(mac: string): void {
     const peers = this.repos.peers.byMac(mac)
     if (peers.length < 2) return
-    const keep = chooseMacKeepPeer(peers, (peer) => this.peerIsOnline(peer.key))
-    if (keep === null) return
-    const sources = peers.filter((peer) => peer.key !== keep.key)
-    if (sources.length === 0) return
-    const sourceIps = sources.map((peer) => peer.ip).filter((ip) => ip !== '')
-    const result = mergePeerRecords(
-      this.db,
-      keep.key,
-      sources.map((peer) => peer.key)
-    )
-    for (const source of sources) {
-      this.registry.forget(source.key)
+    // 只合并同一地址上的历史记录：会话按地址建立，跨地址合并会把还活着的会话拆开
+    const byIp = new Map<string, typeof peers>()
+    for (const peer of peers) {
+      if (peer.ip === '') continue
+      const group = byIp.get(peer.ip) ?? []
+      group.push(peer)
+      byIp.set(peer.ip, group)
     }
-    for (const ip of sourceIps) {
-      this.privateService?.dropPeer(ip, true)
-      this.discoveredAt.delete(ip)
-      // 让对端用保留的身份重新握手，合并后的联系人马上恢复在线
-      this.privateService?.redial(ip)
-    }
-    logStartup(
-      `按网卡自动合并联系人 MAC=${mac} 目标=${keep.key} 来源=${sources.map((peer) => peer.key).join(',')} 消息=${result.messages}`
-    )
-    this.emit({ type: 'peers', peers: this.peerList() })
-    const conversation = this.repos.conversations.get(directConversationId(keep.key))
-    if (conversation !== null) {
-      this.emit({ type: 'conversation', conversation })
-    }
-    for (const source of sources) {
-      this.emit({ type: 'conversation-removed', conversationId: directConversationId(source.key) })
+    for (const [ip, group] of byIp) {
+      if (group.length < 2) continue
+      const keep = chooseMacKeepPeer(group, (peer) => this.peerIsOnline(peer.key))
+      if (keep === null) continue
+      const sources = group.filter((peer) => peer.key !== keep.key)
+      if (sources.length === 0) continue
+      const result = mergePeerRecords(
+        this.db,
+        keep.key,
+        sources.map((peer) => peer.key)
+      )
+      for (const source of sources) {
+        this.registry.forget(source.key)
+      }
+      // 同一地址共用一条会话，这里不断开，避免对端重连造成在线状态闪烁
+      logStartup(
+        `按网卡自动合并联系人 MAC=${mac} 地址=${ip} 目标=${keep.key} 来源=${sources.map((peer) => peer.key).join(',')} 消息=${result.messages}`
+      )
+      this.emit({ type: 'peers', peers: this.peerList() })
+      const conversation = this.repos.conversations.get(directConversationId(keep.key))
+      if (conversation !== null) {
+        this.emit({ type: 'conversation', conversation })
+      }
+      for (const source of sources) {
+        this.emit({
+          type: 'conversation-removed',
+          conversationId: directConversationId(source.key)
+        })
+      }
     }
   }
 
@@ -1624,7 +1648,9 @@ export class AppService {
     const peer = this.repos.peers.get(key)
     if (peer === null) return false
     const registered = this.registry.getPeers().find((item) => item.key === key)
-    return (registered?.online ?? false) || (this.privateService?.isReady(peer.ip) ?? false)
+    // 同一地址可能对应多条历史记录，以注册表里这一条的在线状态为准
+    if (registered !== undefined) return registered.online
+    return this.privateService?.isReady(peer.ip) ?? false
   }
 
   listMessages(request: MessagesListRequest): MessagesPage {
@@ -1857,6 +1883,7 @@ export class AppService {
     )
     this.reconcileConversations()
     this.syncPeerMacs()
+    this.scheduleMacSync(2000)
     this.handlePeers(this.registry.getPeers())
   }
 
@@ -1885,8 +1912,10 @@ export class AppService {
     for (const origin of sources) {
       this.registry.forget(origin)
     }
-    // 来源即使没被判定为在线，也可能残留旧会话；主动断开避免刷新时占用连接
+    // 来源即使没被判定为在线，也可能残留旧会话；主动断开避免刷新时占用连接。
+    // 与目标同地址的来源共用目标会话，不能断开
     for (const ip of sourceIps) {
+      if (ip === targetPeer.ip) continue
       this.privateService?.dropPeer(ip, true)
       this.discoveredAt.delete(ip)
     }

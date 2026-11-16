@@ -18,8 +18,10 @@ export function normalizeMac(value: string): string {
 
 // 从 arp / ip neigh 的输出里找指定地址那一行的 MAC
 export function parseMac(output: string, ip: string): string {
+  // 按完整地址匹配，避免 192.168.2.1 命中 192.168.2.11 那一行
+  const address = new RegExp(`(^|[\\s(])${ip.replace(/\./g, '\\.')}([\\s)]|$)`)
   for (const line of output.split(/\r?\n/)) {
-    if (!line.includes(ip)) continue
+    if (!address.test(line)) continue
     const match = line.match(MAC_PATTERN)
     if (match === null) continue
     const mac = normalizeMac(match[0])
