@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { X } from '@lucide/vue'
 import type { PeerInfo } from '../../../shared/domain'
 import type { PeerMergeResult } from '../../../shared/ipc'
@@ -20,16 +20,25 @@ const ordered = computed(() =>
   [...props.peers].sort((left, right) => comparePinyin(nameOf(left), nameOf(right)))
 )
 
-const targetKey = ref(ordered.value[0]?.key ?? '')
+const targets = computed(() => ordered.value.filter((peer) => peer.online))
+const targetKey = ref(targets.value[0]?.key ?? '')
 const origins = ref<Set<string>>(new Set())
 const busy = ref(false)
 const error = ref('')
 
-const candidates = computed(() => ordered.value.filter((peer) => peer.key !== targetKey.value))
-const originPeers = computed(() =>
-  ordered.value.filter((peer) => peer.key !== targetKey.value && origins.value.has(peer.key))
+// 只有离线联系人能作为来源；在线联系人不能互相合并
+const candidates = computed(() =>
+  ordered.value.filter((peer) => !peer.online && peer.key !== targetKey.value)
 )
-const target = computed(() => ordered.value.find((peer) => peer.key === targetKey.value) ?? null)
+const originPeers = computed(() => candidates.value.filter((peer) => origins.value.has(peer.key)))
+const target = computed(() => targets.value.find((peer) => peer.key === targetKey.value) ?? null)
+
+// 目标下线时自动换一个在线目标，避免停在不可用的选择上
+watch(targets, (list) => {
+  if (list.some((peer) => peer.key === targetKey.value)) return
+  targetKey.value = list[0]?.key ?? ''
+  origins.value = new Set()
+})
 
 function toggle(key: string): void {
   const next = new Set(origins.value)
@@ -70,7 +79,8 @@ async function submit(): Promise<void> {
         <div>
           <h2>合并联系人</h2>
           <p class="merge-hint">
-            来源联系人的聊天记录、文件记录与群成员身份会转到目标联系人，来源联系人会被移除。
+            目标必须在线，离线联系人的聊天记录、文件记录与群成员身份会转到目标联系人。
+            在线联系人不能作为来源；同一台机器的重复联系会自动按网卡合并。
           </p>
         </div>
         <button class="merge-close" title="关闭" :disabled="busy" @click="emit('close')">
@@ -80,15 +90,18 @@ async function submit(): Promise<void> {
 
       <div class="merge-body">
         <section class="merge-block">
-          <h3>目标联系人（保留）</h3>
-          <div class="merge-select">
+          <h3>目标联系人（在线，保留）</h3>
+          <div v-if="targets.length === 0" class="merge-empty">
+            没有在线联系人可作为合并目标，请先刷新联系人。
+          </div>
+          <div v-else class="merge-select">
             <select
               :value="targetKey"
               :disabled="busy"
               aria-label="目标联系人"
               @change="chooseTarget(($event.target as HTMLSelectElement).value)"
             >
-              <option v-for="peer in ordered" :key="peer.key" :value="peer.key">
+              <option v-for="peer in targets" :key="peer.key" :value="peer.key">
                 {{ nameOf(peer) }} · {{ peer.key.slice(0, 8) }}
               </option>
             </select>
@@ -96,7 +109,7 @@ async function submit(): Promise<void> {
         </section>
 
         <section class="merge-block">
-          <h3>来源联系人（并入目标）</h3>
+          <h3>来源联系人（离线，并入目标）</h3>
           <ul class="merge-list">
             <li v-for="peer in candidates" :key="peer.key">
               <label class="merge-item">
@@ -108,10 +121,10 @@ async function submit(): Promise<void> {
                 />
                 <span class="merge-name">{{ nameOf(peer) }}</span>
                 <span class="merge-id">{{ peer.key.slice(0, 12) }}</span>
-                <span class="merge-state">{{ peer.online ? '在线' : '离线' }}</span>
+                <span class="merge-state">离线</span>
               </label>
             </li>
-            <li v-if="candidates.length === 0" class="merge-empty">没有其他联系人</li>
+            <li v-if="candidates.length === 0" class="merge-empty">没有可合并的离线联系人</li>
           </ul>
         </section>
 

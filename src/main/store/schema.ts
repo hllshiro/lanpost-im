@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 5
+export const SCHEMA_VERSION = 6
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -88,6 +88,7 @@ CREATE TABLE IF NOT EXISTS peers (
   online INTEGER NOT NULL DEFAULT 0,
   ready INTEGER NOT NULL DEFAULT 0,
   alias TEXT NOT NULL DEFAULT '',
+  mac TEXT NOT NULL DEFAULT '',
   last_seen INTEGER NOT NULL DEFAULT 0
 );
 

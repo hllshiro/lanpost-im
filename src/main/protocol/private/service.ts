@@ -229,6 +229,10 @@ export class PrivateService {
     return this.boundEnetPort
   }
 
+  get localAddress(): string {
+    return this.localIp
+  }
+
   // 向局域网广播 9011 通告；真实内网通客户端用 type 1 ANNOUNCE 发现彼此
   announce(): void {
     const socket = this.discovery

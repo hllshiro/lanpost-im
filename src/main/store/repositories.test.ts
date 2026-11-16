@@ -261,6 +261,30 @@ describe('MessageRepository', () => {
 })
 
 describe('PeerRepository', () => {
+  it('keeps the stored mac when events arrive without one', () => {
+    const db = openMemory()
+    const peers = new PeerRepository(db)
+    peers.upsert(makePeer('alice', { mac: 'aa:bb:cc:dd:ee:01' }))
+    peers.upsert(makePeer('alice', { name: 'Alice 2' }))
+    expect(peers.get('alice')?.mac).toBe('aa:bb:cc:dd:ee:01')
+    db.close()
+  })
+
+  it('writes the mac to every peer sharing an address', () => {
+    const db = openMemory()
+    const peers = new PeerRepository(db)
+    peers.upsert(makePeer('old-ip', { ip: '10.0.0.1' }))
+    peers.upsert(makePeer('user-1', { ip: '10.0.0.1' }))
+    peers.setMacByIp('10.0.0.1', 'aa:bb:cc:dd:ee:02')
+    expect(
+      peers
+        .byMac('aa:bb:cc:dd:ee:02')
+        .map((peer) => peer.key)
+        .sort()
+    ).toEqual(['old-ip', 'user-1'])
+    db.close()
+  })
+
   it('removes the peer together with its avatar record', () => {
     const db = openMemory()
     const peers = new PeerRepository(db)

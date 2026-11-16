@@ -104,8 +104,12 @@ export class PeerRegistry {
     let key = targetKey
     if (previousKey !== undefined && previousKey !== targetKey) {
       const previous = this.peers.get(previousKey)
-      if (previous !== undefined && input.userId !== '' && previous.user === '') {
-        // 之前只按地址识别，现在拿到用户标识：整条记录换键
+      if (
+        previous !== undefined &&
+        input.userId !== '' &&
+        (previous.user === '' || previous.user === input.userId)
+      ) {
+        // 之前按地址识别，或地址记录里已经存着同一个用户号：整条记录换键
         this.peers.delete(previousKey)
         previous.key = targetKey
         this.peers.set(targetKey, previous)

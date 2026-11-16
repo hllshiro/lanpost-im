@@ -20,6 +20,8 @@ export interface PeerInfo {
   alias: string
   // 私有通道的 32 位用户号，群成员按它识别；没握过手时为空
   privateUserId?: string
+  // 对端网卡的 MAC 地址，用于识别同一台机器的重复联系人
+  mac?: string
   // 对端头像：md5 指向本地缓存文件，id 是对端取图用的文件号
   avatarMd5?: string
   avatarId?: number

@@ -81,6 +81,32 @@ describe('openDatabase', () => {
     db.close()
   })
 
+  it('adds the mac column when opening a peers table from an older version', () => {
+    const file = tempDb()
+    const older = new DatabaseSync(file)
+    older.exec(
+      `CREATE TABLE peers (
+        key TEXT PRIMARY KEY, ip TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 0,
+        user TEXT NOT NULL DEFAULT '', host TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL DEFAULT '', group_name TEXT NOT NULL DEFAULT '',
+        corporation TEXT NOT NULL DEFAULT '', department TEXT NOT NULL DEFAULT '',
+        sign TEXT NOT NULL DEFAULT '', status INTEGER NOT NULL DEFAULT 0,
+        corp_id TEXT NOT NULL DEFAULT '', online INTEGER NOT NULL DEFAULT 0,
+        ready INTEGER NOT NULL DEFAULT 0, alias TEXT NOT NULL DEFAULT '',
+        last_seen INTEGER NOT NULL DEFAULT 0
+      )`
+    )
+    older.exec('PRAGMA user_version = 5')
+    older.close()
+
+    const db = openDatabase(file)
+    const columns = (
+      db.prepare('PRAGMA table_info(peers)').all() as unknown as Array<{ name: string }>
+    ).map((column) => column.name)
+    expect(columns).toContain('mac')
+    db.close()
+  })
+
   it('finds chinese text with a like query', () => {
     const db = openDatabase(tempDb())
     db.prepare('INSERT INTO conversations (id, kind, title, created_at) VALUES (?, ?, ?, ?)').run(

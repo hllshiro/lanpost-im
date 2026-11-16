@@ -608,6 +608,31 @@ describe('private service', () => {
     expect(discovered).toContain('127.0.0.1')
   })
 
+  it('notifies the peer when a contact is dropped', async () => {
+    const [portA, portB] = await twoFreePorts()
+    const left: string[] = []
+    const a = new PrivateService({
+      ...options(portB),
+      localIp: '127.0.0.2',
+      bindAddr: '127.0.0.2',
+      enetPort: portA,
+      seeds: [{ ip: '127.0.0.1', port: portB }]
+    })
+    const b = new PrivateService({
+      ...options(portA, { onPeerLeft: (ip) => left.push(ip) }),
+      localIp: '127.0.0.1',
+      enetPort: portB,
+      seeds: []
+    })
+    cleanups.push(() => void b.stop())
+    await Promise.all([a.start(), b.start()])
+    await waitFor(() => (a.isReady('127.0.0.1') && b.isReady('127.0.0.2') ? true : null), 5000)
+
+    a.dropPeer('127.0.0.1', true)
+    await waitFor(() => (left.length > 0 ? left : null), 3000)
+    expect(left).toEqual(['127.0.0.2'])
+  })
+
   it('notifies the peer when a ready session stops', async () => {
     const [portA, portB] = await twoFreePorts()
     const left: string[] = []

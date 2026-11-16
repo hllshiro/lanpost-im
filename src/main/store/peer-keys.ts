@@ -20,6 +20,17 @@ export function ensureNwtMessageColumn(db: DatabaseSync): void {
   db.exec('CREATE INDEX IF NOT EXISTS idx_messages_nwt ON messages(conversation_id, nwt_id)')
 }
 
+// 老库的 peers 表没有 mac 列，用于按网卡识别同一台机器的重复联系人
+export function ensurePeerMacColumn(db: DatabaseSync): void {
+  const columns = db.prepare('PRAGMA table_info(peers)').all() as unknown as Array<{
+    name: string
+  }>
+  if (!columns.some((column) => column.name === 'mac')) {
+    db.exec("ALTER TABLE peers ADD COLUMN mac TEXT NOT NULL DEFAULT ''")
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_peers_mac ON peers(mac)')
+}
+
 // 联系人按私有用户标识识别：把历史上按「地址|用户标识」保存的行改成用户标识
 export function migratePeerKeys(db: DatabaseSync): void {
   const rows = db

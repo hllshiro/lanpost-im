@@ -49,6 +49,7 @@ interface PeerRow {
   online: number
   ready: number
   alias: string
+  mac: string
   last_seen: number
   conversation_unread: number | null
   avatar_md5: string | null
@@ -129,6 +130,7 @@ function mapPeer(row: PeerRow): PeerInfo {
     lastSeen: row.last_seen,
     unread: row.conversation_unread ?? 0,
     alias: row.alias,
+    mac: row.mac,
     avatarMd5: row.avatar_md5 ?? '',
     avatarId: row.avatar_id ?? 0
   }
@@ -553,8 +555,8 @@ export class PeerRepository {
   upsert(peer: PeerInfo): void {
     this.db
       .prepare(
-        `INSERT INTO peers (key, ip, port, user, host, name, group_name, corporation, department, sign, status, corp_id, online, ready, alias, last_seen)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO peers (key, ip, port, user, host, name, group_name, corporation, department, sign, status, corp_id, online, ready, alias, mac, last_seen)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(key) DO UPDATE SET
            ip = excluded.ip,
            port = excluded.port,
@@ -569,6 +571,7 @@ export class PeerRepository {
            corp_id = excluded.corp_id,
            online = excluded.online,
            ready = excluded.ready,
+           mac = CASE WHEN excluded.mac <> '' THEN excluded.mac ELSE peers.mac END,
            last_seen = excluded.last_seen`
       )
       .run(
@@ -587,8 +590,23 @@ export class PeerRepository {
         toInteger(peer.online),
         toInteger(peer.ready),
         peer.alias,
+        peer.mac ?? '',
         peer.lastSeen
       )
+  }
+
+  // 同一个 IP 上的历史重复联系人都写上网卡地址，供自动合并判断
+  setMacByIp(ip: string, mac: string): void {
+    if (ip === '' || mac === '') return
+    this.db.prepare('UPDATE peers SET mac = ? WHERE ip = ?').run(mac, ip)
+  }
+
+  byMac(mac: string): PeerInfo[] {
+    if (mac === '') return []
+    const rows = this.db
+      .prepare(`${PEER_SELECT} WHERE peers.mac = ? ORDER BY peers.last_seen DESC`)
+      .all(mac) as unknown as PeerRow[]
+    return rows.map(mapPeer)
   }
 
   list(): PeerInfo[] {

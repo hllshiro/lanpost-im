@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { existsSync, mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { SCHEMA_SQL, SCHEMA_VERSION } from './schema'
-import { ensureNwtMessageColumn, migratePeerKeys } from './peer-keys'
+import { ensureNwtMessageColumn, ensurePeerMacColumn, migratePeerKeys } from './peer-keys'
 
 export interface OpenDatabaseOptions {
   busyTimeout?: number
@@ -54,6 +54,7 @@ export function migrate(db: DatabaseSync): void {
     db.exec(SCHEMA_SQL)
     // 老库没有 nwt_id 列，先补列补索引再迁移联系人键
     ensureNwtMessageColumn(db)
+    ensurePeerMacColumn(db)
     if (before < 5) {
       migratePeerKeys(db)
     }

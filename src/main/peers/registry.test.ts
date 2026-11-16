@@ -108,6 +108,21 @@ describe('PeerRegistry', () => {
     expect(registry.ipsForPeer('frank')).toEqual(['10.0.0.9'])
   })
 
+  it('renames an address key that already stored the same user id', () => {
+    const changes: Array<[string, string]> = []
+    const registry = new PeerRegistry(
+      [seedPeer({ key: '10.0.0.7', ip: '10.0.0.7', user: 'gina', name: 'Gina' })],
+      {
+        onPeers: () => {},
+        onPeerKeyChanged: (from, to) => changes.push([from, to])
+      }
+    )
+    const renamed = registry.upsertPrivatePeer(input({ ip: '10.0.0.7', userId: 'gina' }))
+    expect(renamed.key).toBe('gina')
+    expect(changes).toEqual([['10.0.0.7', 'gina']])
+    expect(registry.getPeers()).toHaveLength(1)
+  })
+
   it('就绪回调带来用户号时改名', () => {
     const changes: Array<[string, string]> = []
     const registry = new PeerRegistry([], {
