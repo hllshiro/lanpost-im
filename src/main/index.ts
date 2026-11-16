@@ -30,6 +30,7 @@ import {
   type ShortcutHandlers
 } from './shortcuts'
 import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './startup-log'
+import { configureDebugLog, debugLog } from './debug-log'
 
 app.setName(APP_NAME_EN)
 
@@ -138,7 +139,19 @@ if (!gotLock) {
     try {
       const settingsFile = join(app.getPath('userData'), 'settings.json')
       logStartup(`loading settings: ${settingsFile}`)
-      const settings = new SettingsStore(settingsFile, currentIdentityDefaults())
+      // 开发环境默认打开调试日志，发行版默认关闭；用户手动设置过的值优先
+      const settings = new SettingsStore(settingsFile, currentIdentityDefaults(), {
+        general: { debugLog: is.dev }
+      })
+      const debugFile = join(app.getPath('userData'), 'debug.log')
+      configureDebugLog({ enabled: settings.get().general.debugLog, file: debugFile })
+      debugLog('app', '启动', {
+        version: app.getVersion(),
+        packaged: app.isPackaged,
+        dev: is.dev,
+        userData: app.getPath('userData'),
+        debugLog: settings.get().general.debugLog
+      })
 
       const autostartContext: AutostartContext = {
         platform: process.platform,
@@ -197,6 +210,11 @@ if (!gotLock) {
         settings,
         appInfo,
         onSettingsChanged: (next) => {
+          configureDebugLog({
+            enabled: next.general.debugLog,
+            file: join(app.getPath('userData'), 'debug.log')
+          })
+          debugLog('settings', '设置变更', next.general)
           appService.applySettings(next)
           applyGlobalShortcuts(next, shortcutHandlers)
           if (next.general.startAtLogin !== startAtLoginState) {
@@ -333,6 +351,7 @@ if (!gotLock) {
       idleTimer = null
     }
     unregisterGlobalShortcuts()
+    debugLog('app', '准备退出')
     void (async () => {
       try {
         await service?.stop()

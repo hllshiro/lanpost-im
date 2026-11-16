@@ -1,6 +1,7 @@
 import type { AppInfo, FirewallStatus } from '../../shared/ipc'
 import type { Settings, SettingsPatch } from '../../shared/settings'
 import type { SettingsStore } from '../settings/store'
+import { debugLog } from '../debug-log'
 
 export interface Handlers {
   appInfo(): AppInfo
@@ -35,6 +36,7 @@ export function createHandlers(ctx: {
     settingsGet: () => ctx.settings.get(),
     settingsUpdate: (patch) => {
       assertPatch(patch)
+      debugLog('settings', '收到设置补丁', patch)
       const previous = ctx.settings.get()
       const next = ctx.settings.update(patch)
       if (next.general.startAtLogin !== previous.general.startAtLogin) {

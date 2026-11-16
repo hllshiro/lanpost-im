@@ -17,6 +17,7 @@ import {
   type SettingsPatch
 } from '../../shared/settings'
 import { mergeSettings } from '../../shared/settings-merge'
+import { debugLog } from '../debug-log'
 
 export class SettingsStore {
   private settings: Settings
@@ -24,10 +25,12 @@ export class SettingsStore {
 
   constructor(
     private readonly file: string,
-    identityDefaults: Partial<Settings['identity']> = {}
+    identityDefaults: Partial<Settings['identity']> = {},
+    defaultsPatch: SettingsPatch = {}
   ) {
     mkdirSync(dirname(file), { recursive: true })
-    this.defaults = settingsSchema.parse({ identity: identityDefaults })
+    const base = settingsSchema.parse({ identity: identityDefaults })
+    this.defaults = settingsSchema.parse(mergeSettings(base, defaultsPatch))
     this.settings = this.load()
   }
 
@@ -40,6 +43,7 @@ export class SettingsStore {
   }
 
   update(patch: SettingsPatch): Settings {
+    debugLog('settings', '更新设置', patch)
     const next = settingsSchema.parse(mergeSettings(this.settings, patch))
     next.version = SETTINGS_VERSION
     this.write(next)
@@ -61,7 +65,12 @@ export class SettingsStore {
         this.backup()
         return structuredClone(this.defaults)
       }
-      return settingsSchema.parse(parsed)
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        this.backup()
+        return structuredClone(this.defaults)
+      }
+      // 缺字段（例如新版本新增的开关）沿用本次运行的默认值，而不是静态 schema 默认值
+      return settingsSchema.parse(mergeSettings(this.defaults, parsed as SettingsPatch))
     } catch {
       this.backup()
       return structuredClone(this.defaults)

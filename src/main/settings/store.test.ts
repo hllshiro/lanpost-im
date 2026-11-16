@@ -25,6 +25,25 @@ describe('SettingsStore', () => {
     expect(store.get()).toEqual(defaultSettings)
   })
 
+  it('uses the provided general defaults for a new file', () => {
+    const store = new SettingsStore(tempFile(), {}, { general: { debugLog: true } })
+    expect(store.get().general.debugLog).toBe(true)
+  })
+
+  it('applies the provided defaults to keys missing from an existing file', () => {
+    const file = tempFile()
+    writeFileSync(file, JSON.stringify({ version: 1 }))
+    const store = new SettingsStore(file, {}, { general: { debugLog: true } })
+    expect(store.get().general.debugLog).toBe(true)
+  })
+
+  it('keeps an explicit debug log choice over the dynamic default', () => {
+    const file = tempFile()
+    writeFileSync(file, JSON.stringify({ version: 1, general: { debugLog: false } }))
+    const store = new SettingsStore(file, {}, { general: { debugLog: true } })
+    expect(store.get().general.debugLog).toBe(false)
+  })
+
   it('uses the provided identity defaults for a new file', () => {
     const store = new SettingsStore(tempFile(), { account: 'pc-a', hostName: 'pc-a' })
     expect(store.get().identity.account).toBe('pc-a')

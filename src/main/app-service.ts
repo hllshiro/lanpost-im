@@ -115,6 +115,7 @@ import { FavoriteStore } from './emotion/favorites'
 import { AvatarStore } from './avatar/store'
 import { findUtf16Md5 } from './avatar/scan'
 import { logStartup } from './startup-log'
+import { debugLog } from './debug-log'
 
 function privateProfile(settings: Settings): PrivateProfile {
   return {
@@ -289,6 +290,7 @@ export class AppService {
   // 读取网卡地址的节流时间，按地址记录
   private readonly macLookupAt = new Map<string, number>()
   private macSyncTimer: ReturnType<typeof setTimeout> | null = null
+  private readonly debugFileStates = new Map<string, string>()
   private discoveryTtlMs = 90_000
   private presenceTimer: ReturnType<typeof setInterval> | null = null
   private privateFiles: PrivateFileTransfer | null = null
@@ -1691,6 +1693,14 @@ export class AppService {
       undefined,
       JSON.stringify({ nwtPayloadId: payloadId })
     )
+    debugLog('message', '发送文字', {
+      conversationId: conversation.id,
+      peerKey: peer.key,
+      ip: peer.ip,
+      msgId,
+      textLength: request.text.length,
+      ready
+    })
     if (ready && privateService.sendText(peer.ip, msgId, request.text, payloadId)) {
       this.repos.messages.setStatus(message.id, 'sending')
       this.trackPrivateSend(peer.ip, conversation.id, msgId)
@@ -1877,6 +1887,9 @@ export class AppService {
   }
 
   refreshPeers(): void {
+    debugLog('presence', '手动刷新联系人', {
+      peers: this.repos.peers.list().map((peer) => ({ key: peer.key, ip: peer.ip }))
+    })
     const service = this.privateService
     service?.refresh(
       this.repos.peers.list().map((peer) => ({ ip: peer.ip, port: service.peerPort(peer.ip) }))
@@ -1889,6 +1902,7 @@ export class AppService {
 
   // 把离线联系人并入在线联系人；在线联系人不能作为来源
   mergePeers(targetKey: string, originKeys: string[]): PeerMergeResult {
+    debugLog('contacts', '手动合并联系人', { targetKey, originKeys })
     const targetPeer = this.repos.peers.get(targetKey)
     if (targetPeer === null) {
       throw new Error('目标联系人不存在')
@@ -2141,6 +2155,12 @@ export class AppService {
     if (peer === null) {
       throw new Error('联系人不存在')
     }
+    debugLog('contacts', '删除联系人', {
+      key: peerKey,
+      ip: peer.ip,
+      user: peer.user,
+      online: this.peerIsOnline(peerKey)
+    })
     // 同一个联系人可能留下按地址、按用户号命名的多条会话，一并删掉
     const identities = new Set(
       [peerKey, peer.key, peer.user, peer.ip].filter((value) => value !== '')
@@ -2348,6 +2368,14 @@ export class AppService {
   sendRich(conversationId: string, parts: RichPart[]): void {
     const conversation = this.repos.conversations.get(conversationId)
     if (conversation === null) throw new Error('会话不存在')
+    debugLog('message', '发送富文本', {
+      conversationId,
+      parts: parts.length,
+      textLength: parts
+        .filter((part) => part.kind === 'text')
+        .reduce((total, part) => total + part.text.length, 0),
+      images: parts.filter((part) => part.kind === 'image').length
+    })
     const isGroup = conversation.kind === 'group'
     const hasImage = parts.some((part) => part.kind === 'image')
     if (!isGroup) {
@@ -3926,6 +3954,14 @@ export class AppService {
     segments: PrivateContentSegment[],
     payloadId: string
   ): void {
+    debugLog('message', '收到私有消息', {
+      ip,
+      msgId,
+      textLength: text.length,
+      images: images.length,
+      segments: segments.length,
+      payloadId
+    })
     const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`忽略来自 ${ip} 的私有消息：没有对应的联系人`)
@@ -4113,6 +4149,7 @@ export class AppService {
   }
 
   private handlePrivateStatus(ip: string, msgId: number, status: 'delivered' | 'read'): void {
+    debugLog('message', '收到消息状态', { ip, msgId, status })
     const peerKey = this.registry.peerKeyForIp(ip)
     if (peerKey === null) {
       logStartup(`忽略来自 ${ip} 的私有状态：没有对应的联系人`)
@@ -4122,6 +4159,14 @@ export class AppService {
   }
 
   private handlePrivateState(ip: string, state: SessionState, profile: RemoteProfile | null): void {
+    debugLog('presence', '会话状态变化', {
+      ip,
+      state,
+      userId: profile?.userId ?? '',
+      name: profile?.name ?? '',
+      ready: this.privateService?.isReady(ip) ?? false,
+      peerKey: this.registry.peerKeyForIp(ip)
+    })
     if (state === 'ready' && profile !== null) {
       this.upsertPrivatePeer(ip, profile)
       // 对端可能只在收到 X_CHANGE_INFO 时才来取头像，会话就绪后主动广播一次
@@ -4157,11 +4202,13 @@ export class AppService {
 
   // 对端主动退出：发现状态立即作废，不能靠最后一次通告继续显示在线
   private handlePrivatePeerLeft(ip: string): void {
+    debugLog('presence', '对端主动退出', { ip })
     this.discoveredAt.delete(ip)
   }
 
   // 收到对方的发现通告：先按「发现到的人」显示在线，HANDSHAKE 完成后再补资料
   private handlePrivateDiscovered(ip: string, userId: string): void {
+    debugLog('presence', '收到发现通告', { ip, userId })
     this.discoveredAt.set(ip, Date.now())
     if (!this.started) return
     this.registry.markPrivatePeerSeen(ip, userId)
@@ -4348,6 +4395,7 @@ export class AppService {
 
   // 就绪报文带对端用户号：联系人改成用户标识后再核对群资料
   private handlePrivateReady(ip: string, userId: string): void {
+    debugLog('presence', '对端握手就绪', { ip, userId })
     if (userId !== '') {
       this.registry.assignUserId(ip, userId)
     }
@@ -4751,7 +4799,90 @@ export class AppService {
   }
 
   private emit(event: AppEvent): void {
+    this.logDebugEvent(event)
     this.window?.webContents.send(IPC.event, event)
+  }
+
+  // 事件是界面状态变化的唯一来源，调试日志记录每次结构变化的关键字段
+  private logDebugEvent(event: AppEvent): void {
+    switch (event.type) {
+      case 'peers': {
+        const online = event.peers.filter((peer) => peer.online)
+        debugLog('peers', '联系人列表更新', {
+          total: event.peers.length,
+          online: online.length,
+          onlinePeers: online
+            .slice(0, 50)
+            .map((peer) => ({ key: peer.key, ip: peer.ip, ready: peer.ready }))
+        })
+        break
+      }
+      case 'conversation':
+        debugLog('conversation', '会话更新', {
+          id: event.conversation.id,
+          title: event.conversation.title,
+          unread: event.conversation.unread,
+          lastMessageAt: event.conversation.lastMessageAt
+        })
+        break
+      case 'conversation-removed':
+        debugLog('conversation', '会话移除', event.conversationId)
+        break
+      case 'message':
+        debugLog('message', '消息事件', {
+          id: event.message.id,
+          conversationId: event.message.conversationId,
+          direction: event.message.direction,
+          kind: event.message.kind,
+          status: event.message.status,
+          textLength: event.message.text.length
+        })
+        break
+      case 'message-removed':
+        debugLog('message', '消息移除', {
+          conversationId: event.conversationId,
+          messageId: event.messageId
+        })
+        break
+      case 'group':
+        debugLog('group', '群更新', {
+          id: event.group.id,
+          name: event.group.name,
+          members: event.group.members.length,
+          master: event.group.master
+        })
+        break
+      case 'file': {
+        const previous = this.debugFileStates.get(event.file.id)
+        if (previous === event.file.state) return
+        this.debugFileStates.set(event.file.id, event.file.state)
+        debugLog('file', '文件任务状态', {
+          id: event.file.id,
+          name: event.file.name,
+          direction: event.file.direction,
+          state: event.file.state,
+          size: event.file.size,
+          received: event.file.received,
+          error: event.file.error
+        })
+        break
+      }
+      case 'staged':
+        debugLog('staged', '待发区更新', {
+          conversationId: event.conversationId,
+          count: event.attachments.length,
+          names: event.attachments.slice(0, 20).map((item) => item.name)
+        })
+        break
+      case 'settings':
+        debugLog('settings', '设置事件', event.settings.general)
+        break
+      case 'local-status':
+        debugLog('presence', '本机状态', event.status)
+        break
+      case 'typing':
+        break
+    }
   }
 
   private unreadTotal(): number {

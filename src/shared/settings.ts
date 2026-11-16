@@ -72,6 +72,7 @@ const shortcutsSchema = z.object({
 const generalSchema = z.object({
   startAtLogin: z.boolean().default(false),
   startMinimized: z.boolean().default(false),
+  debugLog: z.boolean().default(false),
   language: z.enum(['zh-CN']).default('zh-CN')
 })
 

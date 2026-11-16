@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { appendFileSync, mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { debugLog } from './debug-log'
 
 export function startupLogFile(): string {
   return join(app.getPath('userData'), 'startup.log')
@@ -8,6 +9,7 @@ export function startupLogFile(): string {
 
 export function logStartup(message: string): void {
   console.log('[lanpost] ' + message)
+  debugLog('main', message)
   try {
     const file = startupLogFile()
     mkdirSync(dirname(file), { recursive: true })

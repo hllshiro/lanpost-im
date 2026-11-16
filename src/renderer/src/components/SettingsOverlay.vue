@@ -1042,6 +1042,21 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="row">
+            <div class="row-text">
+              <span class="label">调试日志</span>
+              <p class="hint">
+                记录联系人在线变化、会话、消息与文件传输等详细信息，写入数据目录的 debug.log（超过 5
+                MB 自动轮换）。发行版默认关闭，开发环境默认开启。
+              </p>
+            </div>
+            <div class="control control-auto">
+              <ToggleSwitch
+                :model-value="settings.general.debugLog"
+                @update:model-value="saveField('general', { debugLog: $event })"
+              />
+            </div>
+          </div>
+          <div class="row">
             <div class="row-text"><span class="label">界面语言</span></div>
             <div class="control control-auto">
               <span class="readonly">简体中文</span>
