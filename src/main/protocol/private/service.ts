@@ -615,8 +615,14 @@ export class PrivateService {
     return null
   }
 
-  sendProgressRecvFile(ip: string, taskId: string, totalSize: number, recvdSize: number): void {
-    this.sessions.get(ip)?.sendProgressRecvFile(taskId, totalSize, recvdSize)
+  sendProgressRecvFile(
+    ip: string,
+    taskId: string,
+    totalSize: number,
+    recvdSize: number,
+    speed = '未知速度，剩余时间: 未知'
+  ): void {
+    this.sessions.get(ip)?.sendProgressRecvFile(taskId, totalSize, recvdSize, speed)
   }
 
   sendReverseFileReq(ip: string, taskId: string): void {

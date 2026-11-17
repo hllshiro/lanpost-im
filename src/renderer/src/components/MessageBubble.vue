@@ -197,7 +197,8 @@ const folderDone = computed(() => folderMetaRaw.value.done === true)
 
 const folderStateText = computed(() => {
   if (!folderIncoming.value) {
-    return props.message.status === 'failed' ? '发送失败' : '已发送'
+    if (props.message.status === 'failed') return '发送失败'
+    return folderDone.value ? '已发送' : '发送中'
   }
   if (typeof folderMetaRaw.value.error === 'string') return '接收失败'
   return folderDone.value ? '接收成功' : '接收中'
@@ -208,6 +209,11 @@ const folderMeta = computed(() => {
   const parts: string[] = []
   if (typeof meta.size === 'number') parts.push(formatSize(meta.size))
   if (typeof meta.count === 'number') parts.push(`${meta.count} 个文件`)
+  const received = typeof meta.received === 'number' ? meta.received : 0
+  const size = typeof meta.size === 'number' ? meta.size : 0
+  if (!folderDone.value && received > 0 && size > 0) {
+    parts.push(`${Math.min(99, Math.floor((received / size) * 100))}%`)
+  }
   parts.push(folderStateText.value)
   return parts.join(' · ')
 })

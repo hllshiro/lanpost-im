@@ -555,12 +555,14 @@ export class PrivateSession {
     this.sendFrame(CMD_SEND_MSG, retrieveImagesXml(msgId, refs))
   }
 
-  sendProgressRecvFile(taskId: string, totalSize: number, recvdSize: number): void {
+  sendProgressRecvFile(
+    taskId: string,
+    totalSize: number,
+    recvdSize: number,
+    speed = '未知速度，剩余时间: 未知'
+  ): void {
     if (this.currentState !== 'ready') return
-    this.sendFrame(
-      CMD_PROGRESS_RECV_FILE,
-      progressRecvFileXml(taskId, totalSize, recvdSize, '未知速度，剩余时间: 未知')
-    )
+    this.sendFrame(CMD_PROGRESS_RECV_FILE, progressRecvFileXml(taskId, totalSize, recvdSize, speed))
   }
 
   sendReverseFileReq(taskId: string): void {

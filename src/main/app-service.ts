@@ -180,6 +180,20 @@ function payloadIdOf(meta: string): string {
   }
 }
 
+// 传给真实客户端的接收进度文字：速度与剩余时间由本机统计
+function transferSpeedText(received: number, total: number, elapsedMs: number): string {
+  if (received <= 0 || elapsedMs <= 0) return '未知速度，剩余时间: 未知'
+  const seconds = elapsedMs / 1000
+  const bytesPerSecond = received / seconds
+  const speed =
+    bytesPerSecond >= 1024 * 1024
+      ? `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`
+      : `${Math.max(1, Math.round(bytesPerSecond / 1024))} KB/s`
+  if (total <= 0) return speed
+  const remaining = Math.max(0, total - received) / bytesPerSecond
+  return `${speed}，剩余时间: ${Math.ceil(remaining)} 秒`
+}
+
 const IMAGE_PATH = /\.(png|jpe?g|gif|bmp|webp|avif|tiff?)$/i
 
 function imageExtension(mime: string): string {
@@ -368,6 +382,9 @@ export class AppService {
   private readonly typingSentAt = new Map<string, number>()
   // 文件进度上报节流：文件号 → 上次落库时间
   private readonly progressReportedAt = new Map<number, number>()
+  private readonly progressStartedAt = new Map<number, number>()
+  private readonly remoteProgressAt = new Map<number, number>()
+  private readonly folderProgressAt = new Map<string, number>()
   private privateSeq = 0
   // 已经发过已读回执的消息 id，避免每次 markRead 重复发送
   private readonly privateReceipts = new Set<number>()
@@ -586,7 +603,7 @@ export class AppService {
         onProgress: (taskId, received, total) => {
           const group = this.groupFolderDownloads.get(taskId)
           if (group !== undefined) group.size = total
-          logStartup(`私有文件夹进度 任务=${taskId} ${received}/${total}`)
+          this.updateFolderProgress(taskId, received, total)
         },
         onDone: (taskId, dir) => {
           logStartup(`私有文件夹接收完成 任务=${taskId} 目录=${dir}`)
@@ -693,8 +710,37 @@ export class AppService {
       })
   }
 
+  // 文件夹进度写回消息 meta，气泡里显示百分比；200 毫秒节流避免频繁重绘
+  private updateFolderProgress(taskId: string, received: number, total: number): void {
+    const now = Date.now()
+    const finished = total > 0 && received >= total
+    if (!finished && now - (this.folderProgressAt.get(taskId) ?? 0) < 200) return
+    this.folderProgressAt.set(taskId, now)
+    const group = this.groupFolderDownloads.get(taskId)
+    const link = this.folderLinks.get(taskId)
+    const messageId = group?.messageId ?? link?.messageId
+    if (messageId === undefined) return
+    const message = this.repos.messages.getMessage(messageId)
+    if (message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const size = total > 0 ? total : typeof meta.size === 'number' ? meta.size : received
+    const nextMeta = JSON.stringify({
+      ...meta,
+      received: Math.min(received, size),
+      size
+    })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
+  }
+
   // 文件夹任务结束：写回气泡（接收方记录目录，发送方把状态推到已送达）
   private handleFolderDone(taskId: string, dir: string): void {
+    this.folderProgressAt.delete(taskId)
     const group = this.groupFolderDownloads.get(taskId)
     if (group !== undefined) {
       this.groupFolderDownloads.delete(taskId)
@@ -707,7 +753,13 @@ export class AppService {
         } catch {
           meta = {}
         }
-        const nextMeta = JSON.stringify({ ...meta, dir, size: group.size, done: true })
+        const nextMeta = JSON.stringify({
+          ...meta,
+          dir,
+          size: group.size,
+          received: group.size,
+          done: true
+        })
         this.repos.messages.setMeta(message.id, nextMeta)
         this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
       }
@@ -732,7 +784,12 @@ export class AppService {
     } catch {
       meta = {}
     }
-    const nextMeta = JSON.stringify({ ...meta, dir, done: true })
+    const nextMeta = JSON.stringify({
+      ...meta,
+      dir,
+      received: typeof meta.size === 'number' ? meta.size : 0,
+      done: true
+    })
     this.repos.messages.setMeta(message.id, nextMeta)
     const status = message.direction === 'out' ? 'delivered' : message.status
     if (message.direction === 'out') {
@@ -742,6 +799,7 @@ export class AppService {
   }
 
   private handleFolderError(taskId: string): void {
+    this.folderProgressAt.delete(taskId)
     const group = this.groupFolderDownloads.get(taskId)
     if (group !== undefined) {
       this.groupFolderDownloads.delete(taskId)
@@ -753,9 +811,21 @@ export class AppService {
     this.folderLinks.delete(taskId)
     if (link === undefined) return
     const message = this.repos.messages.getMessage(link.messageId)
-    if (message === null || message.direction !== 'out') return
-    this.repos.messages.setStatus(message.id, 'failed')
-    this.emit({ type: 'message', message: { ...message, status: 'failed' } })
+    if (message === null) return
+    if (message.direction === 'out') {
+      this.repos.messages.setStatus(message.id, 'failed')
+      this.emit({ type: 'message', message: { ...message, status: 'failed' } })
+      return
+    }
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const nextMeta = JSON.stringify({ ...meta, error: '接收失败' })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    this.emit({ type: 'message', message: { ...message, meta: nextMeta } })
   }
 
   // 对端发 1020：只有本端作为发送方时才需要响应，接收方向暂不处理
@@ -4630,6 +4700,11 @@ export class AppService {
     totalSize: number,
     recvdSize: number
   ): void {
+    debugLog('file', '收到对方接收进度', {
+      taskId,
+      totalSize,
+      recvdSize
+    })
     const entry = this.findPrivateFileByTaskId(taskId)
     if (entry === null) return
     const task = this.repos.files.get(entry.fileTaskId)
@@ -4726,10 +4801,33 @@ export class AppService {
     }
     this.repos.files.upsert(next)
     this.emit({ type: 'file', file: next })
+    // 接收方按协议把进度回给发送方，真实内网通客户端才会显示发送进度
+    if (entry.direction === 'in' && next.size > 0) {
+      const started = this.progressStartedAt.get(fileId) ?? now
+      if (!this.progressStartedAt.has(fileId)) this.progressStartedAt.set(fileId, started)
+      if (now - (this.remoteProgressAt.get(fileId) ?? 0) >= 500) {
+        this.remoteProgressAt.set(fileId, now)
+        this.privateService?.sendProgressRecvFile(
+          entry.ip,
+          entry.taskId,
+          next.size,
+          Math.min(received, next.size),
+          transferSpeedText(received, next.size, now - started)
+        )
+        debugLog('file', '回报接收进度', {
+          taskId: entry.taskId,
+          ip: entry.ip,
+          total: next.size,
+          received: Math.min(received, next.size)
+        })
+      }
+    }
   }
 
   private handlePrivateFileDone(fileId: number, path: string): void {
     this.progressReportedAt.delete(fileId)
+    this.progressStartedAt.delete(fileId)
+    this.remoteProgressAt.delete(fileId)
     const entry = this.privateFileTasks.get(fileId)
     if (entry === undefined) return
     logStartup(`私有文件${entry.direction === 'in' ? '接收' : '发送'}完成 ${fileId}（${path}）`)
@@ -4790,6 +4888,9 @@ export class AppService {
     if (entry === undefined) return
     logStartup(`私有文件失败 ${fileId}: ${error.message}`)
     errorLog('file', '私有文件传输失败', { fileId, message: error.message })
+    this.progressReportedAt.delete(fileId)
+    this.progressStartedAt.delete(fileId)
+    this.remoteProgressAt.delete(fileId)
     this.updatePrivateFileTask(entry.fileTaskId, 'failed', 0, error.message)
     this.privateFileTasks.delete(fileId)
   }

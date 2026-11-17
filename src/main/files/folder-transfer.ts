@@ -174,9 +174,10 @@ export class PrivateFolderTransfer {
         throw new Error(`文件夹通道期望进度帧，收到 ${progress?.cmd ?? '关闭'}`)
       }
 
+      let completed = 0
       for (const [index, item] of folder.items.entries()) {
         if (item.dir) continue
-        await this.sendItem(socket, frames, folder, index, item)
+        completed = await this.sendItem(socket, frames, folder, index, item, completed)
       }
       // 全部项发完再做一次收尾握手：7 由发送方发，8 由接收方回
       socket.write(buildItemAck(FOLDER_CMD_ITEM_SENT, 0, 0))
@@ -194,14 +195,16 @@ export class PrivateFolderTransfer {
     frames: FrameQueue,
     folder: OutgoingFolder,
     index: number,
-    item: { name: string; size: number }
-  ): Promise<void> {
+    item: { name: string; size: number },
+    completed: number
+  ): Promise<number> {
     const path = join(folder.root, item.name.replaceAll('\\', sep))
     const handle = openSync(path, 'r')
     try {
       // 项的开场标记：正文只带一个 0 字节，接收方不落盘
       socket.write(buildData(index, 2, Buffer.from([0])))
       let offset = 0
+      let lastReport = Date.now()
       const chunk = Buffer.alloc(FOLDER_CHUNK_SIZE)
       while (offset < item.size) {
         const read = readSync(
@@ -214,17 +217,23 @@ export class PrivateFolderTransfer {
         if (read <= 0) break
         socket.write(buildData(index, 0, chunk.subarray(0, read)))
         offset += read
+        const now = Date.now()
+        if (now - lastReport >= 200) {
+          lastReport = now
+          this.options.callbacks.onProgress(folder.taskId, completed + offset, folder.size)
+        }
       }
       const ack = await frames.next()
       if (ack === null) {
         this.log(`文件夹通道项 ${index} 没等到回执，连接已关闭`)
-        return
+        return completed + offset
       }
       this.log(
         `文件夹通道项 ${index} 回执 cmd=${ack.cmd} 序号=${ack.body.readUInt32BE(0x14)} ` +
           `已收=${Number(ack.body.readBigUInt64BE(0x18))}`
       )
-      this.options.callbacks.onProgress(folder.taskId, offset, folder.size)
+      this.options.callbacks.onProgress(folder.taskId, completed + offset, folder.size)
+      return completed + offset
     } finally {
       closeSync(handle)
     }
