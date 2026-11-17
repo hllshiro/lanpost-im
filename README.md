@@ -49,7 +49,7 @@ pnpm dev
 
 ```bash
 pnpm build:win     # Windows x64，NSIS 安装包与 zip
-pnpm build:linux   # Linux x64/ARM64，deb、rpm 与 AppImage
+pnpm build:linux   # 当前机器架构，deb、rpm 与 AppImage；用 build:linux:x64 / build:linux:arm64 指定架构
 ```
 
 私有协议默认使用 9011/UDP 发现、9012/UDP ENet、9013/TCP 文件、9014/TCP 文件夹；可在设置中修改。Windows 安装包会添加按程序路径的防火墙规则，Linux deb/rpm 会为默认端口添加 ufw/firewalld 规则。

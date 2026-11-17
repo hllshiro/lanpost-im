@@ -58,6 +58,10 @@ jobs:
       - name: Install rpm tooling
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
       - run: pnpm build:linux:${{ matrix.arch }}
+      - name: Check linux packages
+        run: |
+          test "$(ls dist/*.rpm | wc -l)" = "1"
+          rpm -Kv dist/*.rpm
       - uses: actions/upload-artifact@v4
         with:
           name: linux-${{ matrix.arch }}
@@ -87,6 +91,11 @@ jobs:
         with:
           path: artifacts
           merge-multiple: true
+      - name: Verify release packages
+        run: |
+          test "$(ls artifacts/*.rpm | wc -l)" = "2"
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends rpm
+          rpm -Kv artifacts/*.rpm
       - uses: softprops/action-gh-release@v2
         with:
           token: ${{ secrets.RELEASE_TOKEN || github.token }}

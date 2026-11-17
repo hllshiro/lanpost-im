@@ -1,6 +1,6 @@
 # 发布与版本说明
 
-更新：2026-11-13
+更新：2026-11-17
 
 范围：`.github/workflows/build.yml` 的 `release` job 与打标签流程。改这里之前先看 `.github/workflows/build.yml` 现状。
 
@@ -64,3 +64,9 @@ git tag -l --format='%(contents)' v0.6.0
 ```bash
 curl -s https://api.github.com/repos/hllshiro/lanpost-im/releases/tags/v0.6.0 | grep -m1 '"body"'
 ```
+
+## 安装包完整性
+
+- 每个 linux 任务只打包 matrix 里的那个架构，`dist` 里应当只有一个 RPM；`Check linux packages` 用 `rpm -Kv` 校验，payload 摘要不一致会直接失败。
+- `release` 任务汇总 artifact 后再跑一次 `rpm -Kv`，并确认恰好两个 RPM。
+- 同名安装包不要出现在两个 artifact 里：`download-artifact` 会并行解压到同一目录，同名文件互相覆盖后可能留下旧文件的尾部字节，RPM 报 `payload SHA256 digest: BAD`。

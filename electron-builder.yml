@@ -40,19 +40,12 @@ linux:
   executableName: lanpost-im
   maintainer: hllshiro <hllshiro@users.noreply.github.com>
   category: Network
+  # 架构只由命令行 --x64 / --arm64 决定。这里若再写 arch，electron-builder 会在
+  # 每个任务里同时产出两种架构的安装包，发布时同名文件并发解压互相覆盖。
   target:
-    - target: AppImage
-      arch:
-        - x64
-        - arm64
-    - target: deb
-      arch:
-        - x64
-        - arm64
-    - target: rpm
-      arch:
-        - x64
-        - arm64
+    - AppImage
+    - deb
+    - rpm
 appImage:
   artifactName: ${name}-${version}-${arch}.${ext}
 deb:

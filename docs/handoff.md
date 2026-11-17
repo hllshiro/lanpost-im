@@ -40,7 +40,7 @@ pnpm typecheck                   # node + web
 pnpm test                        # Vitest 全量
 pnpm build                       # typecheck + 写 out/
 pnpm build:win                   # Windows x64 安装包/zip
-pnpm build:linux                 # Linux x64/ARM64 deb/rpm/AppImage
+pnpm build:linux                 # 当前架构 deb/rpm/AppImage（build:linux:x64 / arm64 指定架构）
 pnpm exec vitest run src/main/protocol/private/service.test.ts
 pnpm exec vitest run src/main/files
 ```
