@@ -11,7 +11,7 @@ import GroupMark from './GroupMark.vue'
 import BatchSendDialog from './BatchSendDialog.vue'
 import ConfirmDialog from './ConfirmDialog.vue'
 import MergePeersDialog from './MergePeersDialog.vue'
-import { compareLetters, comparePinyin, pinyinInfo } from '../utils/pinyin'
+import { compareLetters, comparePinyin, matchesPinyin, pinyinInfo } from '../utils/pinyin'
 
 const emit = defineEmits<{ open: [conversationId: string] }>()
 
@@ -45,7 +45,13 @@ const groupConversations = computed(() => {
 const groupRows = computed(() =>
   store.groups
     .map((group) => ({ group, conversationId: groupConversations.value.get(group.id) ?? '' }))
-    .filter(({ group }) => keyword.value === '' || group.name.toLowerCase().includes(keyword.value))
+    .filter(
+      ({ group }) =>
+        keyword.value === '' ||
+        group.name.toLowerCase().includes(keyword.value) ||
+        matchesPinyin(group.name, keyword.value) ||
+        matchesPinyin(group.topic, keyword.value)
+    )
     .sort((left, right) => comparePinyin(left.group.name, right.group.name))
 )
 
@@ -112,8 +118,9 @@ const visible = computed(() => {
       peer.sign
     ]
     if (fields.some((field) => field.toLowerCase().includes(keyword.value))) return true
-    const info = pinyinInfo(displayName(peer))
-    return info.full.includes(keyword.value) || info.initials.includes(keyword.value)
+    return [displayName(peer), peer.name, peer.alias, peer.group, peer.department].some((value) =>
+      matchesPinyin(value, keyword.value)
+    )
   })
 })
 

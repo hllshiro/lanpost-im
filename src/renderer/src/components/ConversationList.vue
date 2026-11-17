@@ -7,6 +7,7 @@ import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import GroupMark from './GroupMark.vue'
 import { formatConversationTime, initialOf, previewText } from '../utils/format'
+import { matchesPinyin } from '../utils/pinyin'
 
 const props = defineProps<{
   conversations: ConversationInfo[]
@@ -74,11 +75,40 @@ function avatarOf(conversation: ConversationInfo): string {
   return avatarUrl(peerOf(conversation)?.avatarMd5)
 }
 
+function matchesConversation(conversation: ConversationInfo, keyword: string): boolean {
+  if (conversation.title.toLowerCase().includes(keyword)) return true
+  if (previewOf(conversation).toLowerCase().includes(keyword)) return true
+  if (conversation.kind === 'group') {
+    const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
+    const group = props.groups.find((item) => item.id === groupId)
+    if (group !== undefined) {
+      if (group.topic.toLowerCase().includes(keyword)) return true
+      if (matchesPinyin(group.name, keyword) || matchesPinyin(group.topic, keyword)) return true
+    }
+  }
+  const peer = peerOf(conversation)
+  if (peer !== null) {
+    const fields = [
+      peer.alias,
+      peer.name,
+      peer.user,
+      peer.group,
+      peer.department,
+      peer.ip,
+      peer.host,
+      peer.sign
+    ]
+    if (fields.some((field) => field.toLowerCase().includes(keyword))) return true
+    if (fields.some((field) => matchesPinyin(field, keyword))) return true
+    return matchesPinyin(peer.alias || peer.name || peer.user || peer.ip, keyword)
+  }
+  return matchesPinyin(conversation.title, keyword)
+}
+
 const visible = computed(() => {
   return props.conversations.filter((conversation) => {
     if (!keyword.value) return true
-    if (conversation.title.toLowerCase().includes(keyword.value)) return true
-    return previewOf(conversation).toLowerCase().includes(keyword.value)
+    return matchesConversation(conversation, keyword.value)
   })
 })
 
@@ -167,7 +197,7 @@ function badgeOf(count: number): string {
           <input
             v-model="query"
             type="text"
-            placeholder="搜索"
+            placeholder="搜索名称、账号或拼音"
             autocomplete="off"
             spellcheck="false"
             aria-label="搜索会话"

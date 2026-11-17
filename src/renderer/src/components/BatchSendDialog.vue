@@ -7,7 +7,7 @@ import { useAppStore } from '../stores/app'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
-import { comparePinyin, pinyinInfo } from '../utils/pinyin'
+import { comparePinyin, matchesPinyin } from '../utils/pinyin'
 import Composer from './Composer.vue'
 
 const props = defineProps<{ peers: PeerInfo[] }>()
@@ -46,8 +46,9 @@ const visible = computed(() => {
       peer.sign
     ]
     if (fields.some((field) => field.toLowerCase().includes(keyword.value))) return true
-    const info = pinyinInfo(nameOf(peer))
-    return info.full.includes(keyword.value) || info.initials.includes(keyword.value)
+    return [nameOf(peer), peer.name, peer.alias, peer.group, peer.department].some((value) =>
+      matchesPinyin(value, keyword.value)
+    )
   })
 })
 
