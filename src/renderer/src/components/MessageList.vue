@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ChevronDown } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import { emotionKeyByUrl } from '../utils/emotion'
@@ -16,8 +16,12 @@ const props = defineProps<{
   ownInitial: string
   otherInitial: string
   unreadAfterId: number
-  searching: boolean
   loading: boolean
+  // 上方还有更早的消息，以及正在向上翻页的状态
+  hasMore: boolean
+  loadingOlder: boolean
+  // 历史窗口跳转过来时要滚到并高亮的消息
+  focusMessageId: number | null
   ownAvatarMd5: string
   peerAvatarMd5: string
   senderAvatars: Record<string, string>
@@ -27,6 +31,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   read: []
   recall: [messageId: number]
+  'load-older': []
+  focused: []
 }>()
 
 type Row =
@@ -144,13 +150,52 @@ function onScroll(): void {
   const bottom = isNearBottom(element)
   if (bottom && !atBottom.value) emit('read')
   atBottom.value = bottom
-  if (bottom) newBelow.value = 0
+  if (bottom) {
+    newBelow.value = 0
+    return
+  }
+  // 滚到接近顶部就自动取更早的一段
+  if (
+    element.scrollTop < 150 &&
+    props.hasMore &&
+    !props.loadingOlder &&
+    pendingAnchor.value === null
+  ) {
+    requestOlder()
+  }
 }
 
 function jumpToBottom(): void {
   scrollToBottom()
   emit('read')
 }
+
+// 向上翻页：记下第一条消息的位置，历史接上后按它实际挪动的距离补回滚动位置。
+// 用整页高度差不行：翻页会改变时间标签等，下面的内容可能同时变高或变矮。
+const pendingAnchor = ref<{ id: number | null; top: number; scrollHeight: number } | null>(null)
+const flashId = ref<number | null>(null)
+let flashTimer: ReturnType<typeof setTimeout> | undefined
+
+function requestOlder(): void {
+  if (!props.hasMore || props.loadingOlder) return
+  const element = scroller.value
+  const first = props.messages[0]
+  if (element === null || first === undefined) {
+    pendingAnchor.value = null
+    emit('load-older')
+    return
+  }
+  const node = element.querySelector<HTMLElement>(`[data-message-id="${first.id}"]`)
+  pendingAnchor.value = {
+    id: node === null ? null : first.id,
+    top: node === null ? 0 : node.offsetTop,
+    scrollHeight: element.scrollHeight
+  }
+  emit('load-older')
+}
+
+let lastLength = props.messages.length
+let lastFirstId: number | null = props.messages[0]?.id ?? null
 
 watch(
   () => props.conversationId,
@@ -159,6 +204,9 @@ watch(
     atBottom.value = true
     viewer.value = null
     menu.value = null
+    pendingAnchor.value = null
+    lastLength = props.messages.length
+    lastFirstId = props.messages[0]?.id ?? null
     await nextTick()
     scrollToBottom()
   }
@@ -166,33 +214,64 @@ watch(
 
 watch(
   () => props.messages.length,
-  async (length, previousLength) => {
+  async (length) => {
+    const previousLength = lastLength
+    const previousFirstId = lastFirstId
+    const nextFirstId = props.messages[0]?.id ?? null
+    lastLength = length
+    lastFirstId = nextFirstId
     await nextTick()
     const element = scroller.value
     if (!element) return
-    if (props.searching) return
-    const grew = length > (previousLength ?? 0)
-    if (!grew) return
+    // 头部变短说明是向上翻页接了更早的消息，按高度差保持原来的视野
+    const prepended =
+      nextFirstId !== null && previousFirstId !== null && nextFirstId < previousFirstId
+    if (prepended && pendingAnchor.value !== null) {
+      const pending = pendingAnchor.value
+      let delta: number | null = null
+      if (pending.id !== null) {
+        const node = element.querySelector<HTMLElement>(`[data-message-id="${pending.id}"]`)
+        if (node !== null) delta = node.offsetTop - pending.top
+      }
+      if (delta === null) delta = element.scrollHeight - pending.scrollHeight
+      element.scrollTop += delta
+      pendingAnchor.value = null
+      return
+    }
+    if (length <= previousLength) return
     const last = props.messages[props.messages.length - 1]
     if (atBottom.value || last?.direction === 'out') scrollToBottom()
-    else newBelow.value += length - (previousLength ?? 0)
+    else newBelow.value += length - previousLength
   }
 )
 
+// 历史窗口跳过来：滚到目标消息并短暂高亮
 watch(
-  () => props.searching,
-  async (searching) => {
+  () => props.focusMessageId,
+  async (messageId) => {
+    if (messageId === null) return
+    pendingAnchor.value = null
     await nextTick()
-    newBelow.value = 0
-    atBottom.value = true
-    if (searching) {
-      const element = scroller.value
-      if (element) element.scrollTop = 0
-    } else {
-      scrollToBottom()
+    const element = scroller.value
+    if (element !== null) {
+      const target = element.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`)
+      if (target !== null) {
+        const delta = target.getBoundingClientRect().top - element.getBoundingClientRect().top
+        element.scrollTop = Math.max(0, element.scrollTop + delta - 72)
+        flashId.value = messageId
+        if (flashTimer !== undefined) clearTimeout(flashTimer)
+        flashTimer = setTimeout(() => {
+          flashId.value = null
+        }, 1600)
+      }
     }
+    emit('focused')
   }
 )
+
+onBeforeUnmount(() => {
+  if (flashTimer !== undefined) clearTimeout(flashTimer)
+})
 
 onMounted(async () => {
   await nextTick()
@@ -238,6 +317,11 @@ function onCopy(event: ClipboardEvent): void {
   <div class="message-list" @copy="onCopy">
     <div ref="scroller" class="scroller" @scroll="onScroll">
       <div class="stream">
+        <div v-if="loadingOlder" class="load-older">正在加载更早的消息…</div>
+        <button v-else-if="hasMore" class="load-older more" @click="requestOlder">
+          查看更早的消息
+        </button>
+
         <template v-for="row in rows" :key="row.key">
           <div v-if="row.type === 'date'" class="date">
             <span>{{ row.label }}</span>
@@ -255,6 +339,7 @@ function onCopy(event: ClipboardEvent): void {
             :other-initial="otherInitial"
             :avatar-md5="bubbleAvatar(row)"
             :group="group"
+            :flash="row.message.id === flashId"
             @preview="openViewer"
             @menu="openMenu"
             @recall="emit('recall', row.message.id)"
@@ -263,7 +348,6 @@ function onCopy(event: ClipboardEvent): void {
 
         <div v-if="messages.length === 0" class="empty">
           <p v-if="loading">正在加载消息…</p>
-          <p v-else-if="searching">没有找到匹配的消息</p>
           <p v-else>暂无消息，发送第一条消息吧</p>
         </div>
       </div>
@@ -329,6 +413,27 @@ function onCopy(event: ClipboardEvent): void {
   padding: 0 10px;
   font-size: 11px;
   color: var(--text-secondary);
+}
+
+.load-older {
+  margin: 4px auto 12px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.load-older.more {
+  display: block;
+  padding: 3px 12px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.load-older.more:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 
 .empty {

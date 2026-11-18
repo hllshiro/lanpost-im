@@ -16,6 +16,8 @@ import { errorMessage } from '../utils/errors'
 import type { BatchSendResult, RichPart } from '../../../shared/ipc'
 
 const PREVIEW_PAGE_SIZE = 10
+// 聊天窗口一次只取最近这么多条，向上滚动时再往前翻
+const MESSAGE_PAGE_SIZE = 30
 const DRAFT_SAVE_DELAY = 400
 
 export const useAppStore = defineStore('app', () => {
@@ -30,6 +32,11 @@ export const useAppStore = defineStore('app', () => {
   const messages = ref<Record<string, MessageInfo[]>>({})
   const previews = ref<Record<string, MessageInfo>>({})
   const loadingMessages = ref<Record<string, boolean>>({})
+  // 会话是否还有更早的消息，以及向上翻页的状态
+  const hasMoreMessages = ref<Record<string, boolean>>({})
+  const loadingOlderMessages = ref<Record<string, boolean>>({})
+  // 历史窗口跳转过来时，聊天窗口要滚到并高亮的消息
+  const focusMessageId = ref<number | null>(null)
   const readMarks = ref<Record<string, number>>({})
   // 会话 → 输入状态到期时间
   const typing = ref<Record<string, number>>({})
@@ -398,14 +405,18 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
-  // 打开会话时一次性读全历史；数据在本地 SQLite，直接一条查询拿完
+  // 打开会话只取最近一小段，向上滚动时再往前翻
   async function loadMessages(conversationId: string): Promise<void> {
     if (loadingMessages.value[conversationId]) return
     loadingMessages.value = { ...loadingMessages.value, [conversationId]: true }
     try {
-      const list = await window.api.messages.all(conversationId)
-      messages.value[conversationId] = list
-      const latest = list[list.length - 1]
+      const page = await window.api.messages.list({
+        conversationId,
+        limit: MESSAGE_PAGE_SIZE
+      })
+      messages.value[conversationId] = page.messages
+      hasMoreMessages.value = { ...hasMoreMessages.value, [conversationId]: page.hasMore }
+      const latest = page.messages[page.messages.length - 1]
       const preview = previews.value[conversationId]
       if (latest && (!preview || latest.id > preview.id)) {
         previews.value = { ...previews.value, [conversationId]: latest }
@@ -418,8 +429,65 @@ export const useAppStore = defineStore('app', () => {
     }
   }
 
+  // 向上翻页：把更早的一段接到当前窗口前面
+  async function loadOlderMessages(conversationId: string): Promise<void> {
+    if (loadingOlderMessages.value[conversationId]) return
+    if (hasMoreMessages.value[conversationId] !== true) return
+    const current = messages.value[conversationId] ?? []
+    const first = current[0]
+    if (first === undefined) return
+    loadingOlderMessages.value = { ...loadingOlderMessages.value, [conversationId]: true }
+    try {
+      const page = await window.api.messages.list({
+        conversationId,
+        beforeId: first.id,
+        limit: MESSAGE_PAGE_SIZE
+      })
+      const loaded = messages.value[conversationId] ?? []
+      const seen = new Set(loaded.map((item) => item.id))
+      const older = page.messages.filter((item) => !seen.has(item.id))
+      messages.value[conversationId] = [...older, ...loaded]
+      hasMoreMessages.value = { ...hasMoreMessages.value, [conversationId]: page.hasMore }
+    } catch (reason) {
+      reportError(reason)
+    } finally {
+      loadingOlderMessages.value = { ...loadingOlderMessages.value, [conversationId]: false }
+    }
+  }
+
+  // 历史窗口点一条消息：不在已加载窗口里就把它前后一段取回来
+  async function jumpToMessage(conversationId: string, messageId: number): Promise<void> {
+    const current = messages.value[conversationId] ?? []
+    if (!current.some((item) => item.id === messageId)) {
+      try {
+        const around = await window.api.messages.around({
+          conversationId,
+          messageId,
+          limit: MESSAGE_PAGE_SIZE
+        })
+        const merged = new Map<number, MessageInfo>()
+        for (const item of [...current, ...around.messages]) merged.set(item.id, item)
+        messages.value[conversationId] = [...merged.values()].sort(
+          (left, right) => left.createdAt - right.createdAt || left.id - right.id
+        )
+        hasMoreMessages.value = {
+          ...hasMoreMessages.value,
+          [conversationId]: around.hasMore || hasMoreMessages.value[conversationId] === true
+        }
+      } catch (reason) {
+        reportError(reason)
+      }
+    }
+    focusMessageId.value = messageId
+  }
+
+  function clearFocusMessage(): void {
+    focusMessageId.value = null
+  }
+
   async function selectConversation(id: string | null): Promise<void> {
     currentConversationId.value = id
+    focusMessageId.value = null
     if (!id) return
     const conversation = conversations.value.find((item) => item.id === id)
     if (!conversation) return
@@ -653,6 +721,9 @@ export const useAppStore = defineStore('app', () => {
     messages,
     previews,
     loadingMessages,
+    hasMoreMessages,
+    loadingOlderMessages,
+    focusMessageId,
     readMarks,
     typing,
     loading,
@@ -674,6 +745,9 @@ export const useAppStore = defineStore('app', () => {
     setStatus,
     selectConversation,
     loadMessages,
+    loadOlderMessages,
+    jumpToMessage,
+    clearFocusMessage,
     sendText,
     sendRich,
     batchSend,

@@ -43,7 +43,8 @@ const api: Api = {
   },
   messages: {
     list: (request) => ipcRenderer.invoke(IPC.messagesList, request),
-    all: (conversationId) => ipcRenderer.invoke(IPC.messagesAll, conversationId),
+    search: (request) => ipcRenderer.invoke(IPC.messagesSearch, request),
+    around: (request) => ipcRenderer.invoke(IPC.messagesAround, request),
     send: (request) => ipcRenderer.invoke(IPC.messageSend, request),
     recall: (conversationId, messageId) =>
       ipcRenderer.invoke(IPC.messageRecall, conversationId, messageId),

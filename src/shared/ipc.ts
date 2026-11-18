@@ -3,7 +3,6 @@ import type {
   AppSnapshot,
   FavoriteSticker,
   GroupInfo,
-  MessageInfo,
   MessagesPage,
   SendTextResult,
   StagedAttachment
@@ -32,7 +31,8 @@ export const IPC = {
   snapshot: 'state:snapshot',
   event: 'state:event',
   messagesList: 'messages:list',
-  messagesAll: 'messages:all',
+  messagesSearch: 'messages:search',
+  messagesAround: 'messages:around',
   messageSend: 'messages:send',
   messageRecall: 'messages:recall',
   messageTyping: 'messages:typing',
@@ -162,6 +162,23 @@ export interface MessagesSendRequest {
   text: string
 }
 
+// 历史窗口的三个分类：普通消息、图片、文件
+export type MessageHistoryCategory = 'message' | 'image' | 'file'
+
+export interface MessagesSearchRequest {
+  conversationId: string
+  category: MessageHistoryCategory
+  query?: string
+  beforeId?: number
+  limit?: number
+}
+
+export interface MessagesAroundRequest {
+  conversationId: string
+  messageId: number
+  limit?: number
+}
+
 // 群发结果：on 表示已经在线投递，queued 表示对方离线、文字已排队
 export interface BatchSendResult {
   on: number
@@ -226,7 +243,10 @@ export type Api = {
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
-    all(conversationId: string): Promise<MessageInfo[]>
+    // 历史窗口：按分类与关键字分页查消息
+    search(request: MessagesSearchRequest): Promise<MessagesPage>
+    // 跳到某条消息时，取回它前后的一段历史
+    around(request: MessagesAroundRequest): Promise<MessagesPage>
     send(request: MessagesSendRequest): Promise<SendTextResult>
     // 撤回自己两分钟内发出的消息
     recall(conversationId: string, messageId: number): Promise<void>

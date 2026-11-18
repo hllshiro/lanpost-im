@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { onClickOutside, useEventListener } from '@vueuse/core'
-import { Ellipsis, MessageCircle, Search, VolumeX, X } from '@lucide/vue'
+import { Clock, Ellipsis, MessageCircle, VolumeX, X } from '@lucide/vue'
 import type {
   ConversationInfo,
   FileTaskInfo,
@@ -19,6 +19,7 @@ import { errorMessage } from '../utils/errors'
 import { initialOf } from '../utils/format'
 import GroupMark from './GroupMark.vue'
 import Composer from './Composer.vue'
+import MessageHistoryDialog from './MessageHistoryDialog.vue'
 import MessageList from './MessageList.vue'
 
 const props = defineProps<{
@@ -46,7 +47,8 @@ const emit = defineEmits<{
   'delete-group': []
 }>()
 
-const search = ref('')
+// 搜索、分类都在历史窗口里做：聊天窗口只装最近一段，头部搜索会漏掉更早的消息
+const historyOpen = ref(false)
 const infoOpen = ref(false)
 const infoAnchor = ref<HTMLElement | null>(null)
 const store = useAppStore()
@@ -83,8 +85,6 @@ const pending = ref<
   | { kind: 'delete' }
 >(null)
 let copyTimer: number | undefined
-
-const keyword = computed(() => search.value.trim().toLowerCase())
 
 const selfId = computed(() => props.local?.privateUserId ?? '')
 
@@ -123,15 +123,8 @@ const presenceClass = computed(() => {
   return 'online'
 })
 
-const filteredMessages = computed(() => {
-  if (!keyword.value) return props.messages
-  return props.messages.filter((message) => message.text.toLowerCase().includes(keyword.value))
-})
-
 const ownInitial = computed(() => initialOf(props.local?.name ?? '我'))
 const otherInitial = computed(() => initialOf(props.conversation?.title ?? ''))
-
-const showSearchSummary = computed(() => keyword.value.length > 0)
 
 onClickOutside(infoAnchor, () => {
   infoOpen.value = false
@@ -142,19 +135,14 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
   if (infoOpen.value) {
     infoOpen.value = false
     event.preventDefault()
-    return
-  }
-  if (search.value) {
-    search.value = ''
-    event.preventDefault()
   }
 })
 
 watch(
   () => props.conversation?.id,
   () => {
-    search.value = ''
     infoOpen.value = false
+    historyOpen.value = false
     copied.value = false
     copyError.value = ''
     pending.value = null
@@ -200,6 +188,17 @@ async function copyAddress(): Promise<void> {
   }
 }
 
+function openHistory(): void {
+  historyOpen.value = true
+}
+
+// 历史窗口点一条消息：关掉窗口，聊天窗口把它前后一段加载出来再滚过去
+async function jumpToHistoryMessage(messageId: number): Promise<void> {
+  historyOpen.value = false
+  if (props.conversation === null) return
+  await store.jumpToMessage(props.conversation.id, messageId)
+}
+
 onBeforeUnmount(() => {
   if (copyTimer !== undefined) window.clearTimeout(copyTimer)
 })
@@ -234,19 +233,10 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="head-actions">
-          <div class="search" :class="{ active: keyword.length > 0 }">
-            <Search :size="14" :stroke-width="1.8" />
-            <input
-              v-model="search"
-              type="text"
-              placeholder="搜索"
-              autocomplete="off"
-              aria-label="搜索聊天记录"
-            />
-            <button v-if="search" class="clear" title="清空搜索" @click="search = ''">
-              <X :size="12" />
-            </button>
-          </div>
+          <button class="history-btn" title="聊天记录" aria-label="聊天记录" @click="openHistory">
+            <Clock :size="15" :stroke-width="1.8" />
+            <span>历史</span>
+          </button>
 
           <div ref="infoAnchor" class="info-anchor">
             <button
@@ -381,13 +371,8 @@ onBeforeUnmount(() => {
       </header>
 
       <div class="chat-body">
-        <div v-if="showSearchSummary" class="search-summary">
-          <span>找到 {{ filteredMessages.length }} 条消息</span>
-          <button @click="search = ''">退出搜索</button>
-        </div>
-
         <MessageList
-          :messages="filteredMessages"
+          :messages="messages"
           :files="files"
           :conversation-id="conversation.id"
           :own-initial="ownInitial"
@@ -395,12 +380,16 @@ onBeforeUnmount(() => {
           :own-avatar-md5="local?.avatarMd5 ?? ''"
           :peer-avatar-md5="peer?.avatarMd5 ?? ''"
           :sender-avatars="senderAvatars"
-          :unread-after-id="keyword.length > 0 ? 0 : unreadAfterId"
+          :unread-after-id="unreadAfterId"
           :loading="loadingMessages"
-          :searching="keyword.length > 0"
+          :has-more="store.hasMoreMessages[conversation.id] === true"
+          :loading-older="store.loadingOlderMessages[conversation.id] === true"
+          :focus-message-id="store.focusMessageId"
           :group="conversation.kind === 'group'"
           @read="emit('read')"
           @recall="handleRecall"
+          @load-older="store.loadOlderMessages(conversation.id)"
+          @focused="store.clearFocusMessage()"
         />
       </div>
 
@@ -414,6 +403,16 @@ onBeforeUnmount(() => {
         @send-rich="emit('send-rich', $event)"
         @remove-staged="emit('remove-staged', $event)"
         @typing="store.notifyTyping(conversation.id)"
+      />
+
+      <MessageHistoryDialog
+        v-if="historyOpen"
+        :conversation-id="conversation.id"
+        :title="conversation.title"
+        :group="conversation.kind === 'group'"
+        :files="files"
+        @close="historyOpen = false"
+        @jump="jumpToHistoryMessage"
       />
     </template>
 
@@ -589,45 +588,22 @@ h2 {
   flex: 0 0 auto;
 }
 
-.search {
-  display: flex;
+.history-btn {
+  display: inline-flex;
   align-items: center;
-  gap: 5px;
-  width: 168px;
+  gap: 4px;
   height: 27px;
-  padding: 0 7px;
+  padding: 0 10px;
+  border: 1px solid var(--divider);
   border-radius: var(--radius-button);
-  background: #e9e9e9;
-  color: var(--text-muted);
-}
-
-.search.active {
   background: #ffffff;
-  box-shadow: inset 0 0 0 1px rgba(7, 193, 96, 0.45);
-}
-
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: transparent;
+  color: var(--text-secondary);
   font-size: 12px;
+}
+
+.history-btn:hover {
+  border-color: var(--text-muted);
   color: var(--text);
-}
-
-.clear {
-  display: grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border-radius: 50%;
-  background: #c8c8c8;
-  color: #ffffff;
-}
-
-.clear:hover {
-  background: #adadad;
 }
 
 .info-anchor {
@@ -866,23 +842,6 @@ h2 {
   min-height: 0;
   display: flex;
   flex-direction: column;
-}
-
-.search-summary {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 5px 20px;
-  border-bottom: 1px solid var(--divider);
-  background: #f0f0f0;
-  font-size: 11.5px;
-  color: var(--text-secondary);
-}
-
-.search-summary button {
-  font-size: 11.5px;
-  color: var(--accent);
 }
 
 .chat-empty {

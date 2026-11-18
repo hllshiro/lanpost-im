@@ -1,0 +1,539 @@
+<script setup lang="ts">
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { FileText, Search, X } from '@lucide/vue'
+import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
+import type { MessageHistoryCategory } from '../../../shared/ipc'
+import { useAppStore } from '../stores/app'
+import { formatDateDivider, formatSize, formatClock, previewText } from '../utils/format'
+
+const props = defineProps<{
+  conversationId: string
+  title: string
+  group: boolean
+  files: FileTaskInfo[]
+}>()
+
+const emit = defineEmits<{
+  close: []
+  jump: [messageId: number]
+}>()
+
+const store = useAppStore()
+
+const categories: Array<{ id: MessageHistoryCategory; label: string }> = [
+  { id: 'message', label: '消息' },
+  { id: 'image', label: '图片' },
+  { id: 'file', label: '文件' }
+]
+
+const category = ref<MessageHistoryCategory>('message')
+const keywordInput = ref('')
+const keyword = ref('')
+const results = ref<MessageInfo[]>([])
+const hasMore = ref(false)
+const loading = ref(false)
+const error = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+// 关键字连续输入时会有多次请求，只有最后一次算数
+let requestSeq = 0
+
+async function load(reset: boolean): Promise<void> {
+  const requestId = ++requestSeq
+  loading.value = true
+  error.value = ''
+  try {
+    const page = await window.api.messages.search({
+      conversationId: props.conversationId,
+      category: category.value,
+      query: keyword.value,
+      beforeId: reset ? undefined : results.value[results.value.length - 1]?.id,
+      limit: 50
+    })
+    if (requestId !== requestSeq) return
+    results.value = reset ? page.messages : [...results.value, ...page.messages]
+    hasMore.value = page.hasMore
+  } catch (reason) {
+    if (requestId !== requestSeq) return
+    error.value = reason instanceof Error ? reason.message : String(reason)
+  } finally {
+    if (requestId === requestSeq) loading.value = false
+  }
+}
+
+watch(keywordInput, (value) => {
+  if (searchTimer !== undefined) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    keyword.value = value.trim()
+    void load(true)
+  }, 300)
+})
+
+watch(category, () => {
+  void load(true)
+})
+
+function onKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') emit('close')
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  void load(true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  if (searchTimer !== undefined) clearTimeout(searchTimer)
+})
+
+function imagesOf(message: MessageInfo): FileTaskInfo[] {
+  let meta: Record<string, unknown>
+  try {
+    meta = JSON.parse(message.meta) as Record<string, unknown>
+  } catch {
+    return []
+  }
+  const segments = Array.isArray(meta.segments) ? meta.segments : []
+  const found: FileTaskInfo[] = []
+  for (const item of segments) {
+    if (typeof item !== 'object' || item === null) continue
+    const record = item as Record<string, unknown>
+    if (record.kind !== 'image' || typeof record.value !== 'string') continue
+    const fileId = record.value.split('|')[0]
+    const file = props.files.find((task) => task.fileId === fileId)
+    if (file !== undefined) found.push(file)
+  }
+  return found
+}
+
+function filesOf(message: MessageInfo): FileTaskInfo[] {
+  return props.files.filter((task) => task.messageId === message.id)
+}
+
+function thumbUrl(file: FileTaskInfo): string {
+  return `lanpost-file:///${encodeURIComponent(file.id)}`
+}
+
+function dayKey(timestamp: number): string {
+  const date = new Date(timestamp)
+  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`
+}
+
+interface HistoryRow {
+  message: MessageInfo
+  images: FileTaskInfo[]
+  file: FileTaskInfo | null
+  day: string
+  sender: string
+}
+
+// 群消息按 meta.senderId 找发送者名字，私聊只标我/对方
+function senderOf(message: MessageInfo): string {
+  if (message.direction === 'out') return '我'
+  if (!props.group) return '对方'
+  try {
+    const meta = JSON.parse(message.meta) as Record<string, unknown>
+    if (typeof meta.senderId === 'string') {
+      const peer = store.peers.find((item) => item.privateUserId === meta.senderId)
+      if (peer !== undefined && peer.name !== '') return peer.name
+      if (meta.senderName !== undefined && typeof meta.senderName === 'string') {
+        return meta.senderName
+      }
+    }
+  } catch {
+    // meta 解析失败就退回“对方”
+  }
+  return '对方'
+}
+
+const rows = computed<HistoryRow[]>(() =>
+  results.value.map((message) => ({
+    message,
+    images: category.value === 'image' ? imagesOf(message) : [],
+    file: category.value === 'file' ? (filesOf(message)[0] ?? null) : null,
+    day: dayKey(message.createdAt),
+    sender: senderOf(message)
+  }))
+)
+
+const emptyText = computed(() => {
+  if (loading.value && results.value.length === 0) return '正在搜索…'
+  if (keyword.value !== '') return '没有匹配的消息'
+  if (category.value === 'image') return '还没有图片'
+  if (category.value === 'file') return '还没有文件'
+  return '还没有消息'
+})
+</script>
+
+<template>
+  <div class="history-mask" @mousedown.self="emit('close')">
+    <div
+      class="history-dialog"
+      role="dialog"
+      aria-modal="true"
+      :aria-label="`聊天记录 · ${props.title}`"
+    >
+      <header class="history-head">
+        <h2>
+          聊天记录
+          <span class="peer">{{ props.title }}</span>
+        </h2>
+        <button class="history-close" title="关闭" @click="emit('close')">
+          <X :size="16" />
+        </button>
+      </header>
+
+      <div class="history-tools">
+        <div class="history-search">
+          <Search :size="14" :stroke-width="1.8" />
+          <input
+            v-model="keywordInput"
+            type="text"
+            placeholder="搜索消息、文件名"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="搜索聊天记录"
+          />
+          <button v-if="keywordInput" class="clear" title="清空搜索" @click="keywordInput = ''">
+            <X :size="12" />
+          </button>
+        </div>
+
+        <div class="history-tabs" role="tablist" aria-label="消息分类">
+          <button
+            v-for="item in categories"
+            :key="item.id"
+            role="tab"
+            :aria-selected="category === item.id"
+            :class="{ active: category === item.id }"
+            @click="category = item.id"
+          >
+            {{ item.label }}
+          </button>
+        </div>
+      </div>
+
+      <div class="history-body">
+        <p v-if="error" class="history-error">{{ error }}</p>
+
+        <template v-else>
+          <template v-for="(row, index) in rows" :key="row.message.id">
+            <div v-if="index === 0 || rows[index - 1].day !== row.day" class="history-date">
+              <span>{{ formatDateDivider(row.message.createdAt) }}</span>
+            </div>
+
+            <button
+              class="history-item"
+              :data-message-id="row.message.id"
+              @click="emit('jump', row.message.id)"
+            >
+              <span class="history-meta">
+                <span class="history-time">{{ formatClock(row.message.createdAt) }}</span>
+                <span class="history-sender">{{ row.sender }}</span>
+              </span>
+
+              <span v-if="category === 'image'" class="history-thumbs">
+                <img
+                  v-for="file in row.images"
+                  :key="file.id"
+                  :src="thumbUrl(file)"
+                  :alt="file.name"
+                  loading="lazy"
+                />
+                <span v-if="row.images.length === 0" class="thumb-empty">图片已删除</span>
+              </span>
+
+              <span v-else-if="category === 'file'" class="history-file">
+                <FileText :size="14" :stroke-width="1.8" />
+                <span class="history-text">{{ row.message.text || '文件' }}</span>
+                <span v-if="row.file" class="history-size">{{ formatSize(row.file.size) }}</span>
+              </span>
+
+              <span v-else class="history-text">{{ previewText(row.message) }}</span>
+            </button>
+          </template>
+
+          <p v-if="rows.length === 0 && !loading" class="history-empty">{{ emptyText }}</p>
+
+          <div class="history-foot">
+            <button v-if="hasMore" class="history-more" :disabled="loading" @click="load(false)">
+              {{ loading ? '加载中…' : '加载更多' }}
+            </button>
+            <span v-else-if="rows.length > 0" class="history-end">没有更多了</span>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.history-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(20, 24, 28, 0.42);
+}
+
+.history-dialog {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  max-width: calc(100vw - 48px);
+  height: 620px;
+  max-height: calc(100vh - 96px);
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.22);
+  overflow: hidden;
+}
+
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 6px;
+}
+
+.history-head h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.history-head .peer {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.history-close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.history-close:hover {
+  background: #f1f2f4;
+  color: var(--text);
+}
+
+.history-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 16px 12px;
+  border-bottom: 1px solid var(--divider);
+}
+
+.history-search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--radius-button);
+  background: #e9e9e9;
+  color: var(--text-muted);
+}
+
+.history-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.history-search .clear {
+  display: grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  border: 0;
+  border-radius: 50%;
+  background: #c8c8c8;
+  color: #ffffff;
+}
+
+.history-search .clear:hover {
+  background: #adadad;
+}
+
+.history-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.history-tabs button {
+  height: 26px;
+  padding: 0 12px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.history-tabs button:hover {
+  color: var(--text);
+}
+
+.history-tabs button.active {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+}
+
+.history-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 8px 14px;
+}
+
+.history-date {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 10px;
+}
+
+.history-date span {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: #dedede;
+  color: #ffffff;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.history-item {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  text-align: left;
+}
+
+.history-item:hover {
+  background: var(--hover);
+}
+
+.history-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.history-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.history-sender {
+  font-size: 11.5px;
+  color: var(--text-secondary);
+}
+
+.history-text {
+  display: block;
+  font-size: 12.5px;
+  color: var(--text);
+  word-break: break-word;
+}
+
+.history-thumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.history-thumbs img {
+  width: 96px;
+  height: 96px;
+  border-radius: 6px;
+  background: #f0f0f0;
+  object-fit: cover;
+}
+
+.thumb-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.history-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.history-file .history-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-size {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.history-empty,
+.history-error {
+  margin: 48px 12px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+.history-error {
+  color: #c0392b;
+}
+
+.history-foot {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 4px;
+}
+
+.history-more {
+  height: 28px;
+  padding: 0 16px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.history-more:hover:not(:disabled) {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.history-more:disabled {
+  opacity: 0.6;
+}
+
+.history-end {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+</style>

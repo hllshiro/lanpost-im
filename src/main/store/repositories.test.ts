@@ -173,6 +173,110 @@ describe('MessageRepository', () => {
     db.close()
   })
 
+  it('searches history by category and keyword', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const messages = new MessageRepository(db)
+    const conversation = conversations.ensureDirect('1|a', '甲')
+
+    const text = messages.insertIncoming(conversation.id, '季度报告已发', 1)
+    messages.insertOutgoing(conversation.id, '收到，我看看', 2)
+    const image = messages.insertOutgoing(
+      conversation.id,
+      '[图片]',
+      3,
+      'text',
+      '{"segments":[{"kind":"image","value":"f1|md5"}]}'
+    )
+    const file = messages.insertOutgoing(conversation.id, '合同.pdf', 4, 'file', '{}')
+    const folder = messages.insertOutgoing(conversation.id, '资料文件夹', 5, 'folder', '{}')
+
+    const plain = messages.search({ conversationId: conversation.id, category: 'message' })
+    expect(plain.messages.map((message) => message.text)).toEqual(['季度报告已发', '收到，我看看'])
+
+    const images = messages.search({ conversationId: conversation.id, category: 'image' })
+    expect(images.messages.map((message) => message.id)).toEqual([image.id])
+
+    const files = messages.search({ conversationId: conversation.id, category: 'file' })
+    expect(files.messages.map((message) => message.id)).toEqual([file.id, folder.id])
+
+    const hit = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      query: '季度'
+    })
+    expect(hit.messages.map((message) => message.id)).toEqual([text.id])
+
+    const byName = messages.search({
+      conversationId: conversation.id,
+      category: 'file',
+      query: '合同'
+    })
+    expect(byName.messages.map((message) => message.id)).toEqual([file.id])
+
+    // 通配符按字面处理，不会把所有消息都捞出来
+    const wildcard = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      query: '%'
+    })
+    expect(wildcard.messages).toEqual([])
+
+    const firstPage = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      limit: 1
+    })
+    // 返回顺序是升序，第一页装的是最新的一条
+    expect(firstPage.messages.map((message) => message.text)).toEqual(['收到，我看看'])
+    expect(firstPage.hasMore).toBe(true)
+    const nextPage = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      limit: 1,
+      beforeId: firstPage.messages[0].id
+    })
+    expect(nextPage.messages.map((message) => message.text)).toEqual(['季度报告已发'])
+    expect(nextPage.hasMore).toBe(false)
+
+    expect(messages.search({ conversationId: 'missing', category: 'message' }).messages).toEqual([])
+
+    db.close()
+  })
+
+  it('returns a window around a message so the chat can jump to it', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const messages = new MessageRepository(db)
+    const conversation = conversations.ensureDirect('1|a', '甲')
+    const inserted = [
+      messages.insertIncoming(conversation.id, '一', 1),
+      messages.insertOutgoing(conversation.id, '二', 2),
+      messages.insertIncoming(conversation.id, '三', 3),
+      messages.insertOutgoing(conversation.id, '四', 4),
+      messages.insertIncoming(conversation.id, '五', 5)
+    ]
+
+    const whole = messages.around(conversation.id, inserted[2].id, 10)
+    expect(whole.messages.map((message) => message.id)).toEqual(inserted.map((row) => row.id))
+    expect(whole.hasMore).toBe(false)
+
+    const limited = messages.around(conversation.id, inserted[2].id, 1)
+    expect(limited.messages.map((message) => message.id)).toEqual([
+      inserted[1].id,
+      inserted[2].id,
+      inserted[3].id
+    ])
+    expect(limited.hasMore).toBe(true)
+
+    expect(messages.around(conversation.id, 999999)).toEqual({
+      messages: [],
+      hasMore: false
+    })
+
+    db.close()
+  })
+
   it('lists only private incoming messages of a conversation', () => {
     const db = openMemory()
     const conversations = new ConversationRepository(db)

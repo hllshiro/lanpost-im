@@ -7,6 +7,7 @@ import type {
   MessagesPage,
   PeerInfo
 } from '../../shared/domain'
+import type { MessageHistoryCategory } from '../../shared/ipc'
 
 interface ConversationRow {
   id: string
@@ -399,6 +400,86 @@ export class MessageRepository {
     const hasMore = rows.length > size
     const page = hasMore ? rows.slice(0, size) : rows
     return { messages: page.reverse().map(mapMessage), hasMore }
+  }
+
+  // 历史窗口：按分类与关键字分页查，顺序与 list 一致（升序）
+  search(request: {
+    conversationId: string
+    category: MessageHistoryCategory
+    query?: string
+    beforeId?: number
+    limit?: number
+  }): MessagesPage {
+    const size = Math.max(1, Math.floor(request.limit ?? 60))
+    const where: string[] = ['conversation_id = ?']
+    const params: Array<string | number> = [request.conversationId]
+    if (request.category === 'image') {
+      where.push(`kind = 'text' AND meta LIKE '%"kind":"image"%'`)
+    } else if (request.category === 'file') {
+      where.push(`kind IN ('file', 'folder')`)
+    } else {
+      // 消息分类不含图片和文件，它们各自有专门的分类
+      where.push(`kind NOT IN ('file', 'folder') AND meta NOT LIKE '%"kind":"image"%'`)
+    }
+    const query = (request.query ?? '').trim()
+    if (query !== '') {
+      where.push(`text LIKE ? ESCAPE '\\'`)
+      params.push(`%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`)
+    }
+    if (request.beforeId !== undefined) {
+      where.push(
+        `(created_at < (SELECT created_at FROM messages WHERE id = ?) OR
+          (created_at = (SELECT created_at FROM messages WHERE id = ?) AND id < ?))`
+      )
+      params.push(request.beforeId, request.beforeId, request.beforeId)
+    }
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE ${where.join(' AND ')}
+         ORDER BY created_at DESC, id DESC LIMIT ?`
+      )
+      .all(...params, size + 1) as unknown as MessageRow[]
+    const hasMore = rows.length > size
+    const page = hasMore ? rows.slice(0, size) : rows
+    return { messages: page.reverse().map(mapMessage), hasMore }
+  }
+
+  // 跳到某条消息：取它前后各 limit 条，返回升序窗口，窗口里一定包含目标消息
+  around(conversationId: string, messageId: number, limit = 40): MessagesPage {
+    const target = this.db.prepare('SELECT * FROM messages WHERE id = ?').get(messageId) as
+      MessageRow | undefined
+    if (target === undefined || target.conversation_id !== conversationId) {
+      return { messages: [], hasMore: false }
+    }
+    const size = Math.max(1, Math.floor(limit))
+    const older = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE conversation_id = ? AND (
+           created_at < ? OR (created_at = ? AND id < ?)
+         ) ORDER BY created_at DESC, id DESC LIMIT ?`
+      )
+      .all(
+        conversationId,
+        target.created_at,
+        target.created_at,
+        target.id,
+        size
+      ) as unknown as MessageRow[]
+    const newer = this.db
+      .prepare(
+        `SELECT * FROM messages WHERE conversation_id = ? AND (
+           created_at > ? OR (created_at = ? AND id > ?)
+         ) ORDER BY created_at, id LIMIT ?`
+      )
+      .all(
+        conversationId,
+        target.created_at,
+        target.created_at,
+        target.id,
+        size
+      ) as unknown as MessageRow[]
+    const rows = [...older.reverse(), target, ...newer]
+    return { messages: rows.map(mapMessage), hasMore: older.length === size }
   }
 
   insertIncoming(

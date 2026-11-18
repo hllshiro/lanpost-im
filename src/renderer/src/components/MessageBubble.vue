@@ -18,6 +18,8 @@ const props = defineProps<{
   otherInitial: string
   avatarMd5?: string
   group: boolean
+  // 历史窗口跳过来时短暂高亮
+  flash?: boolean
 }>()
 
 const store = useAppStore()
@@ -271,7 +273,7 @@ async function revealFolder(): Promise<void> {
 </script>
 
 <template>
-  <div class="message">
+  <div class="message" :class="{ flash: flash === true }" :data-message-id="message.id">
     <div v-if="showTime" class="time">{{ formatClock(message.createdAt) }}</div>
 
     <div v-if="message.kind === 'system'" class="system">
@@ -378,6 +380,22 @@ async function revealFolder(): Promise<void> {
   display: flex;
   flex-direction: column;
   margin-bottom: var(--msg-gap);
+}
+
+.message.flash {
+  animation: message-flash 1.6s ease;
+}
+
+@keyframes message-flash {
+  0%,
+  60% {
+    background: rgba(255, 208, 92, 0.32);
+    border-radius: 8px;
+  }
+
+  100% {
+    background: transparent;
+  }
 }
 
 .time {

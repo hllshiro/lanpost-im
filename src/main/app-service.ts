@@ -46,7 +46,9 @@ import type {
 import type {
   AppInfo,
   BatchSendResult,
+  MessagesAroundRequest,
   MessagesListRequest,
+  MessagesSearchRequest,
   MessagesSendRequest,
   NwtImportPreview,
   NwtImportRequest,
@@ -1745,8 +1747,17 @@ export class AppService {
     return this.repos.messages.list(request.conversationId, request.beforeId, request.limit ?? 50)
   }
 
-  listAllMessages(conversationId: string): MessageInfo[] {
-    return this.repos.messages.listAll(conversationId)
+  // 历史窗口的搜索与跳转
+  searchMessages(request: MessagesSearchRequest): MessagesPage {
+    return this.repos.messages.search(request)
+  }
+
+  messagesAround(request: MessagesAroundRequest): MessagesPage {
+    return this.repos.messages.around(
+      request.conversationId,
+      request.messageId,
+      request.limit ?? 40
+    )
   }
 
   sendText(request: MessagesSendRequest): SendTextResult {
