@@ -33,6 +33,28 @@ let mergeTimer: ReturnType<typeof setTimeout> | undefined
 
 const keyword = computed(() => query.value.trim().toLowerCase())
 
+const filterCorporation = ref('')
+const filterDepartment = ref('')
+
+const corporationOptions = computed(() => peerOptionValues('corporation'))
+const departmentOptions = computed(() => peerOptionValues('department'))
+
+const hasFilter = computed(() => filterCorporation.value !== '' || filterDepartment.value !== '')
+
+function peerOptionValues(field: 'corporation' | 'department'): string[] {
+  const values = new Set<string>()
+  for (const peer of store.peers) {
+    const value = peer[field].trim()
+    if (value !== '') values.add(value)
+  }
+  return [...values].sort(comparePinyin)
+}
+
+function clearFilters(): void {
+  filterCorporation.value = ''
+  filterDepartment.value = ''
+}
+
 const groupConversations = computed(() => {
   const map = new Map<string, string>()
   for (const conversation of store.conversations) {
@@ -105,6 +127,12 @@ const visible = computed(() => {
   if (activeLetter.value !== null) {
     list = list.filter((peer) => pinyinInfo(displayName(peer)).letter === activeLetter.value)
   }
+  if (filterCorporation.value !== '') {
+    list = list.filter((peer) => peer.corporation.trim() === filterCorporation.value)
+  }
+  if (filterDepartment.value !== '') {
+    list = list.filter((peer) => peer.department.trim() === filterDepartment.value)
+  }
   if (!keyword.value) return list
   return list.filter((peer) => {
     const fields = [
@@ -139,6 +167,7 @@ const groups = computed(() => {
 
 const emptyText = computed(() => {
   if (store.peers.length === 0) return '暂无联系人'
+  if (hasFilter.value) return '没有符合筛选条件的联系人'
   if (activeLetter.value !== null && keyword.value === '') {
     return `没有 ${activeLetter.value} 开头的联系人`
   }
@@ -261,6 +290,19 @@ function handleBatchSent(result: BatchSendResult): void {
         </button>
       </div>
     </header>
+
+    <div v-if="tab === 'contacts'" class="filters">
+      <select v-model="filterCorporation" class="filter-select" aria-label="按公司筛选">
+        <option value="">全部公司</option>
+        <option v-for="item in corporationOptions" :key="item" :value="item">{{ item }}</option>
+      </select>
+      <select v-model="filterDepartment" class="filter-select" aria-label="按部门筛选">
+        <option value="">全部部门</option>
+        <option v-for="item in departmentOptions" :key="item" :value="item">{{ item }}</option>
+      </select>
+      <button v-if="hasFilter" class="filter-clear" @click="clearFilters">清除筛选</button>
+      <span class="filter-count">{{ visible.length }} 位匹配</span>
+    </div>
 
     <p v-if="mergeNote" class="merge-note">{{ mergeNote }}</p>
     <p v-if="batchNote" class="merge-note">{{ batchNote }}</p>
@@ -512,6 +554,49 @@ function handleBatchSent(result: BatchSendResult): void {
 
 .clear:hover {
   background: #adadad;
+}
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px 0;
+}
+
+.filter-select {
+  height: 26px;
+  max-width: 180px;
+  padding: 0 6px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: var(--page-bg);
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+}
+
+.filter-select:focus {
+  border-color: var(--text-muted);
+}
+
+.filter-clear {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.filter-clear:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.filter-count {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 .scroll {

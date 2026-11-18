@@ -32,6 +32,8 @@ import { mergeSettings } from '../../../shared/settings-merge'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
+import { comparePinyin } from '../utils/pinyin'
+import { useAppStore } from '../stores/app'
 import NwtImportDialog from './NwtImportDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
@@ -95,6 +97,20 @@ const firewallBusy = ref(false)
 const nwtBusy = ref(false)
 const nwtResult = ref('')
 const nwtPreview = ref<NwtImportPreview | null>(null)
+
+const store = useAppStore()
+
+// 公司与部门的下拉选项来自局域网内已发现联系人的资料，仍然是可输入的自由文本
+function peerOptions(field: 'corporation' | 'department'): string[] {
+  const values = new Set<string>()
+  for (const peer of store.peers) {
+    const value = peer[field].trim()
+    if (value !== '') values.add(value)
+  }
+  return [...values].sort(comparePinyin)
+}
+const corporationOptions = computed(() => peerOptions('corporation'))
+const departmentOptions = computed(() => peerOptions('department'))
 let savedTimer: number | undefined
 // 设置补丁按顺序逐个提交；连续切换多个开关时不会互相覆盖
 let saveQueue: Promise<void> = Promise.resolve()
@@ -557,7 +573,7 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <label class="label" for="setting-host">主机名</label>
-              <p class="hint">默认取当前计算机名，避免局域网内冲突</p>
+              <p class="hint">取自当前计算机名，禁止修改</p>
             </div>
             <div class="control">
               <input
@@ -565,44 +581,47 @@ onBeforeUnmount(() => {
                 v-model="settings.identity.hostName"
                 class="input"
                 maxlength="64"
-                @change="saveField('identity', { hostName: settings.identity.hostName })"
+                disabled
+                title="主机名由计算机名确定，不能修改"
               />
             </div>
           </div>
           <div class="row">
-            <div class="row-text"><label class="label" for="setting-group">分组</label></div>
-            <div class="control">
-              <input
-                id="setting-group"
-                v-model="settings.identity.group"
-                class="input"
-                maxlength="64"
-                @change="saveField('identity', { group: settings.identity.group })"
-              />
+            <div class="row-text">
+              <label class="label" for="setting-corporation">公司</label>
+              <p class="hint">可以直接输入，也可以从局域网内联系人的信息里选</p>
             </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><label class="label" for="setting-corporation">公司</label></div>
             <div class="control">
               <input
                 id="setting-corporation"
                 v-model="settings.identity.corporation"
                 class="input"
+                list="identity-corporation-options"
                 maxlength="64"
                 @change="saveField('identity', { corporation: settings.identity.corporation })"
               />
+              <datalist id="identity-corporation-options">
+                <option v-for="item in corporationOptions" :key="item" :value="item" />
+              </datalist>
             </div>
           </div>
           <div class="row">
-            <div class="row-text"><label class="label" for="setting-department">部门</label></div>
+            <div class="row-text">
+              <label class="label" for="setting-department">部门</label>
+              <p class="hint">可以直接输入，也可以从局域网内联系人的信息里选</p>
+            </div>
             <div class="control">
               <input
                 id="setting-department"
                 v-model="settings.identity.department"
                 class="input"
+                list="identity-department-options"
                 maxlength="64"
                 @change="saveField('identity', { department: settings.identity.department })"
               />
+              <datalist id="identity-department-options">
+                <option v-for="item in departmentOptions" :key="item" :value="item" />
+              </datalist>
             </div>
           </div>
           <div class="row">
