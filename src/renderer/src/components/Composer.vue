@@ -764,10 +764,11 @@ onMounted(async () => {
   pointer-events: none;
 }
 
-.editor-image {
+/* 粘贴与待发图片是运行时插入的节点，拿不到本组件的 scoped 属性，必须用 :deep 才能命中 */
+.rich-input :deep(.editor-image) {
   display: inline-block;
-  height: 28px;
-  max-width: 96px;
+  height: 40px;
+  max-width: 160px;
   margin: 0 2px;
   border-radius: 4px;
   object-fit: contain;
