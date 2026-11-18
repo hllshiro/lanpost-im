@@ -268,13 +268,36 @@ function handleBatchSent(result: BatchSendResult): void {
           <template v-if="activeLetter !== null"> · {{ activeLetter }} 开头</template>
         </p>
       </div>
-      <div v-if="tab === 'contacts'" class="head-actions">
-        <button class="action" @click="batchOpen = true">群发</button>
-        <button class="action secondary" @click="mergeOpen = true">
+      <div class="tabs" role="tablist" aria-label="联系人分类">
+        <button
+          role="tab"
+          :aria-selected="tab === 'contacts'"
+          :class="{ active: tab === 'contacts' }"
+          @click="tab = 'contacts'"
+        >
+          联系人<span class="tab-count">{{ store.peers.length }}</span>
+        </button>
+        <button
+          role="tab"
+          :aria-selected="tab === 'groups'"
+          :class="{ active: tab === 'groups' }"
+          @click="tab = 'groups'"
+        >
+          群聊<span class="tab-count">{{ store.groups.length }}</span>
+        </button>
+      </div>
+      <div class="head-actions">
+        <button class="action" :disabled="tab !== 'contacts'" @click="batchOpen = true">
+          群发
+        </button>
+        <button class="action secondary" :disabled="tab !== 'contacts'" @click="mergeOpen = true">
           <Merge :size="13" :stroke-width="1.9" />
           合并
         </button>
       </div>
+    </header>
+
+    <div class="toolbar">
       <div class="search">
         <Search :size="14" :stroke-width="1.8" />
         <input
@@ -289,19 +312,30 @@ function handleBatchSent(result: BatchSendResult): void {
           <X :size="13" />
         </button>
       </div>
-    </header>
 
-    <div v-if="tab === 'contacts'" class="filters">
-      <select v-model="filterCorporation" class="filter-select" aria-label="按公司筛选">
+      <select
+        v-model="filterCorporation"
+        class="filter-select"
+        :disabled="tab !== 'contacts'"
+        aria-label="按公司筛选"
+      >
         <option value="">全部公司</option>
         <option v-for="item in corporationOptions" :key="item" :value="item">{{ item }}</option>
       </select>
-      <select v-model="filterDepartment" class="filter-select" aria-label="按部门筛选">
+      <select
+        v-model="filterDepartment"
+        class="filter-select"
+        :disabled="tab !== 'contacts'"
+        aria-label="按部门筛选"
+      >
         <option value="">全部部门</option>
         <option v-for="item in departmentOptions" :key="item" :value="item">{{ item }}</option>
       </select>
+
       <button v-if="hasFilter" class="filter-clear" @click="clearFilters">清除筛选</button>
-      <span class="filter-count">{{ visible.length }} 位匹配</span>
+      <span class="filter-count">
+        {{ tab === 'contacts' ? `${visible.length} 位匹配` : `${store.groups.length} 个群` }}
+      </span>
     </div>
 
     <p v-if="mergeNote" class="merge-note">{{ mergeNote }}</p>
@@ -334,25 +368,6 @@ function handleBatchSent(result: BatchSendResult): void {
       @cancel="deleteTarget = null"
       @confirm="confirmDelete"
     />
-
-    <div class="tabs" role="tablist" aria-label="联系人分类">
-      <button
-        role="tab"
-        :aria-selected="tab === 'contacts'"
-        :class="{ active: tab === 'contacts' }"
-        @click="tab = 'contacts'"
-      >
-        联系人<span class="tab-count">{{ store.peers.length }}</span>
-      </button>
-      <button
-        role="tab"
-        :aria-selected="tab === 'groups'"
-        :class="{ active: tab === 'groups' }"
-        @click="tab = 'groups'"
-      >
-        群聊<span class="tab-count">{{ store.groups.length }}</span>
-      </button>
-    </div>
 
     <div class="scroll">
       <div class="inner">
@@ -497,7 +512,17 @@ function handleBatchSent(result: BatchSendResult): void {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 20px;
+  gap: 16px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--divider);
+  background: var(--page-bg);
+}
+
+.toolbar {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 0 24px;
   border-bottom: 1px solid var(--divider);
   background: var(--page-bg);
@@ -556,15 +581,8 @@ function handleBatchSent(result: BatchSendResult): void {
   background: #adadad;
 }
 
-.filters {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 24px 0;
-}
-
 .filter-select {
-  height: 26px;
+  height: 28px;
   max-width: 180px;
   padding: 0 6px;
   border: 1px solid var(--divider);
@@ -580,7 +598,7 @@ function handleBatchSent(result: BatchSendResult): void {
 }
 
 .filter-clear {
-  height: 26px;
+  height: 28px;
   padding: 0 10px;
   border: 1px solid var(--divider);
   border-radius: var(--radius-button);
@@ -595,8 +613,13 @@ function handleBatchSent(result: BatchSendResult): void {
 }
 
 .filter-count {
+  margin-left: auto;
   font-size: 11px;
   color: var(--text-muted);
+}
+
+.filter-select:disabled {
+  opacity: 0.5;
 }
 
 .scroll {
@@ -631,33 +654,32 @@ function handleBatchSent(result: BatchSendResult): void {
 }
 
 .tabs {
-  flex: 0 0 40px;
+  flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 4px;
-  padding: 0 20px;
-  border-bottom: 1px solid var(--divider);
-  background: var(--page-bg);
 }
 
 .tabs button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 12px;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-radius: var(--radius-button);
   background: transparent;
   color: var(--text-secondary);
   font-size: 12.5px;
 }
 
 .tabs button:hover {
+  background: var(--hover);
   color: var(--text);
 }
 
 .tabs button.active {
-  border-bottom-color: var(--accent);
+  background: #ececec;
   color: var(--text);
   font-weight: 600;
 }
@@ -914,6 +936,11 @@ function handleBatchSent(result: BatchSendResult): void {
   background: #ffffff;
   border: 1px solid #dcdcdc;
   color: var(--text);
+}
+
+.action:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .chevron {
