@@ -172,7 +172,7 @@ export interface MessagesSearchRequest {
   category: MessageHistoryCategory
   query?: string
   offset?: number
-  // 按日期跳页：服务端找到这一天最新的那条，算出它落在第几页
+  // 按日期筛选：只看这一天的消息（当天 00:00 到次日 00:00）
   dateFrom?: number
   dateTo?: number
   limit?: number

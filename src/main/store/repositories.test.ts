@@ -195,9 +195,12 @@ describe('MessageRepository', () => {
     // 历史窗口最新在上
     expect(plain.messages.map((message) => message.text)).toEqual(['收到，我看看', '季度报告已发'])
     expect(plain.total).toBe(2)
-    expect(plain.offset).toBe(0)
-    expect(plain.newestAt).toBeGreaterThan(0)
-    expect(plain.oldestAt).toBeGreaterThan(0)
+    // 日历上能点的日期：这两条消息所在的那天
+    const dayOf = new Date(text.createdAt)
+    const dayKey = `${dayOf.getFullYear()}-${String(dayOf.getMonth() + 1).padStart(2, '0')}-${String(
+      dayOf.getDate()
+    ).padStart(2, '0')}`
+    expect(plain.days).toContain(dayKey)
 
     const images = messages.search({ conversationId: conversation.id, category: 'image' })
     expect(images.messages.map((message) => message.id)).toEqual([image.id])
@@ -245,9 +248,8 @@ describe('MessageRepository', () => {
       offset: 1
     })
     expect(secondPage.messages.map((message) => message.text)).toEqual(['季度报告已发'])
-    expect(secondPage.offset).toBe(1)
 
-    // 按日期跳：取到包含这一天最新一条的那一页
+    // 日期是筛选条件：只看这一天
     const startOfDay = new Date(text.createdAt)
     startOfDay.setHours(0, 0, 0, 0)
     const endOfDay = new Date(startOfDay)
@@ -259,8 +261,20 @@ describe('MessageRepository', () => {
       dateTo: endOfDay.getTime(),
       limit: 50
     })
-    expect(byDate.offset).toBe(0)
+    expect(byDate.total).toBe(2)
     expect(byDate.messages.map((message) => message.text)).toEqual(['收到，我看看', '季度报告已发'])
+
+    // 换成没有消息的一天：一条都不给，可点日期不受日期筛选影响
+    const emptyDay = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      dateFrom: startOfDay.getTime() - 86400000,
+      dateTo: startOfDay.getTime(),
+      limit: 50
+    })
+    expect(emptyDay.messages).toEqual([])
+    expect(emptyDay.total).toBe(0)
+    expect(emptyDay.days).toEqual(plain.days)
 
     const missing = messages.search({ conversationId: 'missing', category: 'message' })
     expect(missing.messages).toEqual([])

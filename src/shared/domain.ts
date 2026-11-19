@@ -161,13 +161,11 @@ export interface MessagesPage {
   hasMore: boolean
 }
 
-// 历史窗口的分页结果：按时间倒序，带总数与偏移，日期跳转时偏移由服务端算好
+// 历史窗口的分页结果：按时间倒序，带总数；days 是当前过滤条件下有消息的日期
 export interface MessagesSearchResult {
   messages: MessageInfo[]
   total: number
-  offset: number
-  newestAt: number
-  oldestAt: number
+  days: string[]
 }
 
 export interface SendTextResult {

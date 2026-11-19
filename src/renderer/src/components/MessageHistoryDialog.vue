@@ -5,8 +5,9 @@ import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import type { MessageHistoryCategory } from '../../../shared/ipc'
 import { useAppStore } from '../stores/app'
 import { formatDateDivider, formatSize, formatClock, previewText } from '../utils/format'
-import ImageViewer from './ImageViewer.vue'
+import DateFilter from './DateFilter.vue'
 import ImageMenu from './ImageMenu.vue'
+import ImageViewer from './ImageViewer.vue'
 
 const props = defineProps<{
   conversationId: string
@@ -36,8 +37,8 @@ const keyword = ref('')
 const results = ref<MessageInfo[]>([])
 const total = ref(0)
 const page = ref(0)
-const newestAt = ref(0)
-const oldestAt = ref(0)
+// 有消息的日期，日历里只有这些能点
+const days = ref<string[]>([])
 const dateInput = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -53,40 +54,37 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined
 let requestSeq = 0
 
 const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
-const dateMin = computed(() => toDateInput(oldestAt.value))
-const dateMax = computed(() => toDateInput(newestAt.value))
 
-function toDateInput(timestamp: number): string {
-  if (timestamp <= 0) return ''
-  const date = new Date(timestamp)
-  const month = `${date.getMonth() + 1}`.padStart(2, '0')
-  const day = `${date.getDate()}`.padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
+// 选中日期换成本地当天的起止时间
+function dateRange(value: string): { from: number; to: number } | null {
+  if (value === '') return null
+  const day = new Date(`${value}T00:00:00`)
+  if (Number.isNaN(day.getTime())) return null
+  const from = day.getTime()
+  const to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime()
+  return { from, to }
 }
 
-// 分页取一页；给日期时由服务端算出该落在第几页
-async function load(
-  options: { offset?: number; dateFrom?: number; dateTo?: number } = {}
-): Promise<void> {
+// 分页取一页，日期是筛选条件
+async function load(options: { offset?: number } = {}): Promise<void> {
   const requestId = ++requestSeq
   loading.value = true
   error.value = ''
   try {
+    const range = dateRange(dateInput.value)
     const result = await window.api.messages.search({
       conversationId: props.conversationId,
       category: category.value,
       query: keyword.value,
       offset: options.offset ?? page.value * PAGE_SIZE,
-      dateFrom: options.dateFrom,
-      dateTo: options.dateTo,
+      dateFrom: range?.from,
+      dateTo: range?.to,
       limit: PAGE_SIZE
     })
     if (requestId !== requestSeq) return
     results.value = result.messages
     total.value = result.total
-    newestAt.value = result.newestAt
-    oldestAt.value = result.oldestAt
-    page.value = Math.round(result.offset / PAGE_SIZE)
+    days.value = result.days
     await resolveFileStates(result.messages)
   } catch (reason) {
     if (requestId !== requestSeq) return
@@ -148,14 +146,11 @@ function goPage(delta: number): void {
   void load()
 }
 
-function jumpToDate(): void {
-  if (dateInput.value === '') return
-  const day = new Date(`${dateInput.value}T00:00:00`)
-  if (Number.isNaN(day.getTime())) return
-  // 结束取本地时间的下一天零点，跨夏令时也不会差一小时
-  const from = day.getTime()
-  const to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime()
-  void load({ offset: 0, dateFrom: from, dateTo: to })
+// 选了哪天就只看哪天，回到第 1 页
+function onSelectDay(day: string): void {
+  dateInput.value = day
+  page.value = 0
+  void load()
 }
 
 onBeforeUnmount(() => {
@@ -395,15 +390,7 @@ function locateFromImageMenu(): void {
             >
               下一页
             </button>
-            <input
-              v-model="dateInput"
-              class="history-jump-date"
-              type="date"
-              :min="dateMin"
-              :max="dateMax"
-              aria-label="按日期跳转"
-              @change="jumpToDate"
-            />
+            <DateFilter :value="dateInput" :days="days" @select="onSelectDay" />
           </div>
         </template>
       </div>
@@ -737,16 +724,6 @@ function locateFromImageMenu(): void {
   font-size: 11.5px;
   color: var(--text-muted);
   white-space: nowrap;
-}
-
-.history-jump-date {
-  height: 26px;
-  padding: 0 6px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-button);
-  background: #ffffff;
-  color: var(--text-secondary);
-  font-size: 12px;
 }
 
 .history-menu-layer {

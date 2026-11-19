@@ -403,7 +403,7 @@ export class MessageRepository {
     return { messages: page.reverse().map(mapMessage), hasMore }
   }
 
-  // 历史窗口：按分类与关键字分页查，最新在前；带总数，日期跳转由服务端算页偏移
+  // 历史窗口：按分类、关键字、日期分页查，最新在前；days 是当前条件下有消息的日期
   search(request: {
     conversationId: string
     category: MessageHistoryCategory
@@ -429,53 +429,41 @@ export class MessageRepository {
       where.push(`text LIKE ? ESCAPE '\\'`)
       params.push(`%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`)
     }
+
+    // 日期是筛选条件，选了哪天就只看哪天；日历上可点的日期按分类和关键字算，不受它影响
+    const baseClause = where.join(' AND ')
+    const baseParams = [...params]
+    if (request.dateFrom !== undefined) {
+      where.push('created_at >= ? AND created_at < ?')
+      params.push(request.dateFrom, request.dateTo ?? request.dateFrom + 86400000)
+    }
     const clause = where.join(' AND ')
 
-    const bounds = this.db
-      .prepare(
-        `SELECT MAX(created_at) AS newest, MIN(created_at) AS oldest FROM messages WHERE ${clause}`
-      )
-      .get(...params) as { newest: number | null; oldest: number | null }
     const total = (
       this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE ${clause}`).get(...params) as {
         n: number
       }
     ).n
 
-    let offset = Math.max(0, Math.floor(request.offset ?? 0))
-    if (request.dateFrom !== undefined) {
-      // 找这一天最新的那条，再数它上面有多少条，就能算出落在第几页
-      const dateTo = request.dateTo ?? request.dateFrom + 86400000
-      const anchor = this.db
-        .prepare(
-          `SELECT created_at, id FROM messages WHERE ${clause} AND created_at >= ? AND created_at < ?
-           ORDER BY created_at DESC, id DESC LIMIT 1`
-        )
-        .get(...params, request.dateFrom, dateTo) as { created_at: number; id: number } | undefined
-      if (anchor !== undefined) {
-        const newer = this.db
-          .prepare(
-            `SELECT COUNT(*) AS n FROM messages WHERE ${clause} AND (
-               created_at > ? OR (created_at = ? AND id > ?))`
-          )
-          .get(...params, anchor.created_at, anchor.created_at, anchor.id) as { n: number }
-        offset = Math.floor(newer.n / size) * size
-      }
-    }
+    const dayRows = this.db
+      .prepare(
+        `SELECT DISTINCT strftime('%Y-%m-%d', created_at / 1000, 'unixepoch', 'localtime') AS day
+         FROM messages WHERE ${baseClause} ORDER BY day DESC`
+      )
+      .all(...baseParams) as unknown as Array<{ day: string }>
+    const days = dayRows.map((row) => row.day)
 
     const rows = this.db
       .prepare(
         `SELECT * FROM messages WHERE ${clause}
          ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
       )
-      .all(...params, size, offset) as unknown as MessageRow[]
+      .all(...params, size, Math.max(0, Math.floor(request.offset ?? 0))) as unknown as MessageRow[]
 
     return {
       messages: rows.map(mapMessage),
       total,
-      offset,
-      newestAt: bounds.newest ?? 0,
-      oldestAt: bounds.oldest ?? 0
+      days
     }
   }
 
