@@ -29,7 +29,7 @@ const categories: Array<{ id: MessageHistoryCategory; label: string }> = [
   { id: 'file', label: '文件' }
 ]
 
-const PAGE_SIZE = 50
+const PAGE_SIZE = 20
 
 const category = ref<MessageHistoryCategory>('message')
 const keywordInput = ref('')
@@ -375,24 +375,24 @@ function locateFromImageMenu(): void {
           </template>
 
           <p v-if="rows.length === 0 && !loading" class="history-empty">{{ emptyText }}</p>
-
-          <div class="history-foot">
-            <button class="history-page" :disabled="page === 0 || loading" @click="goPage(-1)">
-              上一页
-            </button>
-            <span class="history-page-info">
-              第 {{ page + 1 }} / {{ pageCount }} 页 · 共 {{ total }} 条
-            </span>
-            <button
-              class="history-page"
-              :disabled="page + 1 >= pageCount || loading"
-              @click="goPage(1)"
-            >
-              下一页
-            </button>
-            <DateFilter :value="dateInput" :days="days" @select="onSelectDay" />
-          </div>
         </template>
+      </div>
+
+      <div class="history-foot">
+        <button class="history-page" :disabled="page === 0 || loading" @click="goPage(-1)">
+          上一页
+        </button>
+        <span class="history-page-info">
+          第 {{ page + 1 }} / {{ pageCount }} 页 · 共 {{ total }} 条
+        </span>
+        <button
+          class="history-page"
+          :disabled="page + 1 >= pageCount || loading"
+          @click="goPage(1)"
+        >
+          下一页
+        </button>
+        <DateFilter :value="dateInput" :days="days" @select="onSelectDay" />
       </div>
 
       <div
@@ -694,11 +694,14 @@ function locateFromImageMenu(): void {
 }
 
 .history-foot {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 10px 0 4px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--divider);
+  background: #ffffff;
 }
 
 .history-page {

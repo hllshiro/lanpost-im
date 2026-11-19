@@ -178,7 +178,7 @@ onClickOutside(anchor, () => {
 
 .date-panel {
   position: absolute;
-  top: 32px;
+  bottom: 32px;
   right: 0;
   z-index: 90;
   width: 252px;

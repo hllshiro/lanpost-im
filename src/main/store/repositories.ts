@@ -413,7 +413,7 @@ export class MessageRepository {
     dateTo?: number
     limit?: number
   }): MessagesSearchResult {
-    const size = Math.max(1, Math.floor(request.limit ?? 50))
+    const size = Math.max(1, Math.floor(request.limit ?? 20))
     const where: string[] = ['conversation_id = ?']
     const params: Array<string | number> = [request.conversationId]
     if (request.category === 'image') {
