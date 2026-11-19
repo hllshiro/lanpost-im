@@ -173,7 +173,7 @@ describe('MessageRepository', () => {
     db.close()
   })
 
-  it('searches history by category and keyword', () => {
+  it('searches history by category and keyword, newest first', () => {
     const db = openMemory()
     const conversations = new ConversationRepository(db)
     const messages = new MessageRepository(db)
@@ -192,13 +192,21 @@ describe('MessageRepository', () => {
     const folder = messages.insertOutgoing(conversation.id, '资料文件夹', 5, 'folder', '{}')
 
     const plain = messages.search({ conversationId: conversation.id, category: 'message' })
-    expect(plain.messages.map((message) => message.text)).toEqual(['季度报告已发', '收到，我看看'])
+    // 历史窗口最新在上
+    expect(plain.messages.map((message) => message.text)).toEqual(['收到，我看看', '季度报告已发'])
+    expect(plain.total).toBe(2)
+    expect(plain.offset).toBe(0)
+    expect(plain.newestAt).toBeGreaterThan(0)
+    expect(plain.oldestAt).toBeGreaterThan(0)
 
     const images = messages.search({ conversationId: conversation.id, category: 'image' })
     expect(images.messages.map((message) => message.id)).toEqual([image.id])
+    expect(images.total).toBe(1)
 
     const files = messages.search({ conversationId: conversation.id, category: 'file' })
-    expect(files.messages.map((message) => message.id)).toEqual([file.id, folder.id])
+    // 同样是最新在上：文件夹比文件晚发
+    expect(files.messages.map((message) => message.id)).toEqual([folder.id, file.id])
+    expect(files.total).toBe(2)
 
     const hit = messages.search({
       conversationId: conversation.id,
@@ -222,24 +230,41 @@ describe('MessageRepository', () => {
     })
     expect(wildcard.messages).toEqual([])
 
+    // 按偏移分页：每页一条，从最新往老的走
     const firstPage = messages.search({
       conversationId: conversation.id,
       category: 'message',
       limit: 1
     })
-    // 返回顺序是升序，第一页装的是最新的一条
     expect(firstPage.messages.map((message) => message.text)).toEqual(['收到，我看看'])
-    expect(firstPage.hasMore).toBe(true)
-    const nextPage = messages.search({
+    expect(firstPage.total).toBe(2)
+    const secondPage = messages.search({
       conversationId: conversation.id,
       category: 'message',
       limit: 1,
-      beforeId: firstPage.messages[0].id
+      offset: 1
     })
-    expect(nextPage.messages.map((message) => message.text)).toEqual(['季度报告已发'])
-    expect(nextPage.hasMore).toBe(false)
+    expect(secondPage.messages.map((message) => message.text)).toEqual(['季度报告已发'])
+    expect(secondPage.offset).toBe(1)
 
-    expect(messages.search({ conversationId: 'missing', category: 'message' }).messages).toEqual([])
+    // 按日期跳：取到包含这一天最新一条的那一页
+    const startOfDay = new Date(text.createdAt)
+    startOfDay.setHours(0, 0, 0, 0)
+    const endOfDay = new Date(startOfDay)
+    endOfDay.setDate(endOfDay.getDate() + 1)
+    const byDate = messages.search({
+      conversationId: conversation.id,
+      category: 'message',
+      dateFrom: startOfDay.getTime(),
+      dateTo: endOfDay.getTime(),
+      limit: 50
+    })
+    expect(byDate.offset).toBe(0)
+    expect(byDate.messages.map((message) => message.text)).toEqual(['收到，我看看', '季度报告已发'])
+
+    const missing = messages.search({ conversationId: 'missing', category: 'message' })
+    expect(missing.messages).toEqual([])
+    expect(missing.total).toBe(0)
 
     db.close()
   })

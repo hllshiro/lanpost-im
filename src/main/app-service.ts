@@ -39,6 +39,7 @@ import type {
   GroupMemberInfo,
   MessageInfo,
   MessagesPage,
+  MessagesSearchResult,
   PeerInfo,
   SendTextResult,
   StagedAttachment
@@ -1748,7 +1749,7 @@ export class AppService {
   }
 
   // 历史窗口的搜索与跳转
-  searchMessages(request: MessagesSearchRequest): MessagesPage {
+  searchMessages(request: MessagesSearchRequest): MessagesSearchResult {
     return this.repos.messages.search(request)
   }
 

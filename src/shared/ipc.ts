@@ -4,6 +4,7 @@ import type {
   FavoriteSticker,
   GroupInfo,
   MessagesPage,
+  MessagesSearchResult,
   SendTextResult,
   StagedAttachment
 } from './domain'
@@ -170,7 +171,10 @@ export interface MessagesSearchRequest {
   conversationId: string
   category: MessageHistoryCategory
   query?: string
-  beforeId?: number
+  offset?: number
+  // 按日期跳页：服务端找到这一天最新的那条，算出它落在第几页
+  dateFrom?: number
+  dateTo?: number
   limit?: number
 }
 
@@ -244,8 +248,8 @@ export type Api = {
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>
-    // 历史窗口：按分类与关键字分页查消息
-    search(request: MessagesSearchRequest): Promise<MessagesPage>
+    // 历史窗口：按分类与关键字分页查消息，最新在前
+    search(request: MessagesSearchRequest): Promise<MessagesSearchResult>
     // 跳到某条消息时，取回它前后的一段历史
     around(request: MessagesAroundRequest): Promise<MessagesPage>
     send(request: MessagesSendRequest): Promise<SendTextResult>

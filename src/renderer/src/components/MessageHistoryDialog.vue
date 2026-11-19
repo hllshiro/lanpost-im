@@ -28,11 +28,17 @@ const categories: Array<{ id: MessageHistoryCategory; label: string }> = [
   { id: 'file', label: '文件' }
 ]
 
+const PAGE_SIZE = 50
+
 const category = ref<MessageHistoryCategory>('message')
 const keywordInput = ref('')
 const keyword = ref('')
 const results = ref<MessageInfo[]>([])
-const hasMore = ref(false)
+const total = ref(0)
+const page = ref(0)
+const newestAt = ref(0)
+const oldestAt = ref(0)
+const dateInput = ref('')
 const loading = ref(false)
 const error = ref('')
 const viewer = ref<FileTaskInfo | null>(null)
@@ -46,31 +52,42 @@ let searchTimer: ReturnType<typeof setTimeout> | undefined
 // 关键字连续输入时会有多次请求，只有最后一次算数
 let requestSeq = 0
 
-async function load(reset: boolean): Promise<void> {
+const pageCount = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
+const dateMin = computed(() => toDateInput(oldestAt.value))
+const dateMax = computed(() => toDateInput(newestAt.value))
+
+function toDateInput(timestamp: number): string {
+  if (timestamp <= 0) return ''
+  const date = new Date(timestamp)
+  const month = `${date.getMonth() + 1}`.padStart(2, '0')
+  const day = `${date.getDate()}`.padStart(2, '0')
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+// 分页取一页；给日期时由服务端算出该落在第几页
+async function load(
+  options: { offset?: number; dateFrom?: number; dateTo?: number } = {}
+): Promise<void> {
   const requestId = ++requestSeq
   loading.value = true
   error.value = ''
   try {
-    const page = await window.api.messages.search({
+    const result = await window.api.messages.search({
       conversationId: props.conversationId,
       category: category.value,
       query: keyword.value,
-      // 结果按时间升序，第 0 条就是最老的一条，翻页要往更早的方向走
-      beforeId: reset ? undefined : results.value[0]?.id,
-      limit: 50
+      offset: options.offset ?? page.value * PAGE_SIZE,
+      dateFrom: options.dateFrom,
+      dateTo: options.dateTo,
+      limit: PAGE_SIZE
     })
     if (requestId !== requestSeq) return
-    if (reset) {
-      results.value = page.messages
-    } else {
-      const seen = new Set(results.value.map((message) => message.id))
-      results.value = [
-        ...page.messages.filter((message) => !seen.has(message.id)),
-        ...results.value
-      ]
-    }
-    hasMore.value = page.hasMore
-    await resolveFileStates(page.messages)
+    results.value = result.messages
+    total.value = result.total
+    newestAt.value = result.newestAt
+    oldestAt.value = result.oldestAt
+    page.value = Math.round(result.offset / PAGE_SIZE)
+    await resolveFileStates(result.messages)
   } catch (reason) {
     if (requestId !== requestSeq) return
     error.value = reason instanceof Error ? reason.message : String(reason)
@@ -109,18 +126,37 @@ watch(keywordInput, (value) => {
   if (searchTimer !== undefined) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
     keyword.value = value.trim()
-    void load(true)
+    page.value = 0
+    void load()
   }, 300)
 })
 
 watch(category, () => {
   fileState.value = {}
-  void load(true)
+  page.value = 0
+  void load()
 })
 
 onMounted(() => {
-  void load(true)
+  void load()
 })
+
+function goPage(delta: number): void {
+  const next = page.value + delta
+  if (loading.value || next < 0 || next >= pageCount.value) return
+  page.value = next
+  void load()
+}
+
+function jumpToDate(): void {
+  if (dateInput.value === '') return
+  const day = new Date(`${dateInput.value}T00:00:00`)
+  if (Number.isNaN(day.getTime())) return
+  // 结束取本地时间的下一天零点，跨夏令时也不会差一小时
+  const from = day.getTime()
+  const to = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime()
+  void load({ offset: 0, dateFrom: from, dateTo: to })
+}
 
 onBeforeUnmount(() => {
   if (searchTimer !== undefined) clearTimeout(searchTimer)
@@ -346,10 +382,28 @@ function locateFromImageMenu(): void {
           <p v-if="rows.length === 0 && !loading" class="history-empty">{{ emptyText }}</p>
 
           <div class="history-foot">
-            <button v-if="hasMore" class="history-more" :disabled="loading" @click="load(false)">
-              {{ loading ? '加载中…' : '加载更多' }}
+            <button class="history-page" :disabled="page === 0 || loading" @click="goPage(-1)">
+              上一页
             </button>
-            <span v-else-if="rows.length > 0" class="history-end">没有更多了</span>
+            <span class="history-page-info">
+              第 {{ page + 1 }} / {{ pageCount }} 页 · 共 {{ total }} 条
+            </span>
+            <button
+              class="history-page"
+              :disabled="page + 1 >= pageCount || loading"
+              @click="goPage(1)"
+            >
+              下一页
+            </button>
+            <input
+              v-model="dateInput"
+              class="history-jump-date"
+              type="date"
+              :min="dateMin"
+              :max="dateMax"
+              aria-label="按日期跳转"
+              @change="jumpToDate"
+            />
           </div>
         </template>
       </div>
@@ -654,13 +708,15 @@ function locateFromImageMenu(): void {
 
 .history-foot {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 8px;
   padding: 10px 0 4px;
 }
 
-.history-more {
-  height: 28px;
-  padding: 0 16px;
+.history-page {
+  height: 26px;
+  padding: 0 12px;
   border: 1px solid var(--divider);
   border-radius: var(--radius-button);
   background: transparent;
@@ -668,18 +724,29 @@ function locateFromImageMenu(): void {
   font-size: 12px;
 }
 
-.history-more:hover:not(:disabled) {
+.history-page:hover:not(:disabled) {
   border-color: var(--text-muted);
   color: var(--text);
 }
 
-.history-more:disabled {
-  opacity: 0.6;
+.history-page:disabled {
+  opacity: 0.45;
 }
 
-.history-end {
+.history-page-info {
   font-size: 11.5px;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.history-jump-date {
+  height: 26px;
+  padding: 0 6px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: #ffffff;
+  color: var(--text-secondary);
+  font-size: 12px;
 }
 
 .history-menu-layer {

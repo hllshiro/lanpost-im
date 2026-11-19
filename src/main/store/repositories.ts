@@ -5,6 +5,7 @@ import type {
   FileTaskInfo,
   MessageInfo,
   MessagesPage,
+  MessagesSearchResult,
   PeerInfo
 } from '../../shared/domain'
 import type { MessageHistoryCategory } from '../../shared/ipc'
@@ -402,15 +403,17 @@ export class MessageRepository {
     return { messages: page.reverse().map(mapMessage), hasMore }
   }
 
-  // 历史窗口：按分类与关键字分页查，顺序与 list 一致（升序）
+  // 历史窗口：按分类与关键字分页查，最新在前；带总数，日期跳转由服务端算页偏移
   search(request: {
     conversationId: string
     category: MessageHistoryCategory
     query?: string
-    beforeId?: number
+    offset?: number
+    dateFrom?: number
+    dateTo?: number
     limit?: number
-  }): MessagesPage {
-    const size = Math.max(1, Math.floor(request.limit ?? 60))
+  }): MessagesSearchResult {
+    const size = Math.max(1, Math.floor(request.limit ?? 50))
     const where: string[] = ['conversation_id = ?']
     const params: Array<string | number> = [request.conversationId]
     if (request.category === 'image') {
@@ -426,22 +429,54 @@ export class MessageRepository {
       where.push(`text LIKE ? ESCAPE '\\'`)
       params.push(`%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`)
     }
-    if (request.beforeId !== undefined) {
-      where.push(
-        `(created_at < (SELECT created_at FROM messages WHERE id = ?) OR
-          (created_at = (SELECT created_at FROM messages WHERE id = ?) AND id < ?))`
+    const clause = where.join(' AND ')
+
+    const bounds = this.db
+      .prepare(
+        `SELECT MAX(created_at) AS newest, MIN(created_at) AS oldest FROM messages WHERE ${clause}`
       )
-      params.push(request.beforeId, request.beforeId, request.beforeId)
+      .get(...params) as { newest: number | null; oldest: number | null }
+    const total = (
+      this.db.prepare(`SELECT COUNT(*) AS n FROM messages WHERE ${clause}`).get(...params) as {
+        n: number
+      }
+    ).n
+
+    let offset = Math.max(0, Math.floor(request.offset ?? 0))
+    if (request.dateFrom !== undefined) {
+      // 找这一天最新的那条，再数它上面有多少条，就能算出落在第几页
+      const dateTo = request.dateTo ?? request.dateFrom + 86400000
+      const anchor = this.db
+        .prepare(
+          `SELECT created_at, id FROM messages WHERE ${clause} AND created_at >= ? AND created_at < ?
+           ORDER BY created_at DESC, id DESC LIMIT 1`
+        )
+        .get(...params, request.dateFrom, dateTo) as { created_at: number; id: number } | undefined
+      if (anchor !== undefined) {
+        const newer = this.db
+          .prepare(
+            `SELECT COUNT(*) AS n FROM messages WHERE ${clause} AND (
+               created_at > ? OR (created_at = ? AND id > ?))`
+          )
+          .get(...params, anchor.created_at, anchor.created_at, anchor.id) as { n: number }
+        offset = Math.floor(newer.n / size) * size
+      }
     }
+
     const rows = this.db
       .prepare(
-        `SELECT * FROM messages WHERE ${where.join(' AND ')}
-         ORDER BY created_at DESC, id DESC LIMIT ?`
+        `SELECT * FROM messages WHERE ${clause}
+         ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`
       )
-      .all(...params, size + 1) as unknown as MessageRow[]
-    const hasMore = rows.length > size
-    const page = hasMore ? rows.slice(0, size) : rows
-    return { messages: page.reverse().map(mapMessage), hasMore }
+      .all(...params, size, offset) as unknown as MessageRow[]
+
+    return {
+      messages: rows.map(mapMessage),
+      total,
+      offset,
+      newestAt: bounds.newest ?? 0,
+      oldestAt: bounds.oldest ?? 0
+    }
   }
 
   // 跳到某条消息：取它前后各 limit 条，返回升序窗口，窗口里一定包含目标消息

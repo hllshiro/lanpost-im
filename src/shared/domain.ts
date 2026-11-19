@@ -161,6 +161,15 @@ export interface MessagesPage {
   hasMore: boolean
 }
 
+// 历史窗口的分页结果：按时间倒序，带总数与偏移，日期跳转时偏移由服务端算好
+export interface MessagesSearchResult {
+  messages: MessageInfo[]
+  total: number
+  offset: number
+  newestAt: number
+  oldestAt: number
+}
+
 export interface SendTextResult {
   message: MessageInfo
 }
