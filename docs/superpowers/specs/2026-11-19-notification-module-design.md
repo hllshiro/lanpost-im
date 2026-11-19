@@ -17,7 +17,7 @@
 
 - 不做消息级的"暂不处理"状态；未读仍然只在会话级（`conversations.unread`）。
 - 不改已读口径：点开会话即已读、发送永远不碰已读、窗口停在会话上但失去焦点时新消息仍算已读（已与需求方确认）。
-- 不改系统通知渠道（`systemNotification` 设置及 Electron `Notification`）的现有行为。
+- 不改系统通知渠道（`systemNotification` 设置）的开关、内容与点击跳转行为；唯一的变化是它的焦点抑制条件随新策略统一——前台有焦点时一律不弹（含其他会话），失去焦点时若该设置开启则照常弹出，与右下角弹窗并存。
 - 不支持 macOS（仓库只发 Windows 与 Linux 包）。
 - 不引入任何原生模块；保持"无原生依赖"约束。
 
@@ -34,6 +34,7 @@
 - 前台有焦点时其他会话来消息：不弹、不响、不闪，但照常计入未读（悬停列表挂角标）。
 - 锁屏是需求方明确要求的例外：锁屏期间视为失去焦点。
 - 已读的唯一触发是"点开会话"。发送消息不产生任何已读效果。
+- 系统通知渠道（`systemNotification` 设置）不在三种方式之内，开关语义不变：有焦点一律不弹，无焦点时若开启则与右下角弹窗同时出现（现状即如此，用户可在设置里关掉）。
 
 ### 通知弹窗
 
@@ -95,7 +96,8 @@
 改为：**窗口有焦点（且未锁屏）就抑制声音、弹窗、闪烁，只保留未读计数**，与会话是否当前无关。
 
 - `NotificationInput.windowFocused` 的语义变为"窗口焦点且未锁屏"，由 `NotificationManager` 在调用前合并锁屏状态。
-- `activeConversationId` 不再参与抑制判断，从策略入参中移除（相关测试同步调整）。
+- `activeConversationId` 不再参与判断，整条链路删除：策略入参、`NotificationManager.setActiveConversation`、`IPC.uiActiveConversation` 通道、preload 暴露、渲染进程的 `currentConversationId` 监听（`setActiveConversation` 原本只剩 `flashFrame(false)`，一并随闪烁重构删除）。
+- 系统通知（`decision.system`）同样受焦点抑制：有焦点一律 `false`，其余门控照旧。
 - 其余门控不变：`notify.enabled`、`muted`、勿扰时段、`notifyOnComplete`（文件）。
 
 ## 锁屏处理
@@ -117,8 +119,8 @@
 
 按顺序尝试的修复：
 
-1. `gen-assets.py` 直接产出 22×22 与 24×24 的 RGBA PNG（`tray.png`、`tray-unread.png`），运行时不再 `resize()`。
-2. 启动时把这两个 PNG 复制到数据目录（`userData/icons/`，asar 之外的真实路径），`Tray` 用该路径创建——宿主进程按路径读图时读不了 asar 内部。
+1. `gen-assets.py` 直接产出精确尺寸的 RGBA PNG，运行时不再 `resize()`：Windows 用 16×16（沿用现状，不动，避免无关的视觉回归）；Linux 产出 22×22 与 24×24 两套，先按现状试 22×22，麒麟信安第一轮无效再换 24×24 试第二轮。
+2. 启动时把所用 PNG 复制到数据目录（`userData/icons/`，asar 之外的真实路径），`Tray` 用该路径创建——宿主进程按路径读图时读不了 asar 内部。
 3. 仍不行则在麒麟信安上用 `busctl`/`dbus-send` 读 `org.kde.StatusNotifierItem` 的 `IconName`/`IconPixmap` 属性，确认 Electron 实际导出的是什么、宿主缺什么，再定下一步。
 
 验证必须在麒麟信安上由需求方完成（本机无法复现）。若最终是宿主限制、应用侧无解，写进 `docs/known-limits.md`。
@@ -127,7 +129,8 @@
 
 - 闪烁：照常调用 `setImage` 切换；宿主不刷新图标时无副作用。
 - 悬停列表：不做。
-- 弹窗：用主窗口内右下角的应用内弹窗（10 秒、点击跳转、聚焦清除等规则与 Windows 相同），不开独立窗口。
+- 弹窗：主窗口可见时用主窗口内右下角的应用内弹窗（10 秒、点击跳转、聚焦清除等规则与 Windows 相同），不开独立窗口。
+- **主窗口隐藏时（关闭收到托盘、启动最小化）不出应用内弹窗**——把窗口硬拉出来会打断用户、还会触发"聚焦清除"把弹窗自己清掉；此时声音与托盘闪烁照常，系统通知渠道若开启则由它承担可见提醒（复用现有能力，不新增代码）。触发矩阵里"失焦/最小化 → 弹窗是"这一行只在 Windows 完整成立。
 - 锁屏：不监听。
 
 ## 设置项汇总
