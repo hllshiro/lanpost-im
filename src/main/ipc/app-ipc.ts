@@ -76,6 +76,7 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileReject, (_event, id: string) => service.rejectFile(id))
   ipcMain.handle(IPC.fileOpen, (_event, id: string) => service.openFile(id))
   ipcMain.handle(IPC.fileOpenPath, (_event, path: string) => service.openPath(path))
+  ipcMain.handle(IPC.fileExists, (_event, path: string) => service.pathExists(path))
   ipcMain.handle(IPC.fileCopyImage, (_event, id: string) => service.copyImage(id))
   ipcMain.handle(IPC.fileReveal, (_event, id: string) => service.revealFile(id))
   ipcMain.handle(IPC.fileRevealPath, (_event, path: string) => service.revealPath(path))

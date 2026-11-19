@@ -80,6 +80,7 @@ const api: Api = {
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
     open: (id) => ipcRenderer.invoke(IPC.fileOpen, id),
     openPath: (path) => ipcRenderer.invoke(IPC.fileOpenPath, path),
+    exists: (path) => ipcRenderer.invoke(IPC.fileExists, path),
     copyImage: (id) => ipcRenderer.invoke(IPC.fileCopyImage, id),
     reveal: (id) => ipcRenderer.invoke(IPC.fileReveal, id),
     revealPath: (path) => ipcRenderer.invoke(IPC.fileRevealPath, path),

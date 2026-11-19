@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { FileText, Search, X } from '@lucide/vue'
+import { FileText, Locate, Search, X } from '@lucide/vue'
 import type { FileTaskInfo, MessageInfo } from '../../../shared/domain'
 import type { MessageHistoryCategory } from '../../../shared/ipc'
 import { useAppStore } from '../stores/app'
 import { formatDateDivider, formatSize, formatClock, previewText } from '../utils/format'
+import ImageViewer from './ImageViewer.vue'
+import ImageMenu from './ImageMenu.vue'
 
 const props = defineProps<{
   conversationId: string
@@ -33,6 +35,13 @@ const results = ref<MessageInfo[]>([])
 const hasMore = ref(false)
 const loading = ref(false)
 const error = ref('')
+const viewer = ref<FileTaskInfo | null>(null)
+const imageMenu = ref<{ file: FileTaskInfo; message: MessageInfo; x: number; y: number } | null>(
+  null
+)
+const rowMenu = ref<{ message: MessageInfo; x: number; y: number } | null>(null)
+// 文件还在不在磁盘上：ready 可以打开，deleted 显示已被删除
+const fileState = ref<Record<string, 'ready' | 'deleted' | 'unknown'>>({})
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 // 关键字连续输入时会有多次请求，只有最后一次算数
 let requestSeq = 0
@@ -46,18 +55,54 @@ async function load(reset: boolean): Promise<void> {
       conversationId: props.conversationId,
       category: category.value,
       query: keyword.value,
-      beforeId: reset ? undefined : results.value[results.value.length - 1]?.id,
+      // 结果按时间升序，第 0 条就是最老的一条，翻页要往更早的方向走
+      beforeId: reset ? undefined : results.value[0]?.id,
       limit: 50
     })
     if (requestId !== requestSeq) return
-    results.value = reset ? page.messages : [...results.value, ...page.messages]
+    if (reset) {
+      results.value = page.messages
+    } else {
+      const seen = new Set(results.value.map((message) => message.id))
+      results.value = [
+        ...page.messages.filter((message) => !seen.has(message.id)),
+        ...results.value
+      ]
+    }
     hasMore.value = page.hasMore
+    await resolveFileStates(page.messages)
   } catch (reason) {
     if (requestId !== requestSeq) return
     error.value = reason instanceof Error ? reason.message : String(reason)
   } finally {
     if (requestId === requestSeq) loading.value = false
   }
+}
+
+// 文件消息逐个确认磁盘上还在不在，只有能打开的才给按钮
+async function resolveFileStates(list: MessageInfo[]): Promise<void> {
+  if (category.value !== 'file') return
+  for (const message of list) {
+    for (const file of filesOf(message)) {
+      if (fileState.value[file.id] !== undefined) continue
+      let state: 'ready' | 'deleted' | 'unknown'
+      if (file.path === '') state = file.state === 'missing' ? 'deleted' : 'unknown'
+      else state = (await window.api.files.exists(file.path)) ? 'ready' : 'deleted'
+      fileState.value = { ...fileState.value, [file.id]: state }
+    }
+  }
+}
+
+function stateOf(file: FileTaskInfo): 'ready' | 'deleted' | 'unknown' {
+  return fileState.value[file.id] ?? 'unknown'
+}
+
+function openRowFile(row: HistoryRow, which: 'file' | 'folder'): void {
+  const file = row.file
+  if (file === null) return
+  const action =
+    which === 'file' ? window.api.files.open(file.id) : window.api.files.reveal(file.id)
+  void action.catch((reason) => store.reportError(String(reason)))
 }
 
 watch(keywordInput, (value) => {
@@ -69,20 +114,15 @@ watch(keywordInput, (value) => {
 })
 
 watch(category, () => {
+  fileState.value = {}
   void load(true)
 })
 
-function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') emit('close')
-}
-
 onMounted(() => {
-  window.addEventListener('keydown', onKeydown)
   void load(true)
 })
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKeydown)
   if (searchTimer !== undefined) clearTimeout(searchTimer)
 })
 
@@ -163,6 +203,40 @@ const emptyText = computed(() => {
   if (category.value === 'file') return '还没有文件'
   return '还没有消息'
 })
+
+// 右键菜单：图片走聊天窗口那套 ImageMenu，文字与文件用这个
+const MENU_WIDTH = 160
+
+const rowMenuStyle = computed(() => {
+  if (rowMenu.value === null) return {}
+  const menu = rowMenu.value
+  return {
+    left: `${Math.max(8, Math.min(menu.x, window.innerWidth - MENU_WIDTH - 8))}px`,
+    top: `${Math.max(8, Math.min(menu.y, window.innerHeight - 90 - 8))}px`
+  }
+})
+
+function openRowMenu(row: HistoryRow, event: MouseEvent): void {
+  rowMenu.value = { message: row.message, x: event.clientX, y: event.clientY }
+}
+
+function locateFromRowMenu(): void {
+  const menu = rowMenu.value
+  rowMenu.value = null
+  if (menu !== null) emit('jump', menu.message.id)
+}
+
+function openImageMenu(row: HistoryRow, file: FileTaskInfo, event: MouseEvent): void {
+  event.preventDefault()
+  event.stopPropagation()
+  imageMenu.value = { file, message: row.message, x: event.clientX, y: event.clientY }
+}
+
+function locateFromImageMenu(): void {
+  const menu = imageMenu.value
+  if (menu !== null) emit('jump', menu.message.id)
+  imageMenu.value = null
+}
 </script>
 
 <template>
@@ -222,10 +296,10 @@ const emptyText = computed(() => {
               <span>{{ formatDateDivider(row.message.createdAt) }}</span>
             </div>
 
-            <button
+            <div
               class="history-item"
               :data-message-id="row.message.id"
-              @click="emit('jump', row.message.id)"
+              @contextmenu.prevent="openRowMenu(row, $event)"
             >
               <span class="history-meta">
                 <span class="history-time">{{ formatClock(row.message.createdAt) }}</span>
@@ -239,6 +313,9 @@ const emptyText = computed(() => {
                   :src="thumbUrl(file)"
                   :alt="file.name"
                   loading="lazy"
+                  title="查看大图"
+                  @click="viewer = file"
+                  @contextmenu="openImageMenu(row, file, $event)"
                 />
                 <span v-if="row.images.length === 0" class="thumb-empty">图片已删除</span>
               </span>
@@ -246,11 +323,24 @@ const emptyText = computed(() => {
               <span v-else-if="category === 'file'" class="history-file">
                 <FileText :size="14" :stroke-width="1.8" />
                 <span class="history-text">{{ row.message.text || '文件' }}</span>
-                <span v-if="row.file" class="history-size">{{ formatSize(row.file.size) }}</span>
+                <template v-if="row.file !== null">
+                  <span class="history-size">{{ formatSize(row.file.size) }}</span>
+                  <span v-if="stateOf(row.file) === 'deleted'" class="history-deleted">
+                    已被删除
+                  </span>
+                  <span v-else-if="stateOf(row.file) === 'ready'" class="history-actions">
+                    <button class="history-action" @click.stop="openRowFile(row, 'file')">
+                      打开文件
+                    </button>
+                    <button class="history-action" @click.stop="openRowFile(row, 'folder')">
+                      打开文件夹
+                    </button>
+                  </span>
+                </template>
               </span>
 
               <span v-else class="history-text">{{ previewText(row.message) }}</span>
-            </button>
+            </div>
           </template>
 
           <p v-if="rows.length === 0 && !loading" class="history-empty">{{ emptyText }}</p>
@@ -263,6 +353,32 @@ const emptyText = computed(() => {
           </div>
         </template>
       </div>
+
+      <div
+        v-if="rowMenu !== null"
+        class="history-menu-layer"
+        @click="rowMenu = null"
+        @contextmenu.prevent="rowMenu = null"
+      >
+        <div class="history-menu" role="menu" :style="rowMenuStyle" @click.stop>
+          <button class="history-menu-item" role="menuitem" @click="locateFromRowMenu">
+            <Locate :size="14" :stroke-width="1.8" />
+            <span>定位到原消息</span>
+          </button>
+        </div>
+      </div>
+
+      <ImageMenu
+        v-if="imageMenu !== null"
+        :file="imageMenu.file"
+        :x="imageMenu.x"
+        :y="imageMenu.y"
+        show-locate
+        @close="imageMenu = null"
+        @locate="locateFromImageMenu"
+      />
+
+      <ImageViewer v-if="viewer !== null" :file="viewer" @close="viewer = null" />
     </div>
   </div>
 </template>
@@ -278,6 +394,7 @@ const emptyText = computed(() => {
 }
 
 .history-dialog {
+  position: relative;
   display: flex;
   flex-direction: column;
   width: 560px;
@@ -425,10 +542,11 @@ const emptyText = computed(() => {
   display: block;
   width: 100%;
   padding: 8px 10px;
-  border: 0;
   border-radius: 8px;
   background: transparent;
   text-align: left;
+  cursor: default;
+  user-select: text;
 }
 
 .history-item:hover {
@@ -471,6 +589,8 @@ const emptyText = computed(() => {
   border-radius: 6px;
   background: #f0f0f0;
   object-fit: cover;
+  cursor: zoom-in;
+  user-select: none;
 }
 
 .thumb-empty {
@@ -493,6 +613,31 @@ const emptyText = computed(() => {
 .history-size {
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+.history-deleted {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+.history-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.history-action {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-button);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 11.5px;
+}
+
+.history-action:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
 }
 
 .history-empty,
@@ -535,5 +680,38 @@ const emptyText = computed(() => {
 .history-end {
   font-size: 11.5px;
   color: var(--text-muted);
+}
+
+.history-menu-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+}
+
+.history-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  width: 160px;
+  padding: 4px;
+  border-radius: 6px;
+  background: #ffffff;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.18);
+}
+
+.history-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+}
+
+.history-menu-item:hover {
+  background: var(--hover);
 }
 </style>

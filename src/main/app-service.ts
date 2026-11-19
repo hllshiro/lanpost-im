@@ -3467,6 +3467,11 @@ export class AppService {
     }
   }
 
+  // 历史窗口判断文件或目录还在不在磁盘上
+  pathExists(path: string): boolean {
+    return path !== '' && existsSync(path)
+  }
+
   revealFile(id: string): void {
     const task = this.repos.files.get(id)
     if (task === null || task.state !== 'done' || task.path === '') {

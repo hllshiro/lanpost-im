@@ -428,11 +428,6 @@ async function restoreDefaults(): Promise<void> {
   await pushPatch(patch)
 }
 
-useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-  if (recording.value !== null) return
-  if (event.key === 'Escape') emit('close')
-})
-
 useEventListener(
   window,
   'keydown',

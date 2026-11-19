@@ -62,6 +62,7 @@ export const IPC = {
   fileCopyImage: 'files:copy-image',
   fileReveal: 'files:reveal',
   fileRevealPath: 'files:reveal-path',
+  fileExists: 'files:exists',
   fileSaveAs: 'files:save-as',
   filePick: 'files:pick',
   filePickImages: 'files:pick-images',
@@ -285,6 +286,8 @@ export type Api = {
     open(id: string): Promise<void>
     // 用系统文件管理器打开任意已存在的目录（文件夹消息用）
     openPath(path: string): Promise<void>
+    // 历史窗口判断文件或目录是否还在磁盘上
+    exists(path: string): Promise<boolean>
     // 把图片本身复制到剪贴板，方便直接粘贴到别处
     copyImage(id: string): Promise<void>
     reveal(id: string): Promise<void>

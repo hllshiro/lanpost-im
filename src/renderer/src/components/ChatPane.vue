@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { onClickOutside, useEventListener } from '@vueuse/core'
+import { onClickOutside } from '@vueuse/core'
 import { Clock, Ellipsis, MessageCircle, VolumeX, X } from '@lucide/vue'
 import type {
   ConversationInfo,
@@ -128,14 +128,6 @@ const otherInitial = computed(() => initialOf(props.conversation?.title ?? ''))
 
 onClickOutside(infoAnchor, () => {
   infoOpen.value = false
-})
-
-useEventListener(window, 'keydown', (event: KeyboardEvent) => {
-  if (event.key !== 'Escape') return
-  if (infoOpen.value) {
-    infoOpen.value = false
-    event.preventDefault()
-  }
 })
 
 watch(

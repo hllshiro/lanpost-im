@@ -344,9 +344,9 @@ async function revealFolder(): Promise<void> {
                 :class="{ 'sticker-photo': imageSticker }"
                 :src="part.url"
                 :alt="part.file.name"
-                title="双击查看大图"
+                title="查看大图"
                 loading="lazy"
-                @dblclick="previewImage(part.file)"
+                @click="previewImage(part.file)"
                 @contextmenu.prevent="openImageMenu(part.file, $event)"
               />
               <img v-else class="sticker-image segment-sticker" :src="part.url" :alt="part.tips" />

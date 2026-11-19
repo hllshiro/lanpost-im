@@ -120,7 +120,6 @@ function onBackdropClick(event: MouseEvent): void {
 }
 
 function onKeydown(event: KeyboardEvent): void {
-  if (event.key === 'Escape') emit('close')
   if (event.key === '0') {
     zoom.value = 1
     offsetX.value = 0
