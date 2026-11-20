@@ -1977,9 +1977,9 @@ export class AppService {
     this.notifications.setLocked(locked)
   }
 
-  // 窗口焦点变化：前台有焦点暂停闪烁，失焦后若仍有未读恢复
+  // 窗口焦点变化：聚焦时清通知弹窗并重算闪烁，失焦只重算闪烁
   onWindowFocus(): void {
-    this.notifications.refresh()
+    this.notifications.onWindowFocus()
   }
 
   onWindowBlur(): void {

@@ -22,6 +22,7 @@ import {
   toggleMainWindow
 } from './window'
 import { createTray, destroyTray } from './tray'
+import { destroyToastWindow } from './notify/toast-window'
 import {
   applyGlobalShortcuts,
   setShortcutRecording,
@@ -371,6 +372,7 @@ if (!gotLock) {
         database?.close()
         database = null
         destroyTray()
+        destroyToastWindow()
         app.exit(0)
       }
     })()

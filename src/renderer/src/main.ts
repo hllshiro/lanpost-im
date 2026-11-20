@@ -3,6 +3,7 @@ import './assets/app.css'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'
+import ToastHost from './ToastHost.vue'
 
 // 文件拖到窗口任何位置都不能让浏览器把当前页面替换成那个文件
 function blockFileDrop(event: DragEvent): void {
@@ -14,4 +15,7 @@ function blockFileDrop(event: DragEvent): void {
 window.addEventListener('dragover', blockFileDrop)
 window.addEventListener('drop', blockFileDrop)
 
-createApp(App).use(createPinia()).mount('#app')
+// 主窗口与通知弹窗窗口共用一个入口，按查询参数分支
+const windowKind = new URLSearchParams(window.location.search).get('window')
+const root = windowKind === 'toast' ? ToastHost : App
+createApp(root).use(createPinia()).mount('#app')

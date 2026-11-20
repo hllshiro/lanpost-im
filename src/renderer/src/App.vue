@@ -215,6 +215,8 @@ onMounted(async () => {
     if (payload.sound) void playFromSettings()
   })
   unsubscribeSelect = window.api.ui.onSelectConversation((conversationId) => {
+    // 通知跳转要回到聊天窗口，点击时可能正停在联系人或文件页
+    view.value = 'chat'
     void store.selectConversation(conversationId)
   })
   unsubscribeToastList = window.api.ui.onToastList((payload) => {

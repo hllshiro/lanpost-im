@@ -4,6 +4,7 @@ import type { SettingsStore } from '../settings/store'
 import { setTrayBadge, setTrayBlinking } from '../tray'
 import { decideNotification, shouldBlink, type NotificationKind } from './policy'
 import { ToastList } from './toast-list'
+import { pushToastWindow } from './toast-window'
 import { logStartup } from '../startup-log'
 
 export interface NotifyInput {
@@ -113,9 +114,13 @@ export class NotificationManager {
   }
 
   private pushToasts(): void {
-    this.getWindow()?.webContents.send(IPC.uiToastList, {
-      toasts: this.toastList.snapshot()
-    })
+    const items = this.toastList.snapshot()
+    // Windows 走独立置顶窗口；其他平台发给主窗口，由应用内右下角弹窗渲染
+    if (process.platform === 'win32') {
+      pushToastWindow(items)
+      return
+    }
+    this.getWindow()?.webContents.send(IPC.uiToastList, { toasts: items })
   }
 
   private recomputeBlink(): void {
