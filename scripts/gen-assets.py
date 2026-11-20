@@ -7,10 +7,32 @@ from PIL import Image, ImageDraw
 
 root = Path(__file__).resolve().parent.parent
 
-icon = Image.open(root / "build" / "icon.png").convert("RGBA").resize((256, 256), Image.LANCZOS)
-draw = ImageDraw.Draw(icon)
-draw.ellipse((168, 12, 244, 88), fill=(230, 50, 50, 255), outline=(255, 255, 255, 255), width=9)
-icon.save(root / "resources" / "tray-unread.png")
+icon = Image.open(root / "build" / "icon.png").convert("RGBA")
+
+# 托盘图标按平台导出精确尺寸（运行时不再 resize），红点徽标按 256 基图的比例缩放
+def export_tray(size, with_badge, name):
+    base = icon.resize((size, size), Image.LANCZOS)
+    if with_badge:
+        base = base.copy()
+        draw = ImageDraw.Draw(base)
+        scale = size / 256
+        draw.ellipse(
+            (
+                int(168 * scale),
+                int(12 * scale),
+                int(244 * scale),
+                int(88 * scale),
+            ),
+            fill=(230, 50, 50, 255),
+            outline=(255, 255, 255, 255),
+            width=max(1, int(9 * scale)),
+        )
+    base.save(root / "resources" / name)
+
+
+for tray_size in (16, 22, 24):
+    export_tray(tray_size, False, f"tray-{tray_size}.png")
+    export_tray(tray_size, True, f"tray-unread-{tray_size}.png")
 
 sample_rate = 44100
 

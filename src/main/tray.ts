@@ -1,6 +1,10 @@
-import { Menu, Tray, nativeImage, type Tray as TrayType } from 'electron'
-import icon from '../../resources/icon.png?asset'
-import unreadIcon from '../../resources/tray-unread.png?asset'
+import { app, Menu, Tray, nativeImage, type Tray as TrayType } from 'electron'
+import { copyFileSync, mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import tray16 from '../../resources/tray-16.png?asset'
+import tray22 from '../../resources/tray-22.png?asset'
+import trayUnread16 from '../../resources/tray-unread-16.png?asset'
+import trayUnread22 from '../../resources/tray-unread-22.png?asset'
 
 let tray: TrayType | null = null
 let normalImage: Electron.NativeImage | null = null
@@ -22,9 +26,20 @@ export interface TrayActions {
 }
 
 export function createTray(actions: TrayActions): TrayType {
+  // Windows 用 16；Linux 用 22（麒麟信安无效时改 24，资源已备好）
   const size = process.platform === 'win32' ? 16 : 22
-  normalImage = nativeImage.createFromPath(icon).resize({ width: size, height: size })
-  unreadImage = nativeImage.createFromPath(unreadIcon).resize({ width: size, height: size })
+  const sourceNormal = size === 16 ? tray16 : tray22
+  const sourceUnread = size === 16 ? trayUnread16 : trayUnread22
+  // 启动时把图标复制到数据目录的真实路径（asar 之外）：
+  // 桌面宿主按路径加载托盘图标时读不了 asar 内部，会退回系统默认图标
+  const iconDir = join(app.getPath('userData'), 'icons')
+  mkdirSync(iconDir, { recursive: true })
+  const normalPath = join(iconDir, `tray-${size}.png`)
+  const unreadPath = join(iconDir, `tray-unread-${size}.png`)
+  copyFileSync(sourceNormal, normalPath)
+  copyFileSync(sourceUnread, unreadPath)
+  normalImage = nativeImage.createFromPath(normalPath)
+  unreadImage = nativeImage.createFromPath(unreadPath)
   emptyImage = nativeImage.createEmpty()
   tray = new Tray(normalImage)
   tray.setToolTip('内网传书')
