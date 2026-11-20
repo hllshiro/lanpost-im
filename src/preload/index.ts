@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
-import { IPC, type Api, type NotifyPayload } from '../shared/ipc'
+import { IPC, type Api, type NotifyListPayload, type NotifyPayload } from '../shared/ipc'
 import type { AppEvent } from '../shared/domain'
 
 const api: Api = {
@@ -36,6 +36,14 @@ const api: Api = {
       const handler = (_event: unknown, conversationId: string): void => listener(conversationId)
       ipcRenderer.on(IPC.uiSelectConversation, handler)
       return () => ipcRenderer.removeListener(IPC.uiSelectConversation, handler)
+    },
+    onToastList: (listener) => {
+      const handler = (_event: unknown, payload: NotifyListPayload): void => listener(payload)
+      ipcRenderer.on(IPC.uiToastList, handler)
+      return () => ipcRenderer.removeListener(IPC.uiToastList, handler)
+    },
+    jumpToConversation: (conversationId) => {
+      ipcRenderer.send(IPC.uiJumpToConversation, conversationId)
     }
   },
   messages: {

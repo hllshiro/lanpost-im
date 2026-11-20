@@ -28,6 +28,8 @@ export const IPC = {
   uiOpenSettings: 'ui:open-settings',
   uiNotify: 'ui:notify',
   uiSelectConversation: 'ui:select-conversation',
+  uiToastList: 'ui:toast-list',
+  uiJumpToConversation: 'ui:jump-to-conversation',
   snapshot: 'state:snapshot',
   event: 'state:event',
   messagesList: 'messages:list',
@@ -152,6 +154,20 @@ export interface NotifyPayload {
   sound: boolean
 }
 
+// 右下角通知弹窗的一条内容
+export interface NotifyToastItem {
+  conversationId: string
+  title: string
+  body: string
+}
+
+export interface NotifyListPayload {
+  toasts: NotifyToastItem[]
+}
+
+// 弹窗窗口与渲染端共用的尺寸，禁止两侧各写一份数字
+export const TOAST_LAYOUT = { width: 320, cardHeight: 64, gap: 8, padding: 16 } as const
+
 export interface MessagesListRequest {
   conversationId: string
   beforeId?: number
@@ -243,6 +259,9 @@ export type Api = {
     onOpenSettings(listener: () => void): () => void
     onNotify(listener: (payload: NotifyPayload) => void): () => void
     onSelectConversation(listener: (conversationId: string) => void): () => void
+    onToastList(listener: (payload: NotifyListPayload) => void): () => void
+    // 点击通知或未读条目：恢复主窗口并跳到对应会话
+    jumpToConversation(conversationId: string): void
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>

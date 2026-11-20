@@ -1,5 +1,5 @@
 import { app, ipcMain } from 'electron'
-import { getMainWindow } from '../window'
+import { getMainWindow, showMainWindow } from '../window'
 import { IPC } from '../../shared/ipc'
 import type { AppService } from '../app-service'
 import { exportLogs, openLogsDirectory } from '../logs'
@@ -115,4 +115,10 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileBatchSend, (_event, batchId: string, peerKeys: string[], parts) =>
     service.batchSend({ batchId, peerKeys, parts })
   )
+  // 点击通知或未读条目：清弹窗、恢复主窗口、跳到对应会话
+  ipcMain.on(IPC.uiJumpToConversation, (_event, conversationId: string) => {
+    service.clearToasts()
+    showMainWindow()
+    getMainWindow()?.webContents.send(IPC.uiSelectConversation, conversationId)
+  })
 }

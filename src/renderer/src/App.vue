@@ -2,8 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
-import type { NotifyPayload } from '../../shared/ipc'
-import type { RichPart } from '../../shared/ipc'
+import type { NotifyToastItem, RichPart } from '../../shared/ipc'
 import { useAppStore } from './stores/app'
 import { errorMessage } from './utils/errors'
 import { playNotifySound } from './utils/notify-sound'
@@ -13,6 +12,7 @@ import ConversationList from './components/ConversationList.vue'
 import FilesPage from './components/FilesPage.vue'
 import GroupPicker from './components/GroupPicker.vue'
 import NavRail from './components/NavRail.vue'
+import NotifyToast from './components/NotifyToast.vue'
 import SettingsOverlay from './components/SettingsOverlay.vue'
 
 const store = useAppStore()
@@ -33,18 +33,13 @@ const shellStyle = computed<Record<string, string>>(() => ({
 let unsubscribeSettings: (() => void) | null = null
 let unsubscribeNotify: (() => void) | null = null
 let unsubscribeSelect: (() => void) | null = null
-let toastTimer: ReturnType<typeof setTimeout> | null = null
+let unsubscribeToastList: (() => void) | null = null
 
-const toast = ref<NotifyPayload | null>(null)
+const toastList = ref<NotifyToastItem[]>([])
 
-function openToast(): void {
-  if (toast.value === null) return
-  void store.selectConversation(toast.value.conversationId)
-  toast.value = null
-  if (toastTimer !== null) {
-    clearTimeout(toastTimer)
-    toastTimer = null
-  }
+// 点击通知：主进程清弹窗、恢复主窗口并跳到对应会话
+function handleToastJump(conversationId: string): void {
+  window.api.ui.jumpToConversation(conversationId)
 }
 
 // 每次播音前读实时设置：切换提示音或音量后下一条消息立即生效
@@ -217,18 +212,13 @@ onMounted(async () => {
     settingsOpen.value = true
   })
   unsubscribeNotify = window.api.ui.onNotify((payload) => {
-    toast.value = payload
-    if (toastTimer !== null) {
-      clearTimeout(toastTimer)
-    }
-    toastTimer = setTimeout(() => {
-      toast.value = null
-      toastTimer = null
-    }, 4000)
     if (payload.sound) void playFromSettings()
   })
   unsubscribeSelect = window.api.ui.onSelectConversation((conversationId) => {
     void store.selectConversation(conversationId)
+  })
+  unsubscribeToastList = window.api.ui.onToastList((payload) => {
+    toastList.value = payload.toasts
   })
   try {
     const settings = await window.api.settings.get()
@@ -242,13 +232,11 @@ onBeforeUnmount(() => {
   unsubscribeSettings?.()
   unsubscribeNotify?.()
   unsubscribeSelect?.()
+  unsubscribeToastList?.()
   unsubscribeSettings = null
   unsubscribeNotify = null
   unsubscribeSelect = null
-  if (toastTimer !== null) {
-    clearTimeout(toastTimer)
-    toastTimer = null
-  }
+  unsubscribeToastList = null
 })
 </script>
 
@@ -339,10 +327,7 @@ onBeforeUnmount(() => {
       </button>
     </div>
 
-    <button v-if="toast" class="notify-toast" @click="openToast">
-      <strong>{{ toast.title }}</strong>
-      <span>{{ toast.body }}</span>
-    </button>
+    <NotifyToast v-if="toastList.length > 0" :toasts="toastList" @jump="handleToastJump" />
   </div>
 </template>
 
@@ -429,37 +414,5 @@ onBeforeUnmount(() => {
 .error-dismiss:hover {
   background: rgba(255, 255, 255, 0.16);
   color: #ffffff;
-}
-
-.notify-toast {
-  position: fixed;
-  top: 18px;
-  right: 20px;
-  z-index: 60;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  max-width: 300px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: #ffffff;
-  color: var(--text);
-  text-align: left;
-  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.16);
-  cursor: pointer;
-}
-
-.notify-toast strong {
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.notify-toast span {
-  font-size: 12px;
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 </style>

@@ -1986,6 +1986,11 @@ export class AppService {
     this.notifications.refresh()
   }
 
+  // 通知弹窗的清除入口：点击跳转与一键已读
+  clearToasts(): void {
+    this.notifications.clearToasts()
+  }
+
   setPinned(conversationId: string, pinned: boolean): void {
     if (this.repos.conversations.get(conversationId) === null) {
       throw new Error('会话不存在')
