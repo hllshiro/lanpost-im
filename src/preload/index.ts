@@ -36,9 +36,6 @@ const api: Api = {
       const handler = (_event: unknown, conversationId: string): void => listener(conversationId)
       ipcRenderer.on(IPC.uiSelectConversation, handler)
       return () => ipcRenderer.removeListener(IPC.uiSelectConversation, handler)
-    },
-    setActiveConversation: (conversationId) => {
-      ipcRenderer.send(IPC.uiActiveConversation, conversationId)
     }
   },
   messages: {

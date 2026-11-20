@@ -297,6 +297,10 @@ if (!gotLock) {
       })
       logStartup('tray created')
 
+      // 锁屏期间视为失去焦点，消息照常通知；解锁后由 Task 4 的弹窗队列补显示
+      powerMonitor.on('lock-screen', () => appService.setScreenLocked(true))
+      powerMonitor.on('unlock-screen', () => appService.setScreenLocked(false))
+
       try {
         await appService.start()
         logStartup('protocol started')

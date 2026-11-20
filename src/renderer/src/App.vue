@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
 import type { NotifyPayload } from '../../shared/ipc'
@@ -230,13 +230,6 @@ onMounted(async () => {
   unsubscribeSelect = window.api.ui.onSelectConversation((conversationId) => {
     void store.selectConversation(conversationId)
   })
-  watch(
-    () => store.currentConversationId,
-    (conversationId) => {
-      window.api.ui.setActiveConversation(conversationId)
-    },
-    { immediate: true }
-  )
   try {
     const settings = await window.api.settings.get()
     appearance.value = settings.appearance

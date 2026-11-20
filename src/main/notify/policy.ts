@@ -7,8 +7,8 @@ export interface NotificationInput {
   kind: NotificationKind
   isSelf: boolean
   muted: boolean
+  // 窗口有焦点且未锁屏：由 NotificationManager 合并锁屏状态后传入
   windowFocused: boolean
-  activeConversationId: string | null
   conversationId: string
   now?: Date
 }
@@ -63,7 +63,8 @@ export function decideNotification(input: NotificationInput): NotificationDecisi
   }
 
   const decision: NotificationDecision = { ...silent, badge: true }
-  if (input.windowFocused && input.activeConversationId === input.conversationId) {
+  // 前台有焦点就不打扰：声音、闪烁、系统通知、弹窗一律不发，未读照常累计
+  if (input.windowFocused) {
     return decision
   }
   if (input.muted || !input.settings.notify.enabled || inDndWindow(input.settings, input.now)) {

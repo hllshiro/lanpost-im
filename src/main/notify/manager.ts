@@ -15,7 +15,7 @@ export interface NotifyInput {
 }
 
 export class NotificationManager {
-  private activeConversationId: string | null = null
+  private locked = false
   private flashTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
@@ -23,11 +23,14 @@ export class NotificationManager {
     private readonly getWindow: () => BrowserWindow | null
   ) {}
 
-  setActiveConversation(conversationId: string | null): void {
-    this.activeConversationId = conversationId
-    if (conversationId !== null) {
-      this.getWindow()?.flashFrame(false)
-    }
+  // 锁屏视为失去焦点：即使窗口还有焦点也要通知
+  setLocked(locked: boolean): void {
+    this.locked = locked
+  }
+
+  // 通知与闪烁共用的活跃判定：窗口有焦点且未锁屏
+  private isActive(): boolean {
+    return (this.getWindow()?.isFocused() ?? false) && !this.locked
   }
 
   setUnread(unread: number): void {
@@ -44,8 +47,7 @@ export class NotificationManager {
       kind: input.kind,
       isSelf: false,
       muted: input.muted,
-      windowFocused: window?.isFocused() ?? false,
-      activeConversationId: this.activeConversationId,
+      windowFocused: this.isActive(),
       conversationId: input.conversationId
     })
     this.setUnread(input.unread)

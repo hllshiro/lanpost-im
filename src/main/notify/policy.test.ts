@@ -13,7 +13,6 @@ const base = {
   isSelf: false,
   muted: false,
   windowFocused: false,
-  activeConversationId: null,
   conversationId: 'direct:peer'
 }
 
@@ -29,15 +28,19 @@ describe('notification policy', () => {
     })
   })
 
-  it('stays silent for the conversation being viewed', () => {
+  it('窗口有焦点时任意会话都只保留未读角标', () => {
     const decision = decideNotification({
       ...base,
       settings: settings(),
-      windowFocused: true,
-      activeConversationId: 'direct:peer'
+      windowFocused: true
     })
-    expect(decision.sound).toBe(false)
-    expect(decision.system).toBe(false)
+    expect(decision).toEqual({
+      badge: true,
+      sound: false,
+      flash: false,
+      system: false,
+      toast: false
+    })
   })
 
   it('only badges when muted or disabled', () => {

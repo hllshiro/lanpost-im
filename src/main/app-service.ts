@@ -1968,12 +1968,13 @@ export class AppService {
     }
   }
 
-  setActiveConversation(conversationId: string | null): void {
-    this.notifications.setActiveConversation(conversationId)
-  }
-
   saveDraft(conversationId: string, draft: string): void {
     this.repos.conversations.saveDraft(conversationId, draft)
+  }
+
+  // 锁屏状态进入通知策略：锁屏时即使窗口有焦点也照常通知
+  setScreenLocked(locked: boolean): void {
+    this.notifications.setLocked(locked)
   }
 
   setPinned(conversationId: string, pinned: boolean): void {

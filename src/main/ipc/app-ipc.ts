@@ -115,7 +115,4 @@ export function registerAppIpc(service: AppService): void {
   ipcMain.handle(IPC.fileBatchSend, (_event, batchId: string, peerKeys: string[], parts) =>
     service.batchSend({ batchId, peerKeys, parts })
   )
-  ipcMain.on(IPC.uiActiveConversation, (_event, conversationId: string | null) =>
-    service.setActiveConversation(conversationId)
-  )
 }
