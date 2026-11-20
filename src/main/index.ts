@@ -297,9 +297,12 @@ if (!gotLock) {
       })
       logStartup('tray created')
 
-      // 锁屏期间视为失去焦点，消息照常通知；解锁后由 Task 4 的弹窗队列补显示
+      // 锁屏期间视为失去焦点，消息照常通知
       powerMonitor.on('lock-screen', () => appService.setScreenLocked(true))
       powerMonitor.on('unlock-screen', () => appService.setScreenLocked(false))
+      // 焦点变化重算托盘闪烁：前台有焦点不闪，失焦恢复
+      getMainWindow()?.on('focus', () => appService.onWindowFocus())
+      getMainWindow()?.on('blur', () => appService.onWindowBlur())
 
       try {
         await appService.start()

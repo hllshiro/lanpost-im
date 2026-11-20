@@ -5,7 +5,12 @@ import unreadIcon from '../../resources/tray-unread.png?asset'
 let tray: TrayType | null = null
 let normalImage: Electron.NativeImage | null = null
 let unreadImage: Electron.NativeImage | null = null
+let emptyImage: Electron.NativeImage | null = null
 let unreadCount = 0
+// 闪烁是独立于未读数的状态：亮 500 毫秒、灭 500 毫秒
+let blinking = false
+let phase = false
+let blinkTimer: ReturnType<typeof setInterval> | null = null
 
 export interface TrayActions {
   onShow: () => void
@@ -17,6 +22,7 @@ export function createTray(actions: TrayActions): TrayType {
   const size = process.platform === 'win32' ? 16 : 22
   normalImage = nativeImage.createFromPath(icon).resize({ width: size, height: size })
   unreadImage = nativeImage.createFromPath(unreadIcon).resize({ width: size, height: size })
+  emptyImage = nativeImage.createEmpty()
   tray = new Tray(normalImage)
   tray.setToolTip('内网传书')
   tray.setContextMenu(
@@ -31,18 +37,44 @@ export function createTray(actions: TrayActions): TrayType {
   return tray
 }
 
+function render(): void {
+  if (tray === null) return
+  const image = blinking
+    ? phase
+      ? unreadImage
+      : emptyImage
+    : unreadCount > 0 && unreadImage !== null
+      ? unreadImage
+      : normalImage
+  if (image !== null) {
+    tray.setImage(image)
+  }
+}
+
 export function setTrayBadge(count: number): void {
   unreadCount = count
-  if (tray === null) {
-    return
+  if (tray !== null) {
+    tray.setToolTip(count > 0 ? `内网传书 · ${count} 条未读` : '内网传书')
   }
-  const showUnread = count > 0
-  if (showUnread && unreadImage !== null) {
-    tray.setImage(unreadImage)
-  } else if (normalImage !== null) {
-    tray.setImage(normalImage)
+  render()
+}
+
+// 同一状态重复设置无副作用；开启时立即显示一个亮起相位
+export function setTrayBlinking(active: boolean): void {
+  if (active === blinking) return
+  blinking = active
+  phase = true
+  if (blinkTimer !== null) {
+    clearInterval(blinkTimer)
+    blinkTimer = null
   }
-  tray.setToolTip(count > 0 ? `内网传书 · ${count} 条未读` : '内网传书')
+  if (active) {
+    blinkTimer = setInterval(() => {
+      phase = !phase
+      render()
+    }, 500)
+  }
+  render()
 }
 
 export function currentTrayUnread(): number {
@@ -50,9 +82,16 @@ export function currentTrayUnread(): number {
 }
 
 export function destroyTray(): void {
+  if (blinkTimer !== null) {
+    clearInterval(blinkTimer)
+    blinkTimer = null
+  }
   tray?.destroy()
   tray = null
   normalImage = null
   unreadImage = null
+  emptyImage = null
   unreadCount = 0
+  blinking = false
+  phase = false
 }

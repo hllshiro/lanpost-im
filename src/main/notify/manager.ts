@@ -1,8 +1,8 @@
 import { app, BrowserWindow, Notification } from 'electron'
 import { IPC } from '../../shared/ipc'
 import type { SettingsStore } from '../settings/store'
-import { setTrayBadge } from '../tray'
-import { decideNotification, type NotificationKind } from './policy'
+import { setTrayBadge, setTrayBlinking } from '../tray'
+import { decideNotification, shouldBlink, type NotificationKind } from './policy'
 import { logStartup } from '../startup-log'
 
 export interface NotifyInput {
@@ -14,18 +14,27 @@ export interface NotifyInput {
   unread: number
 }
 
+// 勿扰时段是纯时间窗口，事件驱动算不出来，靠周期重算兜底
+const BLINK_RECHECK_MS = 60_000
+
 export class NotificationManager {
   private locked = false
-  private flashTimer: ReturnType<typeof setInterval> | null = null
+  private unread = 0
+  private blinkActive = false
+  private blinkTimer: ReturnType<typeof setInterval> | null = null
 
   constructor(
     private readonly settings: SettingsStore,
     private readonly getWindow: () => BrowserWindow | null
-  ) {}
+  ) {
+    this.blinkTimer = setInterval(() => this.recomputeBlink(), BLINK_RECHECK_MS)
+    this.blinkTimer.unref()
+  }
 
-  // 锁屏视为失去焦点：即使窗口还有焦点也要通知
+  // 锁屏视为失去焦点：即使窗口有焦点也要通知
   setLocked(locked: boolean): void {
     this.locked = locked
+    this.recomputeBlink()
   }
 
   // 通知与闪烁共用的活跃判定：窗口有焦点且未锁屏
@@ -34,10 +43,29 @@ export class NotificationManager {
   }
 
   setUnread(unread: number): void {
+    this.unread = unread
+    // 先重算闪烁再换图：未读归零时要先停闪，避免停闪用旧数字又把图标切回未读态
+    this.recomputeBlink()
     setTrayBadge(unread)
     if (process.platform === 'linux') {
       app.setBadgeCount(unread)
     }
+  }
+
+  // 焦点、锁屏、设置变化的统一入口：重算闪烁状态
+  refresh(): void {
+    this.recomputeBlink()
+  }
+
+  private recomputeBlink(): void {
+    const should = shouldBlink({
+      unread: this.unread,
+      active: this.isActive(),
+      settings: this.settings.get()
+    })
+    if (should === this.blinkActive) return
+    this.blinkActive = should
+    setTrayBlinking(should)
   }
 
   notify(input: NotifyInput): void {
@@ -62,10 +90,6 @@ export class NotificationManager {
         sound: decision.sound
       })
     }
-    if (decision.flash) {
-      window?.flashFrame(true)
-      this.startIconFlash()
-    }
     if (decision.system) {
       const notification = new Notification({ title: input.title, body: input.body })
       notification.on('click', () => {
@@ -80,29 +104,12 @@ export class NotificationManager {
     }
   }
 
-  private startIconFlash(): void {
-    if (this.flashTimer !== null) {
-      clearInterval(this.flashTimer)
-    }
-    let visible = true
-    this.flashTimer = setInterval(() => {
-      visible = !visible
-      setTrayBadge(visible ? 0 : 1)
-    }, 600)
-    setTimeout(() => {
-      if (this.flashTimer !== null) {
-        clearInterval(this.flashTimer)
-        this.flashTimer = null
-      }
-      setTrayBadge(1)
-    }, 6000)
-  }
-
   stop(): void {
-    if (this.flashTimer !== null) {
-      clearInterval(this.flashTimer)
-      this.flashTimer = null
+    if (this.blinkTimer !== null) {
+      clearInterval(this.blinkTimer)
+      this.blinkTimer = null
     }
+    setTrayBlinking(false)
     setTrayBadge(0)
     app.setBadgeCount(0)
     logStartup('notification manager stopped')

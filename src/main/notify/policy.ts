@@ -80,3 +80,20 @@ export function decideNotification(input: NotificationInput): NotificationDecisi
   decision.toast = input.settings.notify.inAppToast
   return decision
 }
+
+// 托盘图标闪烁是未读状态而非单条消息的效果：
+// 有未读、窗口不活跃、开关打开、不在勿扰时段才闪
+export function shouldBlink(input: {
+  unread: number
+  active: boolean
+  settings: Settings
+  now?: Date
+}): boolean {
+  if (input.unread <= 0 || input.active) {
+    return false
+  }
+  if (!input.settings.notify.enabled || !input.settings.notify.flashTaskbar) {
+    return false
+  }
+  return !inDndWindow(input.settings, input.now)
+}

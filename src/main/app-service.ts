@@ -1977,6 +1977,15 @@ export class AppService {
     this.notifications.setLocked(locked)
   }
 
+  // 窗口焦点变化：前台有焦点暂停闪烁，失焦后若仍有未读恢复
+  onWindowFocus(): void {
+    this.notifications.refresh()
+  }
+
+  onWindowBlur(): void {
+    this.notifications.refresh()
+  }
+
   setPinned(conversationId: string, pinned: boolean): void {
     if (this.repos.conversations.get(conversationId) === null) {
       throw new Error('会话不存在')
@@ -3530,6 +3539,8 @@ export class AppService {
       this.lastStatus = settings.identity.status
       this.emit({ type: 'local-status', status: settings.identity.status })
     }
+    // 通知开关、闪烁开关、勿扰时段的改动立即反映到闪烁状态
+    this.notifications.refresh()
   }
 
   firewallPorts(): { udp: number[]; tcp: number[] } {

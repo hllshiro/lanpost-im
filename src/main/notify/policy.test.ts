@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings, type Settings } from '../../shared/settings'
-import { decideNotification, inDndWindow } from './policy'
+import { decideNotification, inDndWindow, shouldBlink } from './policy'
 
 function settings(overrides: (value: Settings) => void = () => {}): Settings {
   const value = structuredClone(defaultSettings)
@@ -106,5 +106,38 @@ describe('notification policy', () => {
     })
     expect(decision.sound).toBe(false)
     expect(decision.toast).toBe(false)
+  })
+
+  it('闪烁只在未读大于0、窗口非活跃、开关打开且不在勿扰时段时成立', () => {
+    const value = settings()
+    expect(shouldBlink({ unread: 3, active: false, settings: value })).toBe(true)
+    expect(shouldBlink({ unread: 0, active: false, settings: value })).toBe(false)
+    expect(shouldBlink({ unread: 3, active: true, settings: value })).toBe(false)
+    expect(
+      shouldBlink({
+        unread: 3,
+        active: false,
+        settings: settings((item) => {
+          item.notify.enabled = false
+        })
+      })
+    ).toBe(false)
+    expect(
+      shouldBlink({
+        unread: 3,
+        active: false,
+        settings: settings((item) => {
+          item.notify.flashTaskbar = false
+        })
+      })
+    ).toBe(false)
+    const dnd = settings((item) => {
+      item.notify.dnd = true
+      item.notify.dndStart = '00:00'
+      item.notify.dndEnd = '23:59'
+    })
+    expect(
+      shouldBlink({ unread: 3, active: false, settings: dnd, now: new Date('2026-11-20T12:00:00') })
+    ).toBe(false)
   })
 })
