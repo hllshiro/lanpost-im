@@ -137,6 +137,31 @@ describe('ConversationRepository', () => {
 
     db.close()
   })
+
+  it('unreadIds 只返回有未读的会话，latestId 返回会话的最新消息', () => {
+    const db = openMemory()
+    const conversations = new ConversationRepository(db)
+    const messages = new MessageRepository(db)
+    const withUnread = conversations.ensureDirect('1|a', '甲')
+    const clean = conversations.ensureDirect('1|b', '乙')
+    const empty = conversations.ensureDirect('1|c', '丙')
+
+    messages.insertIncoming(withUnread.id, '一', 1)
+    const second = messages.insertIncoming(withUnread.id, '二', 2)
+    conversations.touch(withUnread.id, 100, 2)
+    const cleanMessage = messages.insertIncoming(clean.id, '三', 3)
+    conversations.touch(clean.id, 100, 0)
+
+    expect(conversations.unreadIds()).toEqual([withUnread.id])
+    expect(messages.latestId(withUnread.id)).toBe(second.id)
+    expect(messages.latestId(clean.id)).toBe(cleanMessage.id)
+    expect(messages.latestId(empty.id)).toBeNull()
+
+    conversations.markRead(withUnread.id, second.id)
+    expect(conversations.unreadIds()).toEqual([])
+
+    db.close()
+  })
 })
 
 describe('MessageRepository', () => {

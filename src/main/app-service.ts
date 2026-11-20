@@ -1944,6 +1944,17 @@ export class AppService {
     this.notifications.setUnread(this.unreadTotal())
   }
 
+  // 一键已读：每个会话都走 markRead（复用回执去重与事件广播），再清通知弹窗
+  markAllRead(): void {
+    for (const id of this.repos.conversations.unreadIds()) {
+      const latest = this.repos.messages.latestId(id)
+      if (latest === null) continue
+      this.markRead(id, latest)
+    }
+    this.notifications.setUnread(this.unreadTotal())
+    this.notifications.clearToasts()
+  }
+
   // 已读回执只对私有会话发送，且每条消息只发一次
   private sendPrivateReceipts(conversationId: string, messageId: number): void {
     const privateService = this.privateService

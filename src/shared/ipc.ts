@@ -39,6 +39,7 @@ export const IPC = {
   messageRecall: 'messages:recall',
   messageTyping: 'messages:typing',
   conversationRead: 'conversation:read',
+  conversationReadAll: 'conversation:read-all',
   conversationDraft: 'conversation:draft',
   conversationPin: 'conversation:pin',
   peerAlias: 'peer:alias',
@@ -231,6 +232,8 @@ export type Api = {
   }
   conversations: {
     pin(conversationId: string, pinned: boolean): Promise<void>
+    // 一键已读：所有有未读的会话推进水位线并清通知弹窗
+    markAllRead(): Promise<void>
   }
   settings: {
     get(): Promise<Settings>

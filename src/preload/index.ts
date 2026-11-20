@@ -19,7 +19,9 @@ const api: Api = {
     }
   },
   conversations: {
-    pin: (conversationId, pinned) => ipcRenderer.invoke(IPC.conversationPin, conversationId, pinned)
+    pin: (conversationId, pinned) =>
+      ipcRenderer.invoke(IPC.conversationPin, conversationId, pinned),
+    markAllRead: () => ipcRenderer.invoke(IPC.conversationReadAll)
   },
   ui: {
     onOpenSettings: (listener: () => void) => {

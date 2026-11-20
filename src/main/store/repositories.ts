@@ -327,6 +327,14 @@ export class ConversationRepository {
       .run(messageId, id)
   }
 
+  // 一键已读：取所有还有未读的会话
+  unreadIds(): string[] {
+    const rows = this.db
+      .prepare('SELECT id FROM conversations WHERE unread > 0')
+      .all() as unknown as Array<{ id: string }>
+    return rows.map((row) => row.id)
+  }
+
   saveDraft(id: string, draft: string): void {
     this.db.prepare('UPDATE conversations SET draft = ? WHERE id = ?').run(draft, id)
   }
@@ -377,6 +385,14 @@ export class MessageRepository {
       `INSERT INTO messages (conversation_id, direction, kind, text, remote_seq, status, created_at, meta, nwt_id)
        VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`
     )
+  }
+
+  // 一键已读要把水位线推到会话的最新消息
+  latestId(conversationId: string): number | null {
+    const row = this.db
+      .prepare('SELECT MAX(id) AS n FROM messages WHERE conversation_id = ?')
+      .get(conversationId) as { n: number | null }
+    return row.n
   }
 
   list(conversationId: string, beforeId?: number, limit = 50): MessagesPage {
