@@ -32,6 +32,7 @@ import { mergeSettings } from '../../../shared/settings-merge'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
+import { playNotifySound } from '../utils/notify-sound'
 import { comparePinyin } from '../utils/pinyin'
 import { useAppStore } from '../stores/app'
 import NwtImportDialog from './NwtImportDialog.vue'
@@ -299,6 +300,10 @@ async function pushPatch(patch: SettingsPatch): Promise<void> {
 
 function saveField<K extends Section>(section: K, patch: Partial<Settings[K]>): void {
   void pushPatch({ [section]: patch } as SettingsPatch)
+}
+
+function previewSound(): void {
+  playNotifySound(settings.value.notify.soundPreset, settings.value.notify.soundVolume)
 }
 
 function savePrivateSeeds(): void {
@@ -824,6 +829,25 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="row">
+            <div class="row-text">
+              <label class="label" for="setting-sound-preset">提示音样式</label>
+              <p class="hint">收到新消息时播放的提示音</p>
+            </div>
+            <div class="control">
+              <select
+                id="setting-sound-preset"
+                v-model="settings.notify.soundPreset"
+                class="input"
+                @change="saveField('notify', { soundPreset: settings.notify.soundPreset })"
+              >
+                <option value="a">A 轻快两声</option>
+                <option value="b">B 柔和门铃</option>
+                <option value="c">C 清脆单声</option>
+              </select>
+              <button class="mini" @click="previewSound">试听</button>
+            </div>
+          </div>
+          <div class="row">
             <div class="row-text"><span class="label">提示音音量</span></div>
             <div class="control">
               <input
@@ -841,8 +865,8 @@ onBeforeUnmount(() => {
           </div>
           <div class="row">
             <div class="row-text">
-              <span class="label">任务栏闪烁</span>
-              <p class="hint">窗口不在前台时闪烁任务栏与托盘</p>
+              <span class="label">托盘图标闪烁</span>
+              <p class="hint">窗口不在前台时托盘图标闪烁，直到未读清零</p>
             </div>
             <div class="control control-auto">
               <ToggleSwitch

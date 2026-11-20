@@ -4,9 +4,9 @@ import { CircleAlert, X } from '@lucide/vue'
 import type { Settings } from '../../shared/settings'
 import type { NotifyPayload } from '../../shared/ipc'
 import type { RichPart } from '../../shared/ipc'
-import notifySound from './assets/notify.wav'
 import { useAppStore } from './stores/app'
 import { errorMessage } from './utils/errors'
+import { playNotifySound } from './utils/notify-sound'
 import ChatPane from './components/ChatPane.vue'
 import ContactsPage from './components/ContactsPage.vue'
 import ConversationList from './components/ConversationList.vue'
@@ -36,7 +36,6 @@ let unsubscribeSelect: (() => void) | null = null
 let toastTimer: ReturnType<typeof setTimeout> | null = null
 
 const toast = ref<NotifyPayload | null>(null)
-const soundVolume = ref(70)
 
 function openToast(): void {
   if (toast.value === null) return
@@ -46,6 +45,12 @@ function openToast(): void {
     clearTimeout(toastTimer)
     toastTimer = null
   }
+}
+
+// 每次播音前读实时设置：切换提示音或音量后下一条消息立即生效
+async function playFromSettings(): Promise<void> {
+  const settings = await window.api.settings.get()
+  playNotifySound(settings.notify.soundPreset, settings.notify.soundVolume)
 }
 
 const currentLoadingMessages = computed(() => {
@@ -220,11 +225,7 @@ onMounted(async () => {
       toast.value = null
       toastTimer = null
     }, 4000)
-    if (payload.sound) {
-      const audio = new Audio(notifySound)
-      audio.volume = soundVolume.value / 100
-      void audio.play().catch(() => undefined)
-    }
+    if (payload.sound) void playFromSettings()
   })
   unsubscribeSelect = window.api.ui.onSelectConversation((conversationId) => {
     void store.selectConversation(conversationId)
@@ -239,7 +240,6 @@ onMounted(async () => {
   try {
     const settings = await window.api.settings.get()
     appearance.value = settings.appearance
-    soundVolume.value = settings.notify.soundVolume
   } catch (reason) {
     store.reportError(reason)
   }

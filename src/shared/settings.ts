@@ -33,7 +33,7 @@ const networkSchema = z.object({
 const notifySchema = z.object({
   enabled: z.boolean().default(true),
   sound: z.boolean().default(true),
-  soundFile: z.string().default('builtin'),
+  soundPreset: z.enum(['a', 'b', 'c']).default('a'),
   soundVolume: z.number().int().min(0).max(100).default(70),
   flashTaskbar: z.boolean().default(true),
   systemNotification: z.boolean().default(true),

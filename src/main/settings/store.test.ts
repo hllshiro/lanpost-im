@@ -108,4 +108,12 @@ describe('SettingsStore', () => {
     expect(store.get()).toEqual(defaultSettings)
     expect(existsSync(file + '.bak')).toBe(true)
   })
+
+  it('soundPreset 默认 a 且旧配置里的 soundFile 被忽略', () => {
+    const file = tempFile()
+    writeFileSync(file, JSON.stringify({ notify: { soundFile: 'builtin' } }))
+    const loaded = new SettingsStore(file).get()
+    expect(loaded.notify.soundPreset).toBe('a')
+    expect('soundFile' in loaded.notify).toBe(false)
+  })
 })
