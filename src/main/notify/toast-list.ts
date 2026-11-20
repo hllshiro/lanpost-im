@@ -7,6 +7,17 @@ interface Entry {
   expiresAt: number | null
 }
 
+// 聚焦是否该清空通知弹窗：锁屏期间与解锁后宽限期内不清
+// （锁屏时聚焦事件可能先于 powerMonitor 的解锁事件到达，会把挂起的弹窗误清）
+export function shouldClearToastsOnFocus(input: {
+  hasToasts: boolean
+  locked: boolean
+  now: number
+  ignoreFocusUntil: number
+}): boolean {
+  return input.hasToasts && !input.locked && input.now >= input.ignoreFocusUntil
+}
+
 // 通知弹窗列表的纯逻辑：同会话覆盖、到期移除、锁屏挂起与释放。
 // 时间由注入的 now 提供，便于测试
 export class ToastList {

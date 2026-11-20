@@ -3,7 +3,7 @@ import { IPC } from '../../shared/ipc'
 import type { SettingsStore } from '../settings/store'
 import { setTrayBadge, setTrayBlinking } from '../tray'
 import { decideNotification, shouldBlink, type NotificationKind } from './policy'
-import { ToastList } from './toast-list'
+import { ToastList, shouldClearToastsOnFocus } from './toast-list'
 import { pushToastWindow } from './toast-window'
 import { setPopupUnreadCount } from './tray-popup'
 import { logStartup } from '../startup-log'
@@ -77,7 +77,13 @@ export class NotificationManager {
 
   // 用户回到软件查看消息：清掉全部通知弹窗；未读、角标、闪烁不受影响
   onWindowFocus(): void {
-    if (this.toastList.snapshot().length > 0 && Date.now() >= this.ignoreFocusUntil) {
+    const clear = shouldClearToastsOnFocus({
+      hasToasts: this.toastList.snapshot().length > 0,
+      locked: this.locked,
+      now: Date.now(),
+      ignoreFocusUntil: this.ignoreFocusUntil
+    })
+    if (clear) {
       this.clearToasts()
     }
     this.recomputeBlink()

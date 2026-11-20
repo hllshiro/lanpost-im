@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ToastList } from './toast-list'
+import { shouldClearToastsOnFocus, ToastList } from './toast-list'
 
 describe('ToastList', () => {
   it('同会话重复通知只刷新内容并重置到期时间', () => {
@@ -45,5 +45,37 @@ describe('ToastList', () => {
     list.upsert('c2', '李四', '第二条', 20_000)
     expect(list.snapshot().map((item) => item.conversationId)).toEqual(['c1', 'c2'])
     expect(list.nextExpiry()).toBe(10_000)
+  })
+
+  it('聚焦清除要考虑锁屏与解锁宽限期', () => {
+    // 锁屏期间到达的焦点事件不清挂起的弹窗（聚焦可能先于解锁事件到达）
+    expect(
+      shouldClearToastsOnFocus({ hasToasts: true, locked: true, now: 10_000, ignoreFocusUntil: 0 })
+    ).toBe(false)
+    // 解锁后 3 秒内的聚焦不清刚补显示的弹窗
+    expect(
+      shouldClearToastsOnFocus({
+        hasToasts: true,
+        locked: false,
+        now: 10_000,
+        ignoreFocusUntil: 20_000
+      })
+    ).toBe(false)
+    expect(
+      shouldClearToastsOnFocus({
+        hasToasts: true,
+        locked: false,
+        now: 30_000,
+        ignoreFocusUntil: 20_000
+      })
+    ).toBe(true)
+    expect(
+      shouldClearToastsOnFocus({
+        hasToasts: false,
+        locked: false,
+        now: 30_000,
+        ignoreFocusUntil: 0
+      })
+    ).toBe(false)
   })
 })
