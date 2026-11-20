@@ -5,6 +5,7 @@ import { setTrayBadge, setTrayBlinking } from '../tray'
 import { decideNotification, shouldBlink, type NotificationKind } from './policy'
 import { ToastList } from './toast-list'
 import { pushToastWindow } from './toast-window'
+import { setPopupUnreadCount } from './tray-popup'
 import { logStartup } from '../startup-log'
 
 export interface NotifyInput {
@@ -63,6 +64,7 @@ export class NotificationManager {
     // 先重算闪烁再换图：未读归零时要先停闪，避免停闪用旧数字又把图标切回未读态
     this.recomputeBlink()
     setTrayBadge(unread)
+    setPopupUnreadCount(unread)
     if (process.platform === 'linux') {
       app.setBadgeCount(unread)
     }

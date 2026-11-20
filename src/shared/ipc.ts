@@ -30,6 +30,8 @@ export const IPC = {
   uiSelectConversation: 'ui:select-conversation',
   uiToastList: 'ui:toast-list',
   uiJumpToConversation: 'ui:jump-to-conversation',
+  uiPopupLeave: 'ui:popup-leave',
+  uiPopupRows: 'ui:popup-rows',
   snapshot: 'state:snapshot',
   event: 'state:event',
   messagesList: 'messages:list',
@@ -169,6 +171,15 @@ export interface NotifyListPayload {
 // 弹窗窗口与渲染端共用的尺寸，禁止两侧各写一份数字
 export const TOAST_LAYOUT = { width: 320, cardHeight: 64, gap: 8, padding: 16 } as const
 
+// 悬停未读列表窗口与渲染端共用的尺寸
+export const TRAY_POPUP = {
+  width: 300,
+  rowHeight: 56,
+  footerHeight: 48,
+  maxHeight: 380,
+  padding: 12
+} as const
+
 export interface MessagesListRequest {
   conversationId: string
   beforeId?: number
@@ -265,6 +276,9 @@ export type Api = {
     onToastList(listener: (payload: NotifyListPayload) => void): () => void
     // 点击通知或未读条目：恢复主窗口并跳到对应会话
     jumpToConversation(conversationId: string): void
+    // 悬停列表：报告内容行数（主进程据此贴齐托盘上方）与鼠标离开
+    popupRows(rows: number): void
+    popupLeave(): void
   }
   messages: {
     list(request: MessagesListRequest): Promise<MessagesPage>

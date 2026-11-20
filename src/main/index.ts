@@ -24,6 +24,12 @@ import {
 import { createTray, destroyTray } from './tray'
 import { destroyToastWindow } from './notify/toast-window'
 import {
+  configureTrayPopup,
+  showTrayPopup,
+  onTrayLeave,
+  destroyTrayPopup
+} from './notify/tray-popup'
+import {
   applyGlobalShortcuts,
   setShortcutRecording,
   shortcutAvailable,
@@ -282,6 +288,7 @@ if (!gotLock) {
       const startHidden = settings.get().general.startMinimized
       createMainWindow(startHidden)
       appService.attachWindow(getMainWindow())
+      configureTrayPopup(() => appService.unreadConversationCount())
       applyGlobalShortcuts(settings.get(), shortcutHandlers)
       logStartup(`main window created${startHidden ? ' (hidden)' : ''}`)
 
@@ -294,7 +301,9 @@ if (!gotLock) {
         onQuit: () => {
           setQuitting(true)
           app.quit()
-        }
+        },
+        onHoverEnter: () => showTrayPopup(),
+        onHoverLeave: () => onTrayLeave()
       })
       logStartup('tray created')
 
@@ -373,6 +382,7 @@ if (!gotLock) {
         database = null
         destroyTray()
         destroyToastWindow()
+        destroyTrayPopup()
         app.exit(0)
       }
     })()

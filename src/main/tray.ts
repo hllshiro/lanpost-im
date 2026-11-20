@@ -16,6 +16,9 @@ export interface TrayActions {
   onShow: () => void
   onSettings: () => void
   onQuit: () => void
+  // 悬停未读列表：进入与离开托盘图标（事件仅 Windows/macOS 触发，Linux 自然不弹）
+  onHoverEnter: () => void
+  onHoverLeave: () => void
 }
 
 export function createTray(actions: TrayActions): TrayType {
@@ -34,7 +37,14 @@ export function createTray(actions: TrayActions): TrayType {
     ])
   )
   tray.on('click', actions.onShow)
+  tray.on('mouse-enter', () => actions.onHoverEnter())
+  tray.on('mouse-leave', () => actions.onHoverLeave())
   return tray
+}
+
+// 供悬停列表定位：托盘图标在屏幕上的位置
+export function trayBounds(): Electron.Rectangle | null {
+  return tray?.getBounds() ?? null
 }
 
 function render(): void {

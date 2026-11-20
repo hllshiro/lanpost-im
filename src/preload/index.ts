@@ -46,6 +46,12 @@ const api: Api = {
     },
     jumpToConversation: (conversationId) => {
       ipcRenderer.send(IPC.uiJumpToConversation, conversationId)
+    },
+    popupRows: (rows) => {
+      ipcRenderer.send(IPC.uiPopupRows, rows)
+    },
+    popupLeave: () => {
+      ipcRenderer.send(IPC.uiPopupLeave)
     }
   },
   messages: {

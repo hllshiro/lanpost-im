@@ -24,7 +24,7 @@ import {
   dialog,
   nativeImage,
   shell,
-  type BrowserWindow,
+  BrowserWindow,
   type OpenDialogOptions,
   type SaveDialogOptions
 } from 'electron'
@@ -1942,6 +1942,11 @@ export class AppService {
     this.repos.conversations.markRead(conversationId, messageId)
     this.emitConversation(conversationId)
     this.notifications.setUnread(this.unreadTotal())
+  }
+
+  // 一键已读要取所有有未读的会话
+  unreadConversationCount(): number {
+    return this.repos.conversations.unreadIds().length
   }
 
   // 一键已读：每个会话都走 markRead（复用回执去重与事件广播），再清通知弹窗
@@ -4986,7 +4991,10 @@ export class AppService {
 
   private emit(event: AppEvent): void {
     this.logDebugEvent(event)
-    this.window?.webContents.send(IPC.event, event)
+    // 广播给所有窗口：主窗口、通知弹窗窗口、悬停列表窗口都订阅同一事件流
+    for (const window of BrowserWindow.getAllWindows()) {
+      window.webContents.send(IPC.event, event)
+    }
   }
 
   // 事件是界面状态变化的唯一来源，调试日志记录每次结构变化的关键字段

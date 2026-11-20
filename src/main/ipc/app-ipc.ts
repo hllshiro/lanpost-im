@@ -1,5 +1,6 @@
 import { app, ipcMain } from 'electron'
 import { getMainWindow, showMainWindow } from '../window'
+import { hideTrayPopup, onPopupLeave, resizeTrayPopup } from '../notify/tray-popup'
 import { IPC } from '../../shared/ipc'
 import type { AppService } from '../app-service'
 import { exportLogs, openLogsDirectory } from '../logs'
@@ -119,7 +120,11 @@ export function registerAppIpc(service: AppService): void {
   // 点击通知或未读条目：清弹窗、恢复主窗口、跳到对应会话
   ipcMain.on(IPC.uiJumpToConversation, (_event, conversationId: string) => {
     service.clearToasts()
+    hideTrayPopup()
     showMainWindow()
     getMainWindow()?.webContents.send(IPC.uiSelectConversation, conversationId)
   })
+  // 悬停列表：光标离开的复查与内容行数变化时重新贴齐托盘上方
+  ipcMain.on(IPC.uiPopupLeave, () => onPopupLeave())
+  ipcMain.on(IPC.uiPopupRows, (_event, rows: number) => resizeTrayPopup(rows))
 }
