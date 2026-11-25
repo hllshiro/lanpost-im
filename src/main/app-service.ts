@@ -421,7 +421,7 @@ export class AppService {
     this.avatars = new AvatarStore(join(app.getPath('userData'), 'avatars'))
     let receiveDir = settings.get().files.receiveDir
     if (receiveDir === '') {
-      const downloads = join(app.getPath('downloads'), '内网传书')
+      const downloads = join(app.getPath('downloads'), this.appInfo.name)
       try {
         mkdirSync(downloads, { recursive: true })
         receiveDir = downloads
@@ -4014,7 +4014,7 @@ export class AppService {
   // 设置页选择接收目录；取消返回 null
   async pickReceiveDir(): Promise<string | null> {
     const current = this.settings.get().files.receiveDir
-    const fallback = join(app.getPath('downloads'), '内网传书')
+    const fallback = join(app.getPath('downloads'), this.appInfo.name)
     const options: OpenDialogOptions = {
       title: '选择接收目录',
       properties: ['openDirectory', 'createDirectory'],

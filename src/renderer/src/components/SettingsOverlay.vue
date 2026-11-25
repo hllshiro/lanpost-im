@@ -31,6 +31,7 @@ import {
 } from '../../../shared/settings'
 import { mergeSettings } from '../../../shared/settings-merge'
 import { NOTIFY_SOUND_OPTIONS } from '../../../shared/notify-sounds'
+import { APP_NAME } from '../../../shared/app'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
@@ -133,7 +134,19 @@ let saveQueue: Promise<void> = Promise.resolve()
 const currentLabel = computed(
   () => categories.value.find((item) => item.id === current.value)?.label ?? ''
 )
-const appName = computed(() => appInfo.value?.name ?? '内网传书')
+const appName = computed(() => appInfo.value?.name ?? APP_NAME)
+const platformText = computed(() => {
+  switch (appInfo.value?.platform) {
+    case 'win32':
+      return 'Windows'
+    case 'linux':
+      return 'Linux'
+    case 'darwin':
+      return 'macOS'
+    default:
+      return appInfo.value?.platform ?? '—'
+  }
+})
 const versionText = computed(() => {
   if (appInfo.value) return `版本 ${appInfo.value.version}`
   if (appInfoError.value) return '版本信息不可用'
@@ -507,7 +520,7 @@ onBeforeUnmount(() => {
           <span>{{ category.label }}</span>
         </button>
       </nav>
-      <p class="side-foot">内网传书 · 局域网即时通信</p>
+      <p class="side-foot">{{ appName }} · 局域网即时通信</p>
     </aside>
 
     <section class="panel">
@@ -1167,7 +1180,7 @@ onBeforeUnmount(() => {
             </div>
             <div>
               <dt>运行平台</dt>
-              <dd>{{ appInfo?.platform ?? '—' }}</dd>
+              <dd>{{ platformText }}</dd>
             </div>
             <div>
               <dt>通信协议</dt>

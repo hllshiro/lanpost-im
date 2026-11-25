@@ -1,8 +1,9 @@
 {
   "name": "lanpost-im",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "packageManager": "pnpm@12.15.0",
-  "description": "内网传书（Lanpost-IM）—— 基于 IPMSG 的跨平台局域网即时通信",
+  "description": "内网传书——局域网即时通信客户端",
+  "desktopName": "lanpost-im.desktop",
   "main": "./out/main/index.js",
   "author": "hllshiro <hllshiro@users.noreply.github.com>",
   "homepage": "https://github.com/hllshiro/lanpost-im",

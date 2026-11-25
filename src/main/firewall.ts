@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { promisify } from 'node:util'
 import type { FirewallState, FirewallStatus } from '../shared/ipc'
+import { APP_NAME } from '../shared/app'
 
 const execFileAsync = promisify(execFile)
 
@@ -58,7 +59,7 @@ function messageOf(error: unknown): string {
 export function ruleNameOf(executable: string): string {
   // 路径可能是 Windows 反斜杠或 POSIX 斜杠；不能依赖宿主平台的 path.basename
   const name = executable.split(/[\\/]/).pop()?.toLowerCase() ?? ''
-  return name === 'electron.exe' ? 'lanpost-im-dev' : 'lanpost-im'
+  return name === 'electron.exe' ? 'lanpost-im-dev' : APP_NAME
 }
 
 function detailOf(state: FirewallState): string {

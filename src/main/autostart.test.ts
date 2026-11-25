@@ -37,7 +37,7 @@ function context(overrides: Partial<AutostartContext> = {}): AutostartContext {
 }
 
 describe('start at login', () => {
-  it('registers the packaged executable on Windows', () => {
+  it('registers the Chinese display name and clears the legacy English login item', () => {
     const calls: LoginItemOptions[] = []
     const ctx = context({
       loginItem: {
@@ -48,10 +48,16 @@ describe('start at login', () => {
     expect(applyStartAtLogin(true, ctx)).toEqual({ ok: true })
     expect(calls).toEqual([
       {
-        openAtLogin: true,
+        openAtLogin: false,
         path: 'C:\\Program Files\\lanpost-im\\lanpost-im.exe',
         args: [],
         name: 'lanpost-im'
+      },
+      {
+        openAtLogin: true,
+        path: 'C:\\Program Files\\lanpost-im\\lanpost-im.exe',
+        args: [],
+        name: '内网传书'
       }
     ])
   })
@@ -137,6 +143,12 @@ describe('start at login', () => {
         path: 'C:\\Program Files\\lanpost-im\\lanpost-im.exe',
         args: [],
         name: 'lanpost-im'
+      },
+      {
+        openAtLogin: false,
+        path: 'C:\\Program Files\\lanpost-im\\lanpost-im.exe',
+        args: [],
+        name: '内网传书'
       }
     ])
   })

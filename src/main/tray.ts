@@ -3,6 +3,7 @@ import { copyFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import tray16 from '../../resources/tray-16.png?asset'
 import tray22 from '../../resources/tray-22.png?asset'
+import { APP_NAME } from '../shared/app'
 
 let tray: TrayType | null = null
 let normalImage: Electron.NativeImage | null = null
@@ -34,7 +35,7 @@ export function createTray(actions: TrayActions): TrayType {
   normalImage = nativeImage.createFromPath(normalPath)
   emptyImage = nativeImage.createEmpty()
   tray = new Tray(normalImage)
-  tray.setToolTip('内网传书')
+  tray.setToolTip(APP_NAME)
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: '打开主界面', click: actions.onShow },
@@ -66,7 +67,7 @@ function render(): void {
 // 未读数只用于悬停提示；图标本身由闪烁状态决定
 export function setTrayUnread(count: number): void {
   if (tray !== null) {
-    tray.setToolTip(count > 0 ? `内网传书 · ${count} 条未读` : '内网传书')
+    tray.setToolTip(count > 0 ? `${APP_NAME} · ${count} 条未读` : APP_NAME)
   }
 }
 

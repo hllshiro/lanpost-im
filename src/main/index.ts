@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { APP_ID, APP_NAME, APP_NAME_EN } from '../shared/app'
+import { APP_ID, APP_NAME } from '../shared/app'
 import { IPC } from '../shared/ipc'
 import { AppService } from './app-service'
 import { applyStartAtLogin, type AutostartContext } from './autostart'
@@ -40,7 +40,7 @@ import { errorMessage, friendlyMessage, logStartup, startupLogFile } from './sta
 import { configureDebugLog, debugLog, errorLog } from './debug-log'
 import { logsDirectory } from './logs'
 
-app.setName(APP_NAME_EN)
+app.setName(APP_NAME)
 
 // 渲染进程通过它读取已接收的图片和待发区里的图片；
 // 地址形如 lanpost-file:///pf5723、lanpost-staged:///stg3
@@ -201,7 +201,7 @@ if (!gotLock) {
         version: app.getVersion(),
         platform: process.platform,
         appId: APP_ID,
-        defaultReceiveDir: join(app.getPath('downloads'), '内网传书')
+        defaultReceiveDir: join(app.getPath('downloads'), APP_NAME)
       }
       const appService = new AppService(database, settings, appInfo)
       service = appService
@@ -320,7 +320,7 @@ if (!gotLock) {
       } catch (error) {
         logStartup('protocol start failed: ' + errorMessage(error))
         dialog.showErrorBox(
-          '内网传书',
+          APP_NAME,
           `协议服务启动失败：\n${friendlyMessage(error)}\n\n请检查端口是否被占用，或者修改监听端口后重启。`
         )
       }
@@ -351,7 +351,7 @@ if (!gotLock) {
     } catch (error) {
       logStartup('startup failed: ' + errorMessage(error))
       dialog.showErrorBox(
-        '内网传书',
+        APP_NAME,
         `无法打开数据文件：\n${friendlyMessage(error)}\n\n日志：${startupLogFile()}`
       )
       app.quit()

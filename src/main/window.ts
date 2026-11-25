@@ -2,6 +2,7 @@ import { BrowserWindow, Menu, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { APP_NAME } from '../shared/app'
 import { logStartup } from './startup-log'
 import { errorLog } from './debug-log'
 
@@ -18,7 +19,7 @@ export function createMainWindow(startHidden = false): BrowserWindow {
     height: 720,
     minWidth: 900,
     minHeight: 600,
-    title: '内网传书',
+    title: APP_NAME,
     show: false,
     autoHideMenuBar: true,
     ...(process.platform === 'linux' ? { icon } : {}),

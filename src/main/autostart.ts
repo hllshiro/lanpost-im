@@ -33,7 +33,7 @@ export function loginItemArgs(ctx: AutostartContext): string[] {
   return ctx.isPackaged ? [] : [ctx.appPath]
 }
 
-const LOGIN_ITEM_NAME = 'lanpost-im'
+const LEGACY_LOGIN_ITEM_NAME = 'lanpost-im'
 
 function loginItemOptions(ctx: AutostartContext, openAtLogin: boolean): LoginItemOptions {
   if (ctx.platform === 'win32') {
@@ -41,10 +41,20 @@ function loginItemOptions(ctx: AutostartContext, openAtLogin: boolean): LoginIte
       openAtLogin,
       path: ctx.execPath,
       args: loginItemArgs(ctx),
-      name: LOGIN_ITEM_NAME
+      name: ctx.appName
     }
   }
   return { openAtLogin, openAsHidden: true }
+}
+
+// 0.7.0 及更早版本把登录项写成英文包名，升级后要清掉，否则会同时存在两个启动项
+function legacyWindowsLoginItem(ctx: AutostartContext): LoginItemOptions {
+  return {
+    openAtLogin: false,
+    path: ctx.execPath,
+    args: loginItemArgs(ctx),
+    name: LEGACY_LOGIN_ITEM_NAME
+  }
 }
 
 export function linuxDesktopPath(configDir: string): string {
@@ -95,7 +105,20 @@ export function applyStartAtLogin(enabled: boolean, ctx: AutostartContext): Auto
     }
   }
 
-  if (ctx.platform !== 'win32' && ctx.platform !== 'darwin') {
+  if (ctx.platform === 'win32') {
+    if (!ctx.loginItem) {
+      return { ok: false, error: '系统登录项接口不可用' }
+    }
+    try {
+      ctx.loginItem.set(legacyWindowsLoginItem(ctx))
+      ctx.loginItem.set(loginItemOptions(ctx, enabled))
+      return { ok: true }
+    } catch (error) {
+      return { ok: false, error: errorText(error) }
+    }
+  }
+
+  if (ctx.platform !== 'darwin') {
     return { ok: false, error: '当前系统不支持开机启动' }
   }
   if (!ctx.loginItem) {

@@ -1,5 +1,5 @@
 appId: com.lanpost.im
-productName: lanpost-im
+productName: 内网传书
 directories:
   buildResources: build
 files:
@@ -30,7 +30,7 @@ win:
       arch:
         - x64
 nsis:
-  artifactName: ${name}-${version}-setup.${ext}
+  artifactName: ${productName}-${version}-setup.${ext}
   shortcutName: 内网传书
   uninstallDisplayName: 内网传书
   createDesktopShortcut: always
@@ -38,6 +38,8 @@ nsis:
   include: build/installer.nsh
 linux:
   executableName: lanpost-im
+  # Name 用中文显示；桌面文件名与 WM_CLASS 仍用 ASCII，避免窗口关联失效
+  syncDesktopName: true
   maintainer: hllshiro <hllshiro@users.noreply.github.com>
   category: Network
   # 架构只由命令行 --x64 / --arm64 决定。这里若再写 arch，electron-builder 会在
@@ -47,13 +49,13 @@ linux:
     - deb
     - rpm
 appImage:
-  artifactName: ${name}-${version}-${arch}.${ext}
+  artifactName: ${productName}-${version}-${arch}.${ext}
 deb:
-  artifactName: ${name}_${version}_${arch}.${ext}
+  artifactName: ${productName}_${version}_${arch}.${ext}
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
 rpm:
-  artifactName: ${name}-${version}.${arch}.${ext}
+  artifactName: ${productName}-${version}.${arch}.${ext}
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
 publish: null

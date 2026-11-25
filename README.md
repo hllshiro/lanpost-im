@@ -1,4 +1,4 @@
-# 内网传书（Lanpost-IM）
+# 内网传书
 
 基于内网通 NWT 私有协议的跨平台局域网即时通信，无需服务器，文字与文件直传。
 
@@ -55,6 +55,8 @@ pnpm build:linux   # 当前机器架构，deb、rpm 与 AppImage；用 build:lin
 私有协议默认使用 9011/UDP 发现、9012/UDP ENet、9013/TCP 文件、9014/TCP 文件夹；可在设置中修改。Windows 安装包会添加按程序路径的防火墙规则，Linux deb/rpm 会为默认端口添加 ufw/firewalld 规则。
 
 版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux x64/ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
+
+显示名称统一为「内网传书」：窗口标题、托盘、安装器、Windows 文件属性、Linux 桌面入口、开机启动项与防火墙规则都使用中文；安装包文件名也以「内网传书」开头。`lanpost-im` 只保留为技术标识：npm 包名、`appId`、可执行文件名、数据目录、协议 scheme。
 
 ### 数据目录
 
