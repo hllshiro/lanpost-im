@@ -63,9 +63,9 @@ describe('SettingsStore', () => {
   it('merges a nested patch and persists it', () => {
     const file = tempFile()
     const store = new SettingsStore(file)
-    store.update({ files: { autoAccept: true, autoAcceptMaxMB: 1024 } })
+    store.update({ files: { autoAccept: true, receiveLayout: 'nickname' } })
     expect(store.get().files.autoAccept).toBe(true)
-    expect(new SettingsStore(file).get().files.autoAcceptMaxMB).toBe(1024)
+    expect(new SettingsStore(file).get().files.receiveLayout).toBe('nickname')
   })
 
   it('keeps untouched groups when applying a patch', () => {

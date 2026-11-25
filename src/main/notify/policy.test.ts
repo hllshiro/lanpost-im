@@ -9,7 +9,6 @@ function settings(overrides: (value: Settings) => void = () => {}): Settings {
 }
 
 const base = {
-  kind: 'message' as const,
   isSelf: false,
   muted: false,
   windowFocused: false,
@@ -83,18 +82,6 @@ describe('notification policy', () => {
       sound: false,
       toast: false
     })
-  })
-
-  it('skips file completion notifications when disabled', () => {
-    const decision = decideNotification({
-      ...base,
-      kind: 'file',
-      settings: settings((value) => {
-        value.files.notifyOnComplete = false
-      })
-    })
-    expect(decision.sound).toBe(false)
-    expect(decision.toast).toBe(false)
   })
 
   it('未读大于 0 就闪烁，新消息提醒关闭时停止', () => {

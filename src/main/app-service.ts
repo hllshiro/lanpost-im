@@ -3978,7 +3978,6 @@ export class AppService {
           conversationId: conversation.id,
           title: peer?.alias || peer?.name || conversation.title,
           body: `收到文件：${file.name}`,
-          kind: 'file',
           muted: conversation.muted,
           unread: this.unreadTotal()
         })
@@ -4062,7 +4061,6 @@ export class AppService {
         conversationId: current.id,
         title: peerName || current.title,
         body: text,
-        kind: 'message',
         muted: current.muted,
         unread: this.unreadTotal()
       })
@@ -4710,8 +4708,7 @@ export class AppService {
     this.repos.files.upsert(task)
     this.handleFileUpdate(task)
     const settings = this.settings.get()
-    const limit = settings.files.autoAcceptMaxMB
-    if (settings.files.autoAccept && (limit === 0 || offer.size <= limit * 1024 * 1024)) {
+    if (settings.files.autoAccept) {
       this.acceptFile(fileTaskId)
     }
   }

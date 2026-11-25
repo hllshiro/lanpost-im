@@ -169,7 +169,7 @@ async function copyAddress(): Promise<void> {
   if (!props.peer) return
   copyError.value = ''
   try {
-    await navigator.clipboard.writeText(`${props.peer.ip}:${props.peer.port}`)
+    await navigator.clipboard.writeText(props.peer.ip)
     copied.value = true
     if (copyTimer !== undefined) window.clearTimeout(copyTimer)
     copyTimer = window.setTimeout(() => {
@@ -225,9 +225,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="head-actions">
-          <button class="history-btn" title="聊天记录" aria-label="聊天记录" @click="openHistory">
-            <Clock :size="15" :stroke-width="1.8" />
-            <span>历史</span>
+          <button class="icon-btn" title="聊天记录" aria-label="聊天记录" @click="openHistory">
+            <Clock :size="18" :stroke-width="1.9" />
           </button>
 
           <div ref="infoAnchor" class="info-anchor">
@@ -317,7 +316,7 @@ onBeforeUnmount(() => {
                 <div v-if="peer" class="info-row">
                   <dt>地址</dt>
                   <dd class="address">
-                    <span>{{ peer.ip }}:{{ peer.port }}</span>
+                    <span>{{ peer.ip }}</span>
                     <button class="copy" @click="copyAddress">
                       {{ copied ? '已复制' : '复制' }}
                     </button>
@@ -326,10 +325,6 @@ onBeforeUnmount(() => {
                 <div v-if="peer" class="info-row">
                   <dt>部门</dt>
                   <dd>{{ peer.department || '未填写' }}</dd>
-                </div>
-                <div v-if="peer" class="info-row">
-                  <dt>分组</dt>
-                  <dd>{{ peer.group || '未填写' }}</dd>
                 </div>
                 <div v-if="peer" class="info-row">
                   <dt>签名</dt>
@@ -578,24 +573,6 @@ h2 {
   align-items: center;
   gap: 8px;
   flex: 0 0 auto;
-}
-
-.history-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 27px;
-  padding: 0 10px;
-  border: 1px solid var(--divider);
-  border-radius: var(--radius-button);
-  background: #ffffff;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.history-btn:hover {
-  border-color: var(--text-muted);
-  color: var(--text);
 }
 
 .info-anchor {

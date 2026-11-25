@@ -103,9 +103,8 @@ function statusClass(peer: PeerInfo): string {
   return 'online'
 }
 
-function groupText(peer: PeerInfo): string {
-  const parts = [peer.group, peer.department].map((item) => item.trim()).filter(Boolean)
-  return parts.join(' · ')
+function metaText(peer: PeerInfo): string {
+  return peer.department.trim()
 }
 
 const onlineCount = computed(() => store.peers.filter((peer) => peer.online).length)
@@ -139,14 +138,13 @@ const visible = computed(() => {
       peer.name,
       peer.alias,
       peer.user,
-      peer.group,
       peer.department,
       peer.ip,
       peer.host,
       peer.sign
     ]
     if (fields.some((field) => field.toLowerCase().includes(keyword.value))) return true
-    return [displayName(peer), peer.name, peer.alias, peer.group, peer.department].some((value) =>
+    return [displayName(peer), peer.name, peer.alias, peer.department].some((value) =>
       matchesPinyin(value, keyword.value)
     )
   })
@@ -303,7 +301,7 @@ function handleBatchSent(result: BatchSendResult): void {
         <input
           v-model="query"
           type="text"
-          :placeholder="tab === 'contacts' ? '搜索名称、账号、分组、IP 或拼音' : '搜索群聊'"
+          :placeholder="tab === 'contacts' ? '搜索名称、账号、IP 或拼音' : '搜索群聊'"
           autocomplete="off"
           spellcheck="false"
           aria-label="搜索联系人"
@@ -405,9 +403,9 @@ function handleBatchSent(result: BatchSendResult): void {
                   <span class="name">{{ displayName(peer) }}</span>
                   <span class="status" :class="statusClass(peer)">{{ statusText(peer) }}</span>
                 </span>
-                <span v-if="groupText(peer) || peer.sign.trim()" class="meta">
-                  <span v-if="groupText(peer)" class="group">{{ groupText(peer) }}</span>
-                  <span v-if="groupText(peer) && peer.sign.trim()" class="sep">·</span>
+                <span v-if="metaText(peer) || peer.sign.trim()" class="meta">
+                  <span v-if="metaText(peer)" class="group">{{ metaText(peer) }}</span>
+                  <span v-if="metaText(peer) && peer.sign.trim()" class="sep">·</span>
                   <span v-if="peer.sign.trim()" class="sign">{{ peer.sign }}</span>
                 </span>
               </span>

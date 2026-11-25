@@ -40,12 +40,19 @@ import { useAppStore } from '../stores/app'
 import NwtImportDialog from './NwtImportDialog.vue'
 import ToggleSwitch from './ToggleSwitch.vue'
 
+const props = withDefaults(
+  defineProps<{
+    networkUnlocked?: boolean
+  }>(),
+  { networkUnlocked: false }
+)
+
 const emit = defineEmits<{
   close: []
   saved: [settings: Settings]
 }>()
 
-const categories = [
+const allCategories = [
   { id: 'identity', label: '账号', icon: UserRound },
   { id: 'network', label: '网络', icon: Network },
   { id: 'notify', label: '消息', icon: Bell },
@@ -57,7 +64,12 @@ const categories = [
   { id: 'about', label: '关于', icon: Info }
 ] as const
 
-type CategoryId = (typeof categories)[number]['id']
+// 网络设置默认隐藏，连续点击设置按钮解锁后才出现在左侧分类里
+const categories = computed(() =>
+  allCategories.filter((item) => item.id !== 'network' || props.networkUnlocked)
+)
+
+type CategoryId = (typeof allCategories)[number]['id']
 type Section = Exclude<keyof Settings, 'version'>
 type ShortcutAction = keyof typeof DEFAULT_SHORTCUTS
 
@@ -119,7 +131,7 @@ let savedTimer: number | undefined
 let saveQueue: Promise<void> = Promise.resolve()
 
 const currentLabel = computed(
-  () => categories.find((item) => item.id === current.value)?.label ?? ''
+  () => categories.value.find((item) => item.id === current.value)?.label ?? ''
 )
 const appName = computed(() => appInfo.value?.name ?? '内网传书')
 const versionText = computed(() => {
@@ -752,23 +764,6 @@ onBeforeUnmount(() => {
           </div>
           <div class="row">
             <div class="row-text">
-              <span class="label">防火墙</span>
-              <p class="hint">{{ firewallHint }}</p>
-            </div>
-            <div class="control control-auto">
-              <span class="firewall-state" :class="firewall?.state">{{ firewallLabel }}</span>
-              <button
-                v-if="showFirewallRepair"
-                class="reset"
-                :disabled="firewallBusy"
-                @click="repairFirewall"
-              >
-                {{ firewallBusy ? '处理中…' : '修复' }}
-              </button>
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
               <span class="label">发现间隔</span>
               <p class="hint">秒，范围 5 到 3600</p>
             </div>
@@ -920,49 +915,12 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <span class="label">自动接收</span>
-              <p class="hint">符合大小上限的文件直接接收</p>
+              <p class="hint">收到的文件直接接收，不再逐个确认</p>
             </div>
             <div class="control control-auto">
               <ToggleSwitch
                 v-model="settings.files.autoAccept"
                 @update:model-value="saveField('files', { autoAccept: $event })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <span class="label">自动接收大小上限</span>
-              <p class="hint">MB，0 表示不限</p>
-            </div>
-            <div class="control">
-              <input
-                v-model.number="settings.files.autoAcceptMaxMB"
-                class="input"
-                type="number"
-                min="0"
-                aria-label="自动接收大小上限"
-                @change="saveField('files', { autoAcceptMaxMB: settings.files.autoAcceptMaxMB })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><span class="label">接收完成提醒</span></div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.files.notifyOnComplete"
-                @update:model-value="saveField('files', { notifyOnComplete: $event })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <span class="label">完成后打开文件</span>
-              <p class="hint">接收完成后自动用系统默认程序打开</p>
-            </div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.files.openAfterReceive"
-                @update:model-value="saveField('files', { openAfterReceive: $event })"
               />
             </div>
           </div>
@@ -1083,6 +1041,24 @@ onBeforeUnmount(() => {
               <span class="readonly">简体中文</span>
             </div>
           </div>
+          <h2 class="group-gap">系统</h2>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">防火墙</span>
+              <p class="hint">{{ firewallHint }}</p>
+            </div>
+            <div class="control control-auto">
+              <span class="firewall-state" :class="firewall?.state">{{ firewallLabel }}</span>
+              <button
+                v-if="showFirewallRepair"
+                class="reset"
+                :disabled="firewallBusy"
+                @click="repairFirewall"
+              >
+                {{ firewallBusy ? '处理中…' : '修复' }}
+              </button>
+            </div>
+          </div>
         </div>
 
         <div v-show="current === 'shortcuts'" class="group">
@@ -1152,23 +1128,6 @@ onBeforeUnmount(() => {
         <div v-show="current === 'storage'" class="group">
           <h2>数据存储</h2>
           <div class="row">
-            <div class="row-text">
-              <label class="label" for="setting-data-dir"
-                >数据目录<span class="restart">重启生效</span></label
-              >
-              <p class="hint">数据库与设置文件所在位置，留空使用默认目录</p>
-            </div>
-            <div class="control">
-              <input
-                id="setting-data-dir"
-                v-model="settings.storage.dataDir"
-                class="input"
-                placeholder="默认数据目录"
-                @change="saveField('storage', { dataDir: settings.storage.dataDir })"
-              />
-            </div>
-          </div>
-          <div class="row">
             <div class="row-text"><span class="label">历史记录保留</span></div>
             <div class="control control-auto">
               <span class="readonly">永久</span>
@@ -1188,7 +1147,6 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p v-if="nwtResult" class="note">{{ nwtResult }}</p>
-          <p class="note">修改数据目录不会移动已经接收的文件。</p>
         </div>
 
         <div v-show="current === 'about'" class="about">
@@ -1214,10 +1172,6 @@ onBeforeUnmount(() => {
             <div>
               <dt>通信协议</dt>
               <dd>NWT 私有协议 · 局域网发现</dd>
-            </div>
-            <div>
-              <dt>数据目录</dt>
-              <dd>{{ settings.storage.dataDir || '默认数据目录' }}</dd>
             </div>
           </dl>
           <p v-if="appInfoError" class="about-error">{{ appInfoError }}</p>
@@ -1521,8 +1475,10 @@ onBeforeUnmount(() => {
 }
 
 .mini:disabled {
-  opacity: 0.5;
-  cursor: default;
+  border-color: #e4e5e7;
+  background: #f0f1f2;
+  color: #a9aeb4;
+  cursor: not-allowed;
 }
 
 .input {
@@ -1539,6 +1495,13 @@ onBeforeUnmount(() => {
 
 .input:focus {
   border-color: var(--accent);
+}
+
+.input:disabled {
+  border-color: #e4e5e7;
+  background: #f0f1f2;
+  color: #9aa0a6;
+  cursor: not-allowed;
 }
 
 .textarea {
@@ -1654,8 +1617,10 @@ select.input {
 }
 
 .shortcut-action:disabled {
-  opacity: 0.4;
-  cursor: default;
+  border-color: #e4e5e7;
+  background: #f0f1f2;
+  color: #b0b5bb;
+  cursor: not-allowed;
 }
 
 .panel-foot {
@@ -1695,8 +1660,15 @@ select.input {
   color: #666666;
 }
 
-.reset:hover {
+.reset:hover:enabled {
   background: #f7f7f7;
+}
+
+.reset:disabled {
+  border-color: #e4e5e7;
+  background: #f0f1f2;
+  color: #a9aeb4;
+  cursor: not-allowed;
 }
 
 .reset-ask {

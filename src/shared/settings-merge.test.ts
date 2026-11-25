@@ -14,7 +14,7 @@ describe('mergeSettings', () => {
   it('merges nested sections and leaves other sections untouched', () => {
     const next = mergeSettings(defaultSettings, { files: { autoAccept: false } })
     expect(next.files.autoAccept).toBe(false)
-    expect(next.files.autoAcceptMaxMB).toBe(defaultSettings.files.autoAcceptMaxMB)
+    expect(next.files.receiveLayout).toBe(defaultSettings.files.receiveLayout)
     expect(next.network).toEqual(defaultSettings.network)
   })
 

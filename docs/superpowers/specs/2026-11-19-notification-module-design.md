@@ -96,7 +96,7 @@
 
 - `NotificationInput.windowFocused` 的语义变为"窗口焦点且未锁屏"，由 `NotificationManager` 在调用前合并锁屏状态。
 - `activeConversationId` 不再参与判断，整条链路删除：策略入参、`NotificationManager.setActiveConversation`、`IPC.uiActiveConversation` 通道、preload 暴露、渲染进程的 `currentConversationId` 监听（`setActiveConversation` 原本只剩 `flashFrame(false)`，一并随闪烁重构删除）。
-- 其余门控不变：`notify.enabled`、`muted`、`notifyOnComplete`（文件）。
+- 其余门控不变：`notify.enabled`、`muted`。文件与文本走同一套判定，不再有单独的文件通知开关。
 
 ## 锁屏处理
 

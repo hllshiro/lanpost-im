@@ -2,12 +2,7 @@ import { app, BrowserWindow } from 'electron'
 import { IPC } from '../../shared/ipc'
 import type { SettingsStore } from '../settings/store'
 import { setTrayUnread, setTrayBlinking } from '../tray'
-import {
-  decideNotification,
-  shouldBlink,
-  soundCooldownReady,
-  type NotificationKind
-} from './policy'
+import { decideNotification, shouldBlink, soundCooldownReady } from './policy'
 import { ToastList, shouldClearToastsOnFocus } from './toast-list'
 import { pushToastWindow } from './toast-window'
 import { setPopupUnreadCount } from './tray-popup'
@@ -17,7 +12,6 @@ export interface NotifyInput {
   conversationId: string
   title: string
   body: string
-  kind: NotificationKind
   muted: boolean
   unread: number
 }
@@ -148,7 +142,6 @@ export class NotificationManager {
     const window = this.getWindow()
     const decision = decideNotification({
       settings: this.settings.get(),
-      kind: input.kind,
       isSelf: false,
       muted: input.muted,
       windowFocused: this.isActive(),

@@ -35,7 +35,7 @@ describe('ipc handlers', () => {
   })
 
   it('rejects an invalid settings patch', () => {
-    expect(() => context().settingsUpdate({ files: { autoAcceptMaxMB: -1 } })).toThrow()
+    expect(() => context().settingsUpdate({ files: { receiveLayout: 'tree' as 'flat' } })).toThrow()
   })
 
   it('applies a valid patch', () => {

@@ -45,4 +45,18 @@ const model = defineModel<boolean>({ required: true })
 .toggle.on .knob {
   transform: translateX(16px);
 }
+
+.toggle:disabled {
+  background: #e2e4e6;
+  cursor: not-allowed;
+}
+
+.toggle.on:disabled {
+  background: #c6d6cc;
+}
+
+.toggle:disabled .knob {
+  background: #f7f8f8;
+  box-shadow: none;
+}
 </style>

@@ -92,7 +92,6 @@ function matchesConversation(conversation: ConversationInfo, keyword: string): b
       peer.alias,
       peer.name,
       peer.user,
-      peer.group,
       peer.department,
       peer.ip,
       peer.host,

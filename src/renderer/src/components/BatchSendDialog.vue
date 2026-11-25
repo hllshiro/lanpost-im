@@ -39,14 +39,13 @@ const visible = computed(() => {
       peer.name,
       peer.alias,
       peer.user,
-      peer.group,
       peer.department,
       peer.ip,
       peer.host,
       peer.sign
     ]
     if (fields.some((field) => field.toLowerCase().includes(keyword.value))) return true
-    return [nameOf(peer), peer.name, peer.alias, peer.group, peer.department].some((value) =>
+    return [nameOf(peer), peer.name, peer.alias, peer.department].some((value) =>
       matchesPinyin(value, keyword.value)
     )
   })

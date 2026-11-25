@@ -18,8 +18,25 @@ const props = withDefaults(
 const emit = defineEmits<{
   select: [view: 'chat' | 'contacts' | 'files']
   settings: []
+  developer: []
   status: [status: number]
 }>()
+
+// 2 秒内连续点击 5 次底部设置按钮，解锁隐藏的网络设置分类
+const REVEAL_CLICKS = 5
+const REVEAL_WINDOW_MS = 2000
+let settingsClicks: number[] = []
+
+function openSettings(): void {
+  const now = Date.now()
+  settingsClicks = settingsClicks.filter((time) => now - time <= REVEAL_WINDOW_MS)
+  settingsClicks.push(now)
+  if (settingsClicks.length >= REVEAL_CLICKS) {
+    settingsClicks = []
+    emit('developer')
+  }
+  emit('settings')
+}
 
 const statusOptions = [
   { value: 0, label: '在线', tone: 'online' },
@@ -145,7 +162,7 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
     </nav>
 
     <div class="bottom">
-      <button class="nav-item" title="设置" @click="emit('settings')">
+      <button class="nav-item" title="设置" @click="openSettings">
         <Settings :size="21" :stroke-width="1.7" />
         <span class="label">设置</span>
       </button>

@@ -18,6 +18,8 @@ import SettingsOverlay from './components/SettingsOverlay.vue'
 const store = useAppStore()
 
 const settingsOpen = ref(false)
+// 网络设置默认隐藏，本次运行内连续点击设置按钮解锁，重启后恢复隐藏
+const networkUnlocked = ref(false)
 const view = ref<'chat' | 'contacts' | 'files'>('chat')
 const groupPicker = ref<null | { mode: 'create' } | { mode: 'invite'; groupId: string }>(null)
 const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standard' })
@@ -249,6 +251,7 @@ onBeforeUnmount(() => {
       :unread="store.unreadTotal"
       :active="view"
       @settings="settingsOpen = true"
+      @developer="networkUnlocked = true"
       @select="handleViewSelect"
       @status="store.setStatus"
     />
@@ -304,7 +307,12 @@ onBeforeUnmount(() => {
         <FilesPage v-else />
       </template>
 
-      <SettingsOverlay v-else @close="settingsOpen = false" @saved="handleSettingsSaved" />
+      <SettingsOverlay
+        v-else
+        :network-unlocked="networkUnlocked"
+        @close="settingsOpen = false"
+        @saved="handleSettingsSaved"
+      />
 
       <GroupPicker
         v-if="groupPicker"

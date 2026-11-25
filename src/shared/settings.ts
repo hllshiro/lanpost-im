@@ -56,10 +56,7 @@ const filesSchema = z.object({
   receiveDir: z.string().default(''),
   receiveLayout: z.enum(['flat', 'nickname']).default('flat'),
   lastDialogDir: z.string().default(''),
-  autoAccept: z.boolean().default(true),
-  autoAcceptMaxMB: z.number().int().min(0).default(512),
-  notifyOnComplete: z.boolean().default(true),
-  openAfterReceive: z.boolean().default(false)
+  autoAccept: z.boolean().default(true)
 })
 
 const appearanceSchema = z.object({
@@ -86,7 +83,6 @@ const generalSchema = z.object({
 })
 
 const storageSchema = z.object({
-  dataDir: z.string().default(''),
   historyRetention: z.enum(['forever']).default('forever')
 })
 

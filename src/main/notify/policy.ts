@@ -1,10 +1,7 @@
 import type { Settings } from '../../shared/settings'
 
-export type NotificationKind = 'message' | 'file'
-
 export interface NotificationInput {
   settings: Settings
-  kind: NotificationKind
   isSelf: boolean
   muted: boolean
   // 窗口有焦点且未锁屏：由 NotificationManager 合并锁屏状态后传入
@@ -34,9 +31,6 @@ export function decideNotification(input: NotificationInput): NotificationDecisi
     return decision
   }
   if (input.muted || !input.settings.notify.enabled) {
-    return decision
-  }
-  if (input.kind === 'file' && !input.settings.files.notifyOnComplete) {
     return decision
   }
 

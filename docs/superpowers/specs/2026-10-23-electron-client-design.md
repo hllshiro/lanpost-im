@@ -357,7 +357,6 @@ CREATE TABLE group_members (
 | 通用 | startAtLogin       | 关          | 开机启动                                                           |
 | 通用 | startMinimized     | 关          | 启动时隐藏窗口                                                     |
 | 通用 | language           | 简体中文    | 界面语言（首版只有中文）                                           |
-| 存储 | dataDir            | userData    | 数据根目录（数据库与设置，重启生效；切换时提供新建或者复制数据库） |
 | 存储 | historyRetention   | 永久        | 首版只做永久                                                       |
 | 关于 | version            | —           | 版本与协议说明                                                     |
 
