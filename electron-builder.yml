@@ -30,7 +30,7 @@ win:
       arch:
         - x64
 nsis:
-  artifactName: ${productName}-${version}-setup.${ext}
+  artifactName: ${name}-${version}-setup.${ext}
   shortcutName: 内网传书
   uninstallDisplayName: 内网传书
   createDesktopShortcut: always
@@ -49,13 +49,13 @@ linux:
     - deb
     - rpm
 appImage:
-  artifactName: ${productName}-${version}-${arch}.${ext}
+  artifactName: ${name}-${version}-${arch}.${ext}
 deb:
-  artifactName: ${productName}_${version}_${arch}.${ext}
+  artifactName: ${name}_${version}_${arch}.${ext}
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
 rpm:
-  artifactName: ${productName}-${version}.${arch}.${ext}
+  artifactName: ${name}-${version}.${arch}.${ext}
   afterInstall: build/linux/after-install.sh
   afterRemove: build/linux/after-remove.sh
 publish: null

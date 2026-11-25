@@ -56,7 +56,7 @@ pnpm build:linux   # 当前机器架构，deb、rpm 与 AppImage；用 build:lin
 
 版本号写在 `package.json`。推送 `v*` 标签会触发 GitHub Actions 构建 Windows x64 与 Linux x64/ARM64 安装包，并创建 GitHub Release；也可以在 Actions 里手动运行。
 
-显示名称统一为「内网传书」：窗口标题、托盘、安装器、Windows 文件属性、Linux 桌面入口、开机启动项与防火墙规则都使用中文；安装包文件名也以「内网传书」开头。`lanpost-im` 只保留为技术标识：npm 包名、`appId`、可执行文件名、数据目录、协议 scheme。
+显示名称统一为「内网传书」：窗口标题、托盘、安装器、Windows 文件属性、Linux 桌面入口、开机启动项与防火墙规则都使用中文。`lanpost-im` 只保留为技术标识：npm 包名、`appId`、可执行文件名、数据目录、协议 scheme 与安装包文件名；安装包文件名必须保持 ASCII，GitHub Actions 会丢弃非 ASCII 文件名。
 
 ### 数据目录
 
