@@ -1,4 +1,12 @@
-import { mkdirSync, openSync, readSync, writeSync, closeSync } from 'node:fs'
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  readSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync
+} from 'node:fs'
 import { connect, createServer, type Server, type Socket } from 'node:net'
 import { dirname, join, normalize, sep } from 'node:path'
 import {
@@ -56,10 +64,16 @@ export interface FolderTransferOptions {
 
 interface OpenItem {
   index: number
+  name: string
   path: string
   size: number
   written: number
   handle: number | null
+  // 收到文件、目录项标记后置为完成；完成前断线不能算接收成功
+  done: boolean
+  dir: boolean
+  // 是否真正创建过文件，取消时只删除未完成的已创建文件
+  opened: boolean
 }
 
 function toError(value: unknown): Error {
@@ -84,6 +98,9 @@ export class PrivateFolderTransfer {
   private readonly extraServers = new Map<number, Server>()
   private readonly incoming = new Map<string, IncomingFolder>()
   private readonly active = new Set<Socket>()
+  // 连接所属任务：停止某一项时只断开它自己的连接
+  private readonly socketTasks = new Map<Socket, string>()
+  private readonly canceled = new Set<string>()
 
   constructor(options: FolderTransferOptions) {
     this.options = options
@@ -141,10 +158,26 @@ export class PrivateFolderTransfer {
     this.incoming.set(folder.taskId, folder)
   }
 
+  // 主动停止：断开这个任务的连接；接收端随后会清理未完成的半成品文件
+  cancel(taskId: string): void {
+    this.incoming.delete(taskId)
+    this.canceled.add(taskId)
+    for (const [socket, id] of this.socketTasks) {
+      if (id !== taskId) continue
+      socket.destroy()
+    }
+  }
+
   // 发送方：连接收方的文件夹端口，先发开场与清单，再逐项推数据
   async send(ip: string, folder: OutgoingFolder, port: number): Promise<void> {
+    if (this.canceled.has(folder.taskId)) throw new Error('文件夹发送已取消')
     const socket = await this.dial(ip, port)
+    if (this.canceled.has(folder.taskId)) {
+      socket.destroy()
+      throw new Error('文件夹发送已取消')
+    }
     this.active.add(socket)
+    this.socketTasks.set(socket, folder.taskId)
     this.log(`文件夹通道已连上 ${ip}:${port}（任务 ${folder.taskId}）`)
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy())
     const frames = new FrameQueue(socket)
@@ -177,16 +210,20 @@ export class PrivateFolderTransfer {
       let completed = 0
       for (const [index, item] of folder.items.entries()) {
         if (item.dir) continue
+        if (this.canceled.has(folder.taskId)) throw new Error('文件夹发送已取消')
         completed = await this.sendItem(socket, frames, folder, index, item, completed)
       }
       // 全部项发完再做一次收尾握手：7 由发送方发，8 由接收方回
       socket.write(buildItemAck(FOLDER_CMD_ITEM_SENT, 0, 0))
       const confirm = await frames.next()
-      this.log(`文件夹通道收尾 cmd=${confirm?.cmd ?? '关闭'}`)
+      if (confirm === null) throw new Error('文件夹通道收尾没有确认')
+      this.log(`文件夹通道收尾 cmd=${confirm.cmd}`)
       this.log(`文件夹通道发送完成 任务=${folder.taskId}`)
     } finally {
       socket.destroy()
       this.active.delete(socket)
+      this.socketTasks.delete(socket)
+      this.canceled.delete(folder.taskId)
     }
   }
 
@@ -268,15 +305,22 @@ export class PrivateFolderTransfer {
     this.log(`文件夹通道收到连接 ${socket.remoteAddress}:${socket.remotePort}`)
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy())
     const frames = new FrameQueue(socket)
+    const states: OpenItem[] = []
+    let folder: IncomingFolder | undefined
+    let failure: Error | null = null
     try {
       const start = await frames.next()
       if (start === null || start.cmd !== FOLDER_CMD_START) {
         throw new Error(`文件夹通道期望开场帧，收到 ${start?.cmd ?? '关闭'}`)
       }
       const startInfo = parseStart(start.body)
-      const folder = this.incoming.get(startInfo.taskId)
+      folder = this.incoming.get(startInfo.taskId)
       if (folder === undefined) {
         throw new Error(`没有待接收的文件夹任务 ${startInfo.taskId}`)
+      }
+      this.socketTasks.set(socket, folder.taskId)
+      if (this.canceled.has(folder.taskId)) {
+        throw new Error('文件夹接收已取消')
       }
       // 群文件夹的消息里不带总大小，以开场帧为准
       if (startInfo.totalSize > 0) {
@@ -293,7 +337,6 @@ export class PrivateFolderTransfer {
       }
       const items = parseManifest(manifest.body)
       this.log(`文件夹通道清单 ${items.length} 项`)
-      const opened: OpenItem[] = []
       for (const item of items) {
         const path = safeItemPath(folder.saveDir, item.name)
         if (path === null) {
@@ -301,43 +344,87 @@ export class PrivateFolderTransfer {
         }
         if (item.dir) {
           mkdirSync(path, { recursive: true })
-          opened.push({ index: item.index, path, size: 0, written: 0, handle: null })
-          continue
         }
-        mkdirSync(dirname(path), { recursive: true })
-        opened.push({
+        states.push({
           index: item.index,
+          name: item.name,
           path,
           size: item.size,
           written: 0,
-          handle: openSync(path, 'w')
+          handle: null,
+          done: item.dir,
+          dir: item.dir,
+          opened: false
         })
       }
       // 每项带一条进度：offset 0、action 0，与真实接收端一致
       socket.write(
-        buildProgress(opened.map((item) => ({ index: item.index, offset: 0, action: 0 })))
+        buildProgress(states.map((item) => ({ index: item.index, offset: 0, action: 0 })))
       )
 
+      const byIndex = new Map(states.map((item) => [item.index, item]))
       let received = 0
-      const byIndex = new Map(opened.map((item) => [item.index, item]))
+      const openItem = (item: OpenItem): void => {
+        if (item.handle !== null || item.done) return
+        mkdirSync(dirname(item.path), { recursive: true })
+        item.handle = openSync(item.path, 'w')
+        item.opened = true
+        this.log(`文件夹通道项 ${item.index} 开始 ${item.name} 大小=${item.size}`)
+      }
+      const completeItem = (item: OpenItem): void => {
+        if (item.handle !== null) {
+          closeSync(item.handle)
+          item.handle = null
+        }
+        item.done = true
+        socket.write(buildItemAck(FOLDER_CMD_ITEM_RECEIVED, item.index, item.written))
+        this.log(`文件夹通道项 ${item.index} 完成 ${item.name} 已收=${item.written}`)
+      }
+
       for (;;) {
         const frame = await frames.next()
         if (frame === null) break
         if (frame.cmd === FOLDER_CMD_DATA) {
           const data = parseData(frame.body)
           const item = byIndex.get(data.index)
-          if (item === undefined) continue
-          // action=2 是项的开场标记，正文那一个字节不属于文件
-          if (data.action === 2 || item.handle === null) continue
-          writeSync(item.handle, data.chunk)
-          item.written += data.chunk.length
-          received += data.chunk.length
-          this.options.callbacks.onProgress(folder.taskId, received, folder.size)
-          if (item.written >= item.size) {
-            closeSync(item.handle)
-            item.handle = null
-            socket.write(buildItemAck(FOLDER_CMD_ITEM_RECEIVED, item.index, item.written))
+          if (item === undefined || item.dir || item.done) continue
+          if (data.action === 2) {
+            // 空文件没有数据块，收到项开场就要立刻回执，否则发送方会一直等
+            if (item.size === 0) {
+              mkdirSync(dirname(item.path), { recursive: true })
+              writeFileSync(item.path, '')
+              item.opened = true
+              completeItem(item)
+              continue
+            }
+            openItem(item)
+            continue
           }
+          if (item.handle === null) {
+            if (item.size === 0) {
+              mkdirSync(dirname(item.path), { recursive: true })
+              writeFileSync(item.path, '')
+              item.opened = true
+              completeItem(item)
+              continue
+            }
+            openItem(item)
+          }
+          if (item.handle === null) continue
+          const remaining = item.size - item.written
+          if (remaining <= 0) {
+            completeItem(item)
+            continue
+          }
+          const take = Math.min(remaining, data.chunk.length)
+          let offset = 0
+          while (offset < take) {
+            offset += writeSync(item.handle, data.chunk, offset, take - offset)
+          }
+          item.written += take
+          received += take
+          this.options.callbacks.onProgress(folder.taskId, received, folder.size)
+          if (item.written >= item.size) completeItem(item)
           continue
         }
         if (frame.cmd === FOLDER_CMD_ITEM_SENT) {
@@ -350,15 +437,52 @@ export class PrivateFolderTransfer {
           break
         }
       }
-      for (const item of opened) {
-        if (item.handle !== null) closeSync(item.handle)
+      const incomplete = states.filter((item) => !item.dir && !item.done)
+      if (incomplete.length > 0) {
+        const names = incomplete
+          .slice(0, 3)
+          .map((item) => `${item.name}(${item.written}/${item.size})`)
+          .join('、')
+        throw new Error(`文件夹接收不完整：${incomplete.length} 个文件未收齐 ${names}`)
       }
       this.incoming.delete(folder.taskId)
       this.log(`文件夹通道接收完成 任务=${folder.taskId} 目录=${folder.saveDir}`)
       this.options.callbacks.onDone(folder.taskId, folder.saveDir)
+    } catch (error) {
+      failure = toError(error)
+      const canceled = folder !== undefined && this.canceled.has(folder.taskId)
+      this.log(
+        canceled
+          ? `文件夹通道接收已停止 任务=${folder?.taskId ?? '?'}`
+          : `文件夹通道接收失败 任务=${folder?.taskId ?? '?'}: ${failure.message}`
+      )
     } finally {
+      for (const item of states) {
+        if (item.handle !== null) {
+          closeSync(item.handle)
+          item.handle = null
+        }
+      }
+      const canceled = folder !== undefined && this.canceled.has(folder.taskId)
+      if (canceled) {
+        for (const item of states) {
+          if (!item.opened || item.done) continue
+          try {
+            unlinkSync(item.path)
+          } catch {
+            // 半成品文件可能已经被清理
+          }
+        }
+      }
       socket.destroy()
       this.active.delete(socket)
+      this.socketTasks.delete(socket)
+      if (folder !== undefined) {
+        this.canceled.delete(folder.taskId)
+        if (failure !== null && !canceled) {
+          this.options.callbacks.onError(folder.taskId, failure)
+        }
+      }
     }
   }
 

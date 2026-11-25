@@ -9,7 +9,6 @@ import { playNotifySound } from './utils/notify-sound'
 import ChatPane from './components/ChatPane.vue'
 import ContactsPage from './components/ContactsPage.vue'
 import ConversationList from './components/ConversationList.vue'
-import FilesPage from './components/FilesPage.vue'
 import GroupPicker from './components/GroupPicker.vue'
 import NavRail from './components/NavRail.vue'
 import NotifyToast from './components/NotifyToast.vue'
@@ -20,7 +19,7 @@ const store = useAppStore()
 const settingsOpen = ref(false)
 // 网络设置默认隐藏，本次运行内连续点击设置按钮解锁，重启后恢复隐藏
 const networkUnlocked = ref(false)
-const view = ref<'chat' | 'contacts' | 'files'>('chat')
+const view = ref<'chat' | 'contacts'>('chat')
 const groupPicker = ref<null | { mode: 'create' } | { mode: 'invite'; groupId: string }>(null)
 const appearance = ref<Settings['appearance']>({ fontSize: 14, density: 'standard' })
 const dragActive = ref(false)
@@ -141,7 +140,7 @@ function handleRead(): void {
   void store.markReadCurrent()
 }
 
-function handleViewSelect(next: 'chat' | 'contacts' | 'files'): void {
+function handleViewSelect(next: 'chat' | 'contacts'): void {
   view.value = next
   settingsOpen.value = false
 }
@@ -303,8 +302,6 @@ onBeforeUnmount(() => {
         </template>
 
         <ContactsPage v-else-if="view === 'contacts'" @open="handleOpenContact" />
-
-        <FilesPage v-else />
       </template>
 
       <SettingsOverlay

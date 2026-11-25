@@ -38,6 +38,29 @@ describe('repairFileMessageStatuses', () => {
     expect(db.prepare('SELECT status FROM messages WHERE id = 1').get()).toEqual({ status: 'sent' })
     db.close()
   })
+
+  it('把等待接收的文件消息按任务结果补正', () => {
+    const db = openDatabase(':memory:')
+    db.prepare(
+      `INSERT INTO conversations (id, kind, title, created_at) VALUES ('direct:x', 'direct', 'x', 1)`
+    ).run()
+    db.prepare(
+      `INSERT INTO messages (id, conversation_id, direction, kind, text, status, created_at)
+       VALUES (1, 'direct:x', 'out', 'file', 'a.txt', 'waiting', 1),
+              (2, 'direct:x', 'out', 'file', 'b.txt', 'waiting', 2)`
+    ).run()
+    db.prepare(
+      `INSERT INTO file_tasks (id, message_id, conversation_id, direction, name, state, created_at, updated_at)
+       VALUES ('pf1', 1, 'direct:x', 'out', 'a.txt', 'done', 1, 1),
+              ('pf2', 2, 'direct:x', 'out', 'b.txt', 'canceled', 1, 1)`
+    ).run()
+    repairFileMessageStatuses(db)
+    expect(db.prepare('SELECT status FROM messages WHERE id = 1').get()).toEqual({ status: 'sent' })
+    expect(db.prepare('SELECT status FROM messages WHERE id = 2').get()).toEqual({
+      status: 'failed'
+    })
+    db.close()
+  })
 })
 
 describe('openDatabase', () => {

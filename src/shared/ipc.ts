@@ -62,6 +62,10 @@ export const IPC = {
   filesList: 'files:list',
   fileAccept: 'files:accept',
   fileReject: 'files:reject',
+  fileCancel: 'files:cancel',
+  fileAcceptFolder: 'files:accept-folder',
+  fileRejectFolder: 'files:reject-folder',
+  fileCancelFolder: 'files:cancel-folder',
   fileOpen: 'files:open',
   fileOpenPath: 'files:open-path',
   fileCopyImage: 'files:copy-image',
@@ -322,6 +326,13 @@ export type Api = {
   files: {
     accept(id: string): Promise<void>
     reject(id: string): Promise<void>
+    // 停止正在发送或接收的文件
+    cancel(id: string): Promise<void>
+    // 自动接收关闭时，确认或拒绝收到的文件夹邀请
+    acceptFolder(taskId: string): Promise<void>
+    rejectFolder(taskId: string): Promise<void>
+    // 停止正在发送或接收的文件夹
+    cancelFolder(taskId: string): Promise<void>
     open(id: string): Promise<void>
     // 用系统文件管理器打开任意已存在的目录（文件夹消息用）
     openPath(path: string): Promise<void>

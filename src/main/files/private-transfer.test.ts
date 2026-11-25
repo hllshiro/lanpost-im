@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -146,5 +146,71 @@ describe('private file transfer', () => {
     const receiver = makeTransfer(port, events)
     await receiver.start()
     await expect(receiver.receive('127.0.0.1', port, 7, 'peer')).rejects.toThrow(/没有待接收的文件/)
+  })
+
+  it('completes an empty file without waiting for data frames', async () => {
+    const dir = tempDir()
+    const source = join(dir, 'empty.bin')
+    const target = join(dir, 'empty-target.bin')
+    writeFileSync(source, '')
+
+    const senderPort = await freeTcpPort()
+    const senderEvents: string[] = []
+    const receiverEvents: string[] = []
+    const sender = makeTransfer(senderPort, senderEvents)
+    const receiver = makeTransfer(await freeTcpPort(), receiverEvents)
+    await sender.start()
+    await receiver.start()
+
+    const fileId = 4410
+    sender.registerOutgoing({ fileId, path: source, size: 0 })
+    receiver.registerIncoming({
+      fileId,
+      name: 'empty-target.bin',
+      size: 0,
+      savePath: target,
+      saveDir: dir
+    })
+
+    await receiver.receive('127.0.0.1', senderPort, fileId, 'peer')
+    await waitForEvent(receiverEvents, `done:${fileId}:${target}`)
+    expect(statSync(target).size).toBe(0)
+  })
+
+  it('removes the partial file when receiving is canceled', async () => {
+    const dir = tempDir()
+    const source = join(dir, 'big.bin')
+    const target = join(dir, 'big-target.bin')
+    writeFileSync(source, Buffer.alloc(4 * 1024 * 1024, 3))
+
+    const senderPort = await freeTcpPort()
+    const senderEvents: string[] = []
+    const receiverEvents: string[] = []
+    const sender = makeTransfer(senderPort, senderEvents)
+    const holder: { receiver: PrivateFileTransfer | null } = { receiver: null }
+    const receiver = makeTransfer(await freeTcpPort(), receiverEvents, {
+      onProgress: (fileId) => {
+        if (fileId === 9001) holder.receiver?.cancel(9001)
+      }
+    })
+    holder.receiver = receiver
+    await sender.start()
+    await receiver.start()
+
+    const fileId = 9001
+    const size = statSync(source).size
+    sender.registerOutgoing({ fileId, path: source, size })
+    receiver.registerIncoming({
+      fileId,
+      name: 'big-target.bin',
+      size,
+      savePath: target,
+      saveDir: dir
+    })
+
+    await expect(receiver.receive('127.0.0.1', senderPort, fileId, 'peer')).rejects.toThrow()
+    await waitForEvent(senderEvents, 'error:')
+    expect(existsSync(target)).toBe(false)
+    expect(receiverEvents.some((event) => event.startsWith(`done:${fileId}:`))).toBe(false)
   })
 })

@@ -38,9 +38,11 @@ const recallable = computed(() => {
 
 const statusIcon = computed(() => {
   switch (props.message.status) {
+    case 'waiting':
     case 'sending':
       return LoaderCircle
     case 'failed':
+    case 'canceled':
       return CircleAlert
     case 'delivered':
     case 'read':
@@ -196,12 +198,38 @@ const folderMetaRaw = computed<Record<string, unknown>>(() => {
 // 收到的文件夹按真实客户端的说法显示状态，发出的按发送状态
 const folderIncoming = computed(() => folderMetaRaw.value.incoming === true)
 const folderDone = computed(() => folderMetaRaw.value.done === true)
+const folderPending = computed(() => folderMetaRaw.value.pending === true)
+const folderRejected = computed(() => folderMetaRaw.value.rejected === true)
+const folderCanceled = computed(() => folderMetaRaw.value.canceled === true)
+const folderPhase = computed(() =>
+  typeof folderMetaRaw.value.phase === 'string' ? folderMetaRaw.value.phase : ''
+)
+const folderTaskId = computed(() =>
+  typeof folderMetaRaw.value.taskId === 'string' ? folderMetaRaw.value.taskId : ''
+)
+// 私有文件夹任务在等待或传输中可以停止；群文件夹不走这条任务号
+const folderActive = computed(
+  () =>
+    folderTaskId.value !== '' &&
+    folderMetaRaw.value.source === 'private-folder' &&
+    !folderDone.value &&
+    !folderPending.value &&
+    !folderRejected.value &&
+    !folderCanceled.value
+)
 
 const folderStateText = computed(() => {
+  if (folderCanceled.value) {
+    return folderMetaRaw.value.peerStopped === true ? '对方已停止' : '已停止'
+  }
+  if (folderRejected.value) return folderIncoming.value ? '已拒绝' : '对方已拒绝'
   if (!folderIncoming.value) {
     if (props.message.status === 'failed') return '发送失败'
-    return folderDone.value ? '已发送' : '发送中'
+    if (folderDone.value) return '已发送'
+    if (folderPhase.value === 'waiting') return '等待对方接收'
+    return '发送中'
   }
+  if (folderPending.value) return '等待接收'
   if (typeof folderMetaRaw.value.error === 'string') return '接收失败'
   return folderDone.value ? '接收成功' : '接收中'
 })
@@ -270,6 +298,33 @@ async function revealFolder(): Promise<void> {
     store.reportError(errorMessage(reason))
   }
 }
+
+async function acceptFolder(): Promise<void> {
+  if (folderTaskId.value === '') return
+  try {
+    await window.api.files.acceptFolder(folderTaskId.value)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
+
+async function rejectFolder(): Promise<void> {
+  if (folderTaskId.value === '') return
+  try {
+    await window.api.files.rejectFolder(folderTaskId.value)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
+
+async function cancelFolder(): Promise<void> {
+  if (folderTaskId.value === '') return
+  try {
+    await window.api.files.cancelFolder(folderTaskId.value)
+  } catch (reason) {
+    store.reportError(errorMessage(reason))
+  }
+}
 </script>
 
 <template>
@@ -300,7 +355,19 @@ async function revealFolder(): Promise<void> {
                 <p class="folder-meta">{{ folderMeta }}</p>
               </div>
             </div>
-            <div v-if="folderIncoming ? folderDone : folderPath !== ''" class="folder-actions">
+            <div v-if="folderPending" class="folder-actions">
+              <span class="folder-spacer" />
+              <button class="folder-link primary" @click="acceptFolder">接收</button>
+              <button class="folder-link" @click="rejectFolder">拒绝</button>
+            </div>
+            <div v-else-if="folderActive" class="folder-actions">
+              <span class="folder-spacer" />
+              <button class="folder-link" @click="cancelFolder">停止</button>
+            </div>
+            <div
+              v-else-if="(folderIncoming ? folderDone : folderPath !== '') && !folderCanceled"
+              class="folder-actions"
+            >
               <span class="folder-spacer" />
               <button class="folder-link" @click="openFolder">打开</button>
               <button class="folder-link" @click="revealFolder">打开文件夹</button>
@@ -694,6 +761,10 @@ async function revealFolder(): Promise<void> {
 
 .folder-link:hover {
   text-decoration: underline;
+}
+
+.folder-link.primary {
+  font-weight: 600;
 }
 
 .file-missing {

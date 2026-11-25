@@ -34,12 +34,12 @@ function readExistingVersion(file: string): number | null {
 export function repairFileMessageStatuses(db: DatabaseSync): void {
   db.exec(
     `UPDATE messages SET status = 'sent'
-     WHERE kind = 'file' AND direction = 'out' AND status = 'sending'
+     WHERE kind = 'file' AND direction = 'out' AND status IN ('sending', 'waiting')
        AND EXISTS (SELECT 1 FROM file_tasks WHERE file_tasks.message_id = messages.id AND state = 'done')`
   )
   db.exec(
     `UPDATE messages SET status = 'failed'
-     WHERE kind = 'file' AND direction = 'out' AND status = 'sending'
+     WHERE kind = 'file' AND direction = 'out' AND status IN ('sending', 'waiting')
        AND EXISTS (
          SELECT 1 FROM file_tasks
          WHERE file_tasks.message_id = messages.id AND state IN ('failed', 'rejected', 'canceled')

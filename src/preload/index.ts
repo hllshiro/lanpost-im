@@ -91,6 +91,10 @@ const api: Api = {
   files: {
     accept: (id) => ipcRenderer.invoke(IPC.fileAccept, id),
     reject: (id) => ipcRenderer.invoke(IPC.fileReject, id),
+    cancel: (id) => ipcRenderer.invoke(IPC.fileCancel, id),
+    acceptFolder: (taskId) => ipcRenderer.invoke(IPC.fileAcceptFolder, taskId),
+    rejectFolder: (taskId) => ipcRenderer.invoke(IPC.fileRejectFolder, taskId),
+    cancelFolder: (taskId) => ipcRenderer.invoke(IPC.fileCancelFolder, taskId),
     open: (id) => ipcRenderer.invoke(IPC.fileOpen, id),
     openPath: (path) => ipcRenderer.invoke(IPC.fileOpenPath, path),
     exists: (path) => ipcRenderer.invoke(IPC.fileExists, path),

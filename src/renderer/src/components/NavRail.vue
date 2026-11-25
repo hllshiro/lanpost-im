@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { onClickOutside, useEventListener } from '@vueuse/core'
-import { Check, FolderOpen, MessageSquare, Settings, UserRound, Users } from '@lucide/vue'
+import { Check, MessageSquare, Settings, UserRound, Users } from '@lucide/vue'
 import type { LocalInfo } from '../../../shared/domain'
 import { avatarUrl } from '../utils/avatar'
 import { initialOf } from '../utils/format'
@@ -10,13 +10,13 @@ const props = withDefaults(
   defineProps<{
     local: LocalInfo | null
     unread: number
-    active?: 'chat' | 'contacts' | 'files'
+    active?: 'chat' | 'contacts'
   }>(),
   { active: 'chat' }
 )
 
 const emit = defineEmits<{
-  select: [view: 'chat' | 'contacts' | 'files']
+  select: [view: 'chat' | 'contacts']
   settings: []
   developer: []
   status: [status: number]
@@ -148,16 +148,6 @@ const badge = computed(() => (props.unread > 99 ? '99+' : String(props.unread)))
       >
         <Users :size="21" :stroke-width="1.7" />
         <span class="label">联系人</span>
-      </button>
-
-      <button
-        class="nav-item"
-        :class="{ active: active === 'files' }"
-        title="文件"
-        @click="emit('select', 'files')"
-      >
-        <FolderOpen :size="21" :stroke-width="1.7" />
-        <span class="label">文件</span>
       </button>
     </nav>
 

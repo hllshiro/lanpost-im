@@ -1,5 +1,5 @@
 import { open, type FileHandle } from 'node:fs/promises'
-import { writeFileSync } from 'node:fs'
+import { unlinkSync, writeFileSync } from 'node:fs'
 import { createServer, connect, type Server, type Socket } from 'node:net'
 import { basename, dirname } from 'node:path'
 import {
@@ -157,6 +157,9 @@ export class PrivateFileTransfer {
   private readonly outgoing = new Map<number, OutgoingPrivateFile>()
   private readonly incoming = new Map<number, IncomingPrivateFile>()
   private readonly active = new Set<Socket>()
+  // 传输连接所属文件号：停止某个文件时只断开它自己的连接
+  private readonly socketFiles = new Map<Socket, number>()
+  private readonly canceled = new Set<number>()
 
   constructor(options: PrivateTransferOptions) {
     this.options = options
@@ -237,6 +240,17 @@ export class PrivateFileTransfer {
     this.incoming.delete(fileId)
   }
 
+  // 主动停止：断开这个文件的连接；接收方随后清理半成品文件
+  cancel(fileId: number): void {
+    this.outgoing.delete(fileId)
+    this.incoming.delete(fileId)
+    this.canceled.add(fileId)
+    for (const [socket, id] of this.socketFiles) {
+      if (id !== fileId) continue
+      socket.destroy()
+    }
+  }
+
   // 接收方直连发送方：发 HELLO、等 ACK、发 PATH，然后收数据
   async receive(
     peerIp: string,
@@ -248,7 +262,16 @@ export class PrivateFileTransfer {
     if (task === undefined) {
       throw new Error(`没有待接收的文件 ${fileId}`)
     }
+    if (this.canceled.has(fileId)) {
+      this.canceled.delete(fileId)
+      throw new Error('文件传输已取消')
+    }
     const socket = await this.dial(peerIp, peerPort)
+    if (this.canceled.has(fileId)) {
+      socket.destroy()
+      this.canceled.delete(fileId)
+      throw new Error('文件传输已取消')
+    }
     await this.receiveOver(socket, new FrameChannel(socket), task, fileId, peerUserId, false)
   }
 
@@ -258,7 +281,16 @@ export class PrivateFileTransfer {
     if (task === undefined) {
       throw new Error(`没有待发送的文件 ${fileId}`)
     }
+    if (this.canceled.has(fileId)) {
+      this.canceled.delete(fileId)
+      throw new Error('文件传输已取消')
+    }
     const socket = await this.dial(peerIp, peerPort)
+    if (this.canceled.has(fileId)) {
+      socket.destroy()
+      this.canceled.delete(fileId)
+      throw new Error('文件传输已取消')
+    }
     await this.sendOver(socket, new FrameChannel(socket), task, false)
   }
 
@@ -270,7 +302,12 @@ export class PrivateFileTransfer {
     peerUserId: string,
     listener: boolean
   ): Promise<void> {
+    if (this.canceled.has(fileId)) {
+      socket.destroy()
+      throw new Error('文件传输已取消')
+    }
     this.active.add(socket)
+    this.socketFiles.set(socket, fileId)
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy())
     const handle = await open(task.savePath, 'w')
     try {
@@ -309,6 +346,13 @@ export class PrivateFileTransfer {
       socket.write(
         encodeFileFrame(FILE_FRAME_PATH, buildPath({ dir: task.saveDir, fileId, name: task.name }))
       )
+      // 空文件没有数据帧，发完路径就算收完，否则会一直等数据
+      if (task.size === 0) {
+        this.forget(fileId)
+        this.options.callbacks.onDone(fileId, task.savePath)
+        socket.end()
+        return
+      }
       // 落盘和收包重叠：保持最多 8 个写请求在飞，避免每个 32 KB 都等一次写入
       const writes: Array<Promise<void>> = []
       let writeError: Error | null = null
@@ -344,9 +388,23 @@ export class PrivateFileTransfer {
       this.forget(fileId)
       this.options.callbacks.onDone(fileId, task.savePath)
       socket.end()
+    } catch (error) {
+      if (!this.canceled.has(fileId)) {
+        this.options.callbacks.onError(fileId, toError(error))
+      }
+      throw error
     } finally {
       await handle.close()
+      if (this.canceled.has(fileId)) {
+        try {
+          unlinkSync(task.savePath)
+        } catch {
+          // 半成品可能已经被清理
+        }
+      }
       this.active.delete(socket)
+      this.socketFiles.delete(socket)
+      this.canceled.delete(fileId)
     }
   }
 
@@ -356,7 +414,12 @@ export class PrivateFileTransfer {
     task: OutgoingPrivateFile,
     listener: boolean
   ): Promise<void> {
+    if (this.canceled.has(task.fileId)) {
+      socket.destroy()
+      throw new Error('文件传输已取消')
+    }
     this.active.add(socket)
+    this.socketFiles.set(socket, task.fileId)
     socket.setTimeout(IDLE_TIMEOUT_MS, () => socket.destroy())
     try {
       if (!listener) {
@@ -411,8 +474,15 @@ export class PrivateFileTransfer {
       this.forget(task.fileId)
       this.options.callbacks.onDone(task.fileId, task.path)
       socket.end()
+    } catch (error) {
+      if (!this.canceled.has(task.fileId)) {
+        this.options.callbacks.onError(task.fileId, toError(error))
+      }
+      throw error
     } finally {
       this.active.delete(socket)
+      this.socketFiles.delete(socket)
+      this.canceled.delete(task.fileId)
     }
   }
 

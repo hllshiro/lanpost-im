@@ -87,6 +87,8 @@ export function previewText(message: MessageInfo): string {
 
 export function statusLabel(status: string): string {
   switch (status) {
+    case 'waiting':
+      return '等待对方接收'
     case 'sending':
       return '发送中'
     case 'sent':
@@ -97,6 +99,8 @@ export function statusLabel(status: string): string {
       return '已读'
     case 'failed':
       return '发送失败'
+    case 'canceled':
+      return '已取消'
     case 'queued':
       return '等待对方上线'
     default:

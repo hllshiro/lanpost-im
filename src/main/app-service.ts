@@ -330,6 +330,18 @@ export class AppService {
   private readonly folderOutgoing = new Map<string, OutgoingFolder>()
   // 文件夹任务 → 聊天消息，用于把收发状态写回气泡
   private readonly folderLinks = new Map<string, { conversationId: string; messageId: number }>()
+  // 自动接收关闭时，等待用户确认的文件夹邀请
+  private readonly privateFolderOffers = new Map<
+    string,
+    {
+      ip: string
+      name: string
+      size: number
+      saveDir: string
+      conversationId: string
+      messageId: number
+    }
+  >()
   // 群文件：本机作为发送方时按 share id 记住要提供哪个文件或文件夹
   private readonly groupShares = new Map<
     string,
@@ -534,8 +546,18 @@ export class AppService {
           onFolderOffer: (ip, offer) => this.handlePrivateFolderOffer(ip, offer),
           onFolderOperate: (ip, cmd, taskId, op) => {
             logStartup(`私有文件夹操作 ${ip} 命令 ${cmd} 任务 ${taskId} OP=${op}`)
-            if (cmd === 1015 && op === 2) {
-              this.startFolderSend(ip, taskId)
+            if (cmd === 1015) {
+              if (op === 2) {
+                this.startFolderSend(ip, taskId)
+              } else {
+                // 对端接收方发来取消：停止本端发送，不再等回执
+                this.cancelFolder(taskId, { notifyPeer: false, peerStopped: true })
+              }
+              return
+            }
+            if (cmd === 1014 && op !== 2) {
+              // 对端发送方取消了这次文件夹任务
+              this.cancelFolder(taskId, { notifyPeer: false, peerStopped: true })
             }
           },
           onFolderReverse: (ip, taskId) => this.handlePrivateFolderReverse(ip, taskId),
@@ -630,7 +652,7 @@ export class AppService {
     }
   }
 
-  // 对端发来文件夹邀请：登记任务、回 1015，接着由对端连我们的文件夹端口
+  // 对端发来文件夹邀请：按自动接收设置决定立即接收或等用户确认
   private handlePrivateFolderOffer(
     ip: string,
     offer: { taskId: string; name: string; size: number; maxItemPath: number; maxItemSize: number }
@@ -646,15 +668,12 @@ export class AppService {
     const peer = peerKey === null ? null : this.repos.peers.get(peerKey)
     const name = sanitizeFileName(basename(offer.name)) || '收到的文件夹'
     const saveDir = join(this.receiveDirFor(peerKey ?? ip, peer?.name ?? ip), name)
-    mkdirSync(saveDir, { recursive: true })
-    transfer.registerIncoming({
-      taskId: offer.taskId,
-      name,
-      saveDir,
-      size: offer.size
-    })
-    service.sendOperateRecvFolder(ip, offer.taskId, 2)
-    if (peerKey !== null) {
+    const autoAccept = this.settings.get().files.autoAccept
+    // 没有联系人时没有界面可以确认，直接按自动接收处理
+    const waitForUser = !autoAccept && peerKey !== null
+
+    if (waitForUser) {
+      mkdirSync(saveDir, { recursive: true })
       const conversation = this.repos.conversations.ensureDirect(
         peerKey,
         peer?.alias || peer?.name || ip
@@ -669,15 +688,204 @@ export class AppService {
           taskId: offer.taskId,
           size: offer.size,
           dir: saveDir,
-          incoming: true
+          incoming: true,
+          pending: true
         })
       )
-      this.folderLinks.set(offer.taskId, { conversationId: conversation.id, messageId: message.id })
+      this.folderLinks.set(offer.taskId, {
+        conversationId: conversation.id,
+        messageId: message.id
+      })
+      this.privateFolderOffers.set(offer.taskId, {
+        ip,
+        name,
+        size: offer.size,
+        saveDir,
+        conversationId: conversation.id,
+        messageId: message.id
+      })
       this.repos.conversations.touch(conversation.id, message.createdAt, 1)
       this.emit({ type: 'message', message })
       this.emitConversation(conversation.id)
+      logStartup(`私有文件夹邀请 ${offer.taskId} 等待用户确认（自动接收已关闭）`)
+      return
     }
-    logStartup(`私有文件夹邀请：已回 1015 OP=2（任务 ${offer.taskId}），保存到 ${saveDir}`)
+
+    this.acceptIncomingFolder(offer.taskId, {
+      ip,
+      name,
+      size: offer.size,
+      saveDir,
+      peerKey: peerKey ?? '',
+      peerName: peer?.alias || peer?.name || ip
+    })
+  }
+
+  // 真正接收文件夹：建目录、登记任务并回 1015 OP=2
+  private acceptIncomingFolder(
+    taskId: string,
+    input: {
+      ip: string
+      name: string
+      size: number
+      saveDir: string
+      peerKey: string
+      peerName: string
+    }
+  ): void {
+    const service = this.privateService
+    const transfer = this.privateFolders
+    if (service === null || transfer === null) return
+    mkdirSync(input.saveDir, { recursive: true })
+    transfer.registerIncoming({
+      taskId,
+      name: input.name,
+      saveDir: input.saveDir,
+      size: input.size
+    })
+    service.sendOperateRecvFolder(input.ip, taskId, 2)
+    if (input.peerKey !== '') {
+      const existing = this.folderLinks.get(taskId)
+      if (existing !== undefined) {
+        this.patchFolderMessage(taskId, { pending: false, phase: 'receiving' })
+      } else {
+        const conversation = this.repos.conversations.ensureDirect(input.peerKey, input.peerName)
+        const message = this.repos.messages.insertIncoming(
+          conversation.id,
+          input.name,
+          this.nextPrivateMessageId(),
+          'folder',
+          JSON.stringify({
+            source: 'private-folder',
+            taskId,
+            size: input.size,
+            dir: input.saveDir,
+            incoming: true,
+            phase: 'receiving'
+          })
+        )
+        this.folderLinks.set(taskId, {
+          conversationId: conversation.id,
+          messageId: message.id
+        })
+        this.repos.conversations.touch(conversation.id, message.createdAt, 1)
+        this.emit({ type: 'message', message })
+        this.emitConversation(conversation.id)
+      }
+    }
+    logStartup(`私有文件夹邀请：已回 1015 OP=2（任务 ${taskId}），保存到 ${input.saveDir}`)
+  }
+
+  // 自动接收关闭时，用户点“接收”
+  acceptFolder(taskId: string): void {
+    const offer = this.privateFolderOffers.get(taskId)
+    if (offer === undefined) throw new Error('文件夹邀请不存在')
+    this.privateFolderOffers.delete(taskId)
+    this.acceptIncomingFolder(taskId, {
+      ...offer,
+      peerKey: this.folderPeerKey(offer.conversationId),
+      peerName: ''
+    })
+  }
+
+  // 自动接收关闭时，用户点“拒绝”；协议拒收 OP 未还原，用发送端取消的 OP=1 通知对端
+  rejectFolder(taskId: string): void {
+    const offer = this.privateFolderOffers.get(taskId)
+    if (offer === undefined) throw new Error('文件夹邀请不存在')
+    this.privateService?.sendOperateRecvFolder(offer.ip, taskId, 1)
+    this.privateFolderOffers.delete(taskId)
+    this.folderLinks.delete(taskId)
+    this.patchFolderMessage(taskId, { pending: false, rejected: true }, 'failed', offer)
+    logStartup(`私有文件夹邀请 ${taskId} 已拒绝，并通知对端取消`)
+  }
+
+  // 停止文件夹发送或接收；对端是真实客户端时也发取消操作，避免它一直等待
+  cancelFolder(
+    taskId: string,
+    options: { notifyPeer?: boolean; peerStopped?: boolean } = {}
+  ): void {
+    const offer = this.privateFolderOffers.get(taskId)
+    const link = this.folderLinks.get(taskId)
+    const message = link === undefined ? null : this.repos.messages.getMessage(link.messageId)
+    const direction = message?.direction === 'out' ? 'out' : 'in'
+    if (options.notifyPeer !== false) {
+      const ip = offer?.ip ?? this.folderPeerIp(taskId)
+      if (ip !== '') {
+        if (direction === 'out') {
+          this.privateService?.sendOperateSendFolder(ip, taskId, 1)
+        } else {
+          this.privateService?.sendOperateRecvFolder(ip, taskId, 1)
+        }
+      }
+    }
+    this.privateFolderOffers.delete(taskId)
+    this.folderOutgoing.delete(taskId)
+    this.privateFolders?.cancel(taskId)
+    this.folderLinks.delete(taskId)
+    if (link === undefined || message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    if (meta.done === true || meta.canceled === true || meta.rejected === true) return
+    const nextMeta = JSON.stringify({
+      ...meta,
+      canceled: true,
+      pending: false,
+      peerStopped: options.peerStopped === true,
+      phase: 'canceled'
+    })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    if (message.direction === 'out') this.repos.messages.setStatus(message.id, 'canceled')
+    this.emit({
+      type: 'message',
+      message: {
+        ...message,
+        meta: nextMeta,
+        status: message.direction === 'out' ? 'canceled' : message.status
+      }
+    })
+    logStartup(`文件夹任务 ${taskId} 已停止`)
+  }
+
+  private folderPeerIp(taskId: string): string {
+    const link = this.folderLinks.get(taskId)
+    if (link === undefined) return ''
+    const conversation = this.repos.conversations.get(link.conversationId)
+    const peerKey = conversation?.peerKey
+    if (peerKey === null || peerKey === undefined || peerKey === '') return ''
+    return this.repos.peers.get(peerKey)?.ip ?? ''
+  }
+
+  private folderPeerKey(conversationId: string): string {
+    return this.repos.conversations.get(conversationId)?.peerKey ?? ''
+  }
+
+  private patchFolderMessage(
+    taskId: string,
+    patch: Record<string, unknown>,
+    status?: string,
+    linkOverride?: { conversationId: string; messageId: number }
+  ): void {
+    const link = linkOverride ?? this.folderLinks.get(taskId)
+    if (link === undefined) return
+    const message = this.repos.messages.getMessage(link.messageId)
+    if (message === null) return
+    let meta: Record<string, unknown>
+    try {
+      meta = JSON.parse(message.meta) as Record<string, unknown>
+    } catch {
+      meta = {}
+    }
+    const nextMeta = JSON.stringify({ ...meta, ...patch })
+    this.repos.messages.setMeta(message.id, nextMeta)
+    if (status !== undefined) this.repos.messages.setStatus(message.id, status)
+    this.emit({
+      type: 'message',
+      message: { ...message, meta: nextMeta, status: status ?? message.status }
+    })
   }
 
   // 对端接受文件夹后，连接它的文件夹端口开始推送
@@ -689,6 +897,7 @@ export class AppService {
       return
     }
     this.folderOutgoing.delete(taskId)
+    this.patchFolderMessage(taskId, { phase: 'sending' }, 'sending')
     const advertised = service.peerFolderPort(ip)
     const port = advertised > 0 ? advertised : 9014
     logStartup(`私有文件夹发送：对端已接受，连接 ${ip}:${port}（任务 ${taskId}）`)
@@ -787,6 +996,7 @@ export class AppService {
     } catch {
       meta = {}
     }
+    if (meta.canceled === true) return
     const nextMeta = JSON.stringify({
       ...meta,
       dir,
@@ -815,16 +1025,17 @@ export class AppService {
     if (link === undefined) return
     const message = this.repos.messages.getMessage(link.messageId)
     if (message === null) return
-    if (message.direction === 'out') {
-      this.repos.messages.setStatus(message.id, 'failed')
-      this.emit({ type: 'message', message: { ...message, status: 'failed' } })
-      return
-    }
     let meta: Record<string, unknown>
     try {
       meta = JSON.parse(message.meta) as Record<string, unknown>
     } catch {
       meta = {}
+    }
+    if (meta.canceled === true) return
+    if (message.direction === 'out') {
+      this.repos.messages.setStatus(message.id, 'failed')
+      this.emit({ type: 'message', message: { ...message, status: 'failed' } })
+      return
     }
     const nextMeta = JSON.stringify({ ...meta, error: '接收失败' })
     this.repos.messages.setMeta(message.id, nextMeta)
@@ -1489,13 +1700,14 @@ export class AppService {
         taskId,
         size: info.totalSize,
         count: info.items.length,
-        dir: path
+        dir: path,
+        phase: 'waiting'
       })
     )
     this.folderLinks.set(taskId, { conversationId, messageId: message.id })
-    this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.messages.setStatus(message.id, 'waiting')
     this.repos.conversations.touch(conversationId, message.createdAt, 0)
-    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emit({ type: 'message', message: { ...message, status: 'waiting' } })
     this.emitConversation(conversationId)
     logStartup(
       `私有文件夹发送：邀请 ${peer.ip} 任务=${taskId} 名称=${path} 大小=${info.totalSize} ` +
@@ -1553,6 +1765,9 @@ export class AppService {
     this.privateOutstanding.clear()
     this.privateFileTasks.clear()
     this.privateIncomingFiles.clear()
+    this.privateFolderOffers.clear()
+    this.folderOutgoing.clear()
+    this.folderLinks.clear()
     this.stopPrivateSweep()
     // 先停私有会话：它对每个在线对端发 DISCONNECT，不能排在异步文件通道后面，
     // 否则进程可能在 await 期间退出，对端要等 30 多秒的重传超时才显示离线
@@ -2592,7 +2807,7 @@ export class AppService {
         fileId: String(fileId),
         packetId: 0,
         path: staged.path,
-        state: 'transferring',
+        state: 'waiting',
         received: 0,
         error: '',
         createdAt: now,
@@ -2683,9 +2898,45 @@ export class AppService {
     if (incoming === undefined) {
       throw new Error('文件任务不存在')
     }
+    // 通知发送方停止，避免它一直停在等待状态
+    this.privateService?.sendOperateRecvFile(incoming.ip, incoming.taskId, 1)
     this.privateIncomingFiles.delete(id)
     this.privateFileTasks.delete(incoming.fileId)
     this.updatePrivateFileTask(id, 'rejected', 0, '')
+  }
+
+  // 主动停止文件收发：断开连接并清理任务；接收方删除半成品文件
+  cancelFile(id: string, options: { notifyPeer?: boolean; peerStopped?: boolean } = {}): void {
+    const task = this.repos.files.get(id)
+    if (task === null) throw new Error('文件任务不存在')
+    if (
+      task.state === 'done' ||
+      task.state === 'canceled' ||
+      task.state === 'rejected' ||
+      task.state === 'failed'
+    ) {
+      return
+    }
+    const fileId = Number(task.fileId)
+    const entry = this.privateFileTasks.get(fileId)
+    if (entry !== undefined && options.notifyPeer !== false) {
+      if (task.direction === 'in') {
+        this.privateService?.sendOperateRecvFile(entry.ip, entry.taskId, 1)
+      } else {
+        this.privateService?.sendOperateSendFile(entry.ip, entry.taskId, 1)
+      }
+    }
+    this.privateIncomingFiles.delete(id)
+    this.privateFileTasks.delete(fileId)
+    this.privateImagePushes.delete(fileId)
+    this.privateFiles?.cancel(fileId)
+    this.updatePrivateFileTask(
+      id,
+      'canceled',
+      task.received,
+      options.peerStopped ? '对方已停止' : ''
+    )
+    logStartup(`文件任务 ${id} 已停止（${task.direction === 'in' ? '接收' : '发送'}）`)
   }
 
   acceptFile(id: string): void {
@@ -3191,7 +3442,7 @@ export class AppService {
         fileId: String(fileId),
         packetId: 0,
         path,
-        state: 'transferring',
+        state: 'waiting',
         received: 0,
         error: '',
         createdAt: now,
@@ -3347,7 +3598,7 @@ export class AppService {
         fileId: String(fileId),
         packetId: 0,
         path,
-        state: 'transferring',
+        state: 'waiting',
         received: 0,
         error: '',
         createdAt: now,
@@ -3399,7 +3650,7 @@ export class AppService {
         fileId: String(fileId),
         packetId: 0,
         path,
-        state: 'transferring',
+        state: 'waiting',
         received: 0,
         error: '',
         createdAt: now,
@@ -3957,7 +4208,7 @@ export class AppService {
           ? this.repos.messages.insertIncoming(conversation.id, text, file.packetId, 'file', meta)
           : this.repos.messages.insertOutgoing(conversation.id, text, file.packetId, 'file', meta)
       if (file.direction === 'out') {
-        this.repos.messages.setStatus(message.id, 'sent')
+        this.repos.messages.setStatus(message.id, file.state === 'waiting' ? 'waiting' : 'sent')
       }
       this.repos.conversations.touch(
         conversation.id,
@@ -3966,11 +4217,13 @@ export class AppService {
       )
       link = { conversationId: conversation.id, messageId: message.id }
       this.fileLinks.set(file.id, link)
-      // 发出的文件消息落库后状态是已发送，事件也要带同样的状态，
-      // 否则气泡下方的状态会一直停在“发送中”
+      // 发出的文件在对方确认前是“等待对方接收”，确认后才显示发送中
       this.emit({
         type: 'message',
-        message: file.direction === 'out' ? { ...message, status: 'sent' } : message
+        message:
+          file.direction === 'out'
+            ? { ...message, status: file.state === 'waiting' ? 'waiting' : 'sent' }
+            : message
       })
       this.emitConversation(conversation.id)
       if (file.direction === 'in') {
@@ -4717,20 +4970,36 @@ export class AppService {
   private handlePrivateFileOperate(_ip: string, cmd: number, taskId: string, op: number): void {
     const entry = this.findPrivateFileByTaskId(taskId)
     if (entry === null) return
+    logStartup(`私有文件操作 任务=${taskId} 命令=${cmd} OP=${op}`)
+    const task = this.repos.files.get(entry.fileTaskId)
     if (cmd === 1011) {
-      logStartup(`私有文件 ${taskId} 对端确认接收（OP=${op}）`)
+      if (op !== 2) {
+        // 接收方拒绝或取消：停止本端发送，不再等连接
+        if (task !== null && task.direction === 'out') {
+          this.cancelFile(entry.fileTaskId, { notifyPeer: false, peerStopped: true })
+        }
+        return
+      }
+      if (task !== null && task.direction === 'out' && task.state === 'waiting') {
+        this.updatePrivateFileTask(entry.fileTaskId, 'transferring', task.received, '')
+      }
       return
     }
-    if (cmd === 1010 && op === 2) {
-      const task = this.repos.files.get(entry.fileTaskId)
-      if (task === null || task.direction !== 'in') return
-      const incoming = this.privateIncomingFiles.get(entry.fileTaskId)
-      if (incoming === undefined) return
-      // 真实客户端在对端宣布开始之后才建立 TCP，提前连会被拒绝
-      incoming.startSignaled = true
-      if (incoming.accepted) {
-        this.startPrivateReceive(incoming)
+    if (cmd !== 1010) return
+    if (op !== 2) {
+      // 发送方取消：停止本端接收
+      if (task !== null && task.direction === 'in') {
+        this.cancelFile(entry.fileTaskId, { notifyPeer: false, peerStopped: true })
       }
+      return
+    }
+    if (task === null || task.direction !== 'in') return
+    const incoming = this.privateIncomingFiles.get(entry.fileTaskId)
+    if (incoming === undefined) return
+    // 真实客户端在对端宣布开始之后才建立 TCP，提前连会被拒绝
+    incoming.startSignaled = true
+    if (incoming.accepted) {
+      this.startPrivateReceive(incoming)
     }
   }
 
@@ -4756,10 +5025,14 @@ export class AppService {
     if (entry === null) return
     const task = this.repos.files.get(entry.fileTaskId)
     if (task === null || task.direction !== 'out') return
+    // 真实客户端的 1012 里总大小与已收是 32 位，超过 4 GB 会截断；
+    // 完成判定以本端文件大小为准，进度取本端与对端的较大值
+    const received = Math.max(task.received, recvdSize)
+    const total = task.size > 0 ? task.size : totalSize
     this.updatePrivateFileTask(
       entry.fileTaskId,
-      recvdSize >= totalSize ? 'done' : 'transferring',
-      recvdSize,
+      received >= total ? 'done' : 'transferring',
+      received,
       ''
     )
   }
@@ -4966,9 +5239,13 @@ export class AppService {
       const status =
         state === 'done'
           ? 'sent'
-          : state === 'failed' || state === 'rejected' || state === 'canceled'
-            ? 'failed'
-            : null
+          : state === 'canceled'
+            ? 'canceled'
+            : state === 'failed' || state === 'rejected'
+              ? 'failed'
+              : state === 'transferring' && task.direction === 'out'
+                ? 'sending'
+                : null
       if (status !== null) {
         const message = this.repos.messages.getMessage(task.messageId)
         if (message !== null && message.status !== status) {

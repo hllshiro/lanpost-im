@@ -7,7 +7,7 @@ import { formatRemaining, formatSize, formatSpeed } from '../utils/format'
 
 const props = defineProps<{ file: FileTaskInfo }>()
 
-type Action = 'accept' | 'reject' | 'open' | 'reveal' | 'saveAs'
+type Action = 'accept' | 'reject' | 'cancel' | 'open' | 'reveal' | 'saveAs'
 
 const busy = ref<Action | ''>('')
 const error = ref('')
@@ -38,6 +38,10 @@ const canReceive = computed(
 )
 const transferring = computed(() => props.file.state === 'transferring')
 const done = computed(() => props.file.state === 'done')
+// 发送方在等待对方接收时也可以停止；接收方等待时用现有“拒绝”
+const cancelable = computed(
+  () => transferring.value || (!incoming.value && props.file.state === 'waiting')
+)
 
 const percent = computed(() => {
   if (props.file.size <= 0) return 0
@@ -116,6 +120,10 @@ function reject(): void {
   void run('reject', () => window.api.files.reject(props.file.id))
 }
 
+function cancel(): void {
+  void run('cancel', () => window.api.files.cancel(props.file.id))
+}
+
 function open(): void {
   void run('open', () => window.api.files.open(props.file.id))
 }
@@ -170,7 +178,7 @@ function saveAs(): void {
 
     <p v-if="error" class="file-error">{{ error }}</p>
 
-    <div v-if="canReceive || done" class="actions">
+    <div v-if="canReceive || done || cancelable" class="actions">
       <div class="actions-left">
         <button v-if="done" class="link" :disabled="busy !== ''" @click="saveAs">另存为</button>
       </div>
@@ -182,6 +190,9 @@ function saveAs(): void {
         <template v-else-if="done">
           <button class="link" :disabled="busy !== ''" @click="open">打开</button>
           <button class="link" :disabled="busy !== ''" @click="reveal">打开文件夹</button>
+        </template>
+        <template v-else-if="cancelable">
+          <button class="link" :disabled="busy !== ''" @click="cancel">停止</button>
         </template>
       </div>
     </div>
