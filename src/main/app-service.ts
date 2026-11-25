@@ -3560,7 +3560,7 @@ export class AppService {
       this.lastStatus = settings.identity.status
       this.emit({ type: 'local-status', status: settings.identity.status })
     }
-    // 通知开关、闪烁开关、勿扰时段的改动立即反映到闪烁状态
+    // 新消息提醒总开关的改动立即反映到闪烁状态
     this.notifications.refresh()
   }
 

@@ -7,6 +7,7 @@ import {
   CircleAlert,
   FolderOpen,
   HardDrive,
+  Headphones,
   Info,
   Keyboard,
   Network,
@@ -29,6 +30,7 @@ import {
   type SettingsPatch
 } from '../../../shared/settings'
 import { mergeSettings } from '../../../shared/settings-merge'
+import { NOTIFY_SOUND_OPTIONS } from '../../../shared/notify-sounds'
 import { acceleratorFromKeyStroke } from '../utils/accelerator'
 import { avatarUrl } from '../utils/avatar'
 import { errorMessage } from '../utils/errors'
@@ -303,7 +305,7 @@ function saveField<K extends Section>(section: K, patch: Partial<Settings[K]>): 
 }
 
 function previewSound(): void {
-  playNotifySound(settings.value.notify.soundPreset, settings.value.notify.soundVolume)
+  playNotifySound(settings.value.notify.soundPreset)
 }
 
 function savePrivateSeeds(): void {
@@ -816,116 +818,59 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
-          <div class="row">
-            <div class="row-text">
-              <span class="label">提示音</span>
-              <p class="hint">使用内置提示音</p>
+          <template v-if="settings.notify.enabled">
+            <div class="row">
+              <div class="row-text">
+                <span class="label">提示音</span>
+                <p class="hint">使用内置提示音</p>
+              </div>
+              <div class="control control-auto">
+                <ToggleSwitch
+                  v-model="settings.notify.sound"
+                  @update:model-value="saveField('notify', { sound: $event })"
+                />
+              </div>
             </div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.notify.sound"
-                @update:model-value="saveField('notify', { sound: $event })"
-              />
+            <div class="row">
+              <div class="row-text">
+                <label class="label" for="setting-sound-preset">提示音样式</label>
+                <p class="hint">收到新消息时播放的提示音</p>
+              </div>
+              <div class="control">
+                <select
+                  id="setting-sound-preset"
+                  v-model="settings.notify.soundPreset"
+                  class="input"
+                  @change="saveField('notify', { soundPreset: settings.notify.soundPreset })"
+                >
+                  <option v-for="sound in NOTIFY_SOUND_OPTIONS" :key="sound.id" :value="sound.id">
+                    {{ sound.name }}
+                  </option>
+                </select>
+                <button
+                  class="mini icon-only"
+                  title="试听提示音"
+                  aria-label="试听提示音"
+                  @click="previewSound"
+                >
+                  <Headphones :size="14" />
+                </button>
+              </div>
             </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <label class="label" for="setting-sound-preset">提示音样式</label>
-              <p class="hint">收到新消息时播放的提示音</p>
+            <div class="row">
+              <div class="row-text">
+                <span class="label">弹窗通知</span>
+                <p class="hint">在屏幕右下角显示新消息弹窗</p>
+              </div>
+              <div class="control control-auto">
+                <ToggleSwitch
+                  v-model="settings.notify.popup"
+                  @update:model-value="saveField('notify', { popup: $event })"
+                />
+              </div>
             </div>
-            <div class="control">
-              <select
-                id="setting-sound-preset"
-                v-model="settings.notify.soundPreset"
-                class="input"
-                @change="saveField('notify', { soundPreset: settings.notify.soundPreset })"
-              >
-                <option value="a">A 轻快两声</option>
-                <option value="b">B 柔和门铃</option>
-                <option value="c">C 清脆单声</option>
-              </select>
-              <button class="mini" @click="previewSound">试听</button>
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><span class="label">提示音音量</span></div>
-            <div class="control">
-              <input
-                v-model.number="settings.notify.soundVolume"
-                class="range"
-                type="range"
-                min="0"
-                max="100"
-                step="5"
-                aria-label="提示音音量"
-                @change="saveField('notify', { soundVolume: settings.notify.soundVolume })"
-              />
-              <span class="value">{{ settings.notify.soundVolume }}%</span>
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text">
-              <span class="label">托盘图标闪烁</span>
-              <p class="hint">窗口不在前台时托盘图标闪烁，直到未读清零</p>
-            </div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.notify.flashTaskbar"
-                @update:model-value="saveField('notify', { flashTaskbar: $event })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><span class="label">系统通知</span></div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.notify.systemNotification"
-                @update:model-value="saveField('notify', { systemNotification: $event })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><span class="label">应用内提示</span></div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.notify.inAppToast"
-                @update:model-value="saveField('notify', { inAppToast: $event })"
-              />
-            </div>
-          </div>
-          <h2 class="group-gap">免打扰</h2>
-          <div class="row">
-            <div class="row-text">
-              <span class="label">免打扰</span>
-              <p class="hint">在此时段内不播放声音与系统通知</p>
-            </div>
-            <div class="control control-auto">
-              <ToggleSwitch
-                v-model="settings.notify.dnd"
-                @update:model-value="saveField('notify', { dnd: $event })"
-              />
-            </div>
-          </div>
-          <div class="row">
-            <div class="row-text"><span class="label">免打扰时段</span></div>
-            <div class="control time-range">
-              <input
-                v-model="settings.notify.dndStart"
-                class="input time"
-                type="time"
-                aria-label="免打扰开始时间"
-                @change="saveField('notify', { dndStart: settings.notify.dndStart })"
-              />
-              <span class="time-sep">至</span>
-              <input
-                v-model="settings.notify.dndEnd"
-                class="input time"
-                type="time"
-                aria-label="免打扰结束时间"
-                @change="saveField('notify', { dndEnd: settings.notify.dndEnd })"
-              />
-            </div>
-          </div>
+          </template>
+          <p v-else class="note">关闭后不播放提示音、不弹通知，托盘图标也不闪烁。</p>
         </div>
 
         <div v-show="current === 'files'" class="group">
@@ -1646,18 +1591,12 @@ select.input {
   color: var(--text-secondary);
 }
 
-.time-range {
-  flex: 0 0 230px;
-}
-
-.time {
-  width: 92px;
-  flex: 0 0 92px;
-}
-
-.time-sep {
-  font-size: 12px;
-  color: var(--text-secondary);
+.icon-only {
+  width: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .note {

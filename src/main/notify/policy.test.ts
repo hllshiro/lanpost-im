@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { defaultSettings, type Settings } from '../../shared/settings'
-import { decideNotification, inDndWindow, shouldBlink } from './policy'
+import { decideNotification, shouldBlink, soundCooldownReady } from './policy'
 
 function settings(overrides: (value: Settings) => void = () => {}): Settings {
   const value = structuredClone(defaultSettings)
@@ -22,10 +22,19 @@ describe('notification policy', () => {
     expect(decision).toEqual({
       badge: true,
       sound: true,
-      flash: true,
-      system: true,
       toast: true
     })
+  })
+
+  it('弹窗通知关闭后不弹窗，声音不受影响', () => {
+    const decision = decideNotification({
+      ...base,
+      settings: settings((value) => {
+        value.notify.popup = false
+      })
+    })
+    expect(decision.toast).toBe(false)
+    expect(decision.sound).toBe(true)
   })
 
   it('窗口有焦点时任意会话都只保留未读角标', () => {
@@ -37,8 +46,6 @@ describe('notification policy', () => {
     expect(decision).toEqual({
       badge: true,
       sound: false,
-      flash: false,
-      system: false,
       toast: false
     })
   })
@@ -51,8 +58,8 @@ describe('notification policy', () => {
         settings: settings((value) => {
           value.notify.enabled = false
         })
-      }).sound
-    ).toBe(false)
+      })
+    ).toEqual({ badge: true, sound: false, toast: false })
   })
 
   it('respects the individual effect switches', () => {
@@ -60,16 +67,12 @@ describe('notification policy', () => {
       ...base,
       settings: settings((value) => {
         value.notify.sound = false
-        value.notify.flashTaskbar = false
-        value.notify.systemNotification = false
-        value.notify.inAppToast = false
+        value.notify.popup = false
       })
     })
     expect(decision).toEqual({
       badge: true,
       sound: false,
-      flash: false,
-      system: false,
       toast: false
     })
   })
@@ -78,22 +81,8 @@ describe('notification policy', () => {
     expect(decideNotification({ ...base, settings: settings(), isSelf: true })).toEqual({
       badge: false,
       sound: false,
-      flash: false,
-      system: false,
       toast: false
     })
-  })
-
-  it('matches an overnight do-not-disturb window', () => {
-    const value = settings((item) => {
-      item.notify.dnd = true
-      item.notify.dndStart = '22:00'
-      item.notify.dndEnd = '08:00'
-    })
-    expect(inDndWindow(value, new Date('2026-10-23T23:30:00'))).toBe(true)
-    expect(inDndWindow(value, new Date('2026-10-23T07:59:00'))).toBe(true)
-    expect(inDndWindow(value, new Date('2026-10-23T08:00:00'))).toBe(false)
-    expect(inDndWindow(value, new Date('2026-10-23T12:00:00'))).toBe(false)
   })
 
   it('skips file completion notifications when disabled', () => {
@@ -108,36 +97,24 @@ describe('notification policy', () => {
     expect(decision.toast).toBe(false)
   })
 
-  it('闪烁只在未读大于0、窗口非活跃、开关打开且不在勿扰时段时成立', () => {
+  it('未读大于 0 就闪烁，新消息提醒关闭时停止', () => {
     const value = settings()
-    expect(shouldBlink({ unread: 3, active: false, settings: value })).toBe(true)
-    expect(shouldBlink({ unread: 0, active: false, settings: value })).toBe(false)
-    expect(shouldBlink({ unread: 3, active: true, settings: value })).toBe(false)
+    expect(shouldBlink({ unread: 3, settings: value })).toBe(true)
+    expect(shouldBlink({ unread: 0, settings: value })).toBe(false)
     expect(
       shouldBlink({
         unread: 3,
-        active: false,
         settings: settings((item) => {
           item.notify.enabled = false
         })
       })
     ).toBe(false)
-    expect(
-      shouldBlink({
-        unread: 3,
-        active: false,
-        settings: settings((item) => {
-          item.notify.flashTaskbar = false
-        })
-      })
-    ).toBe(false)
-    const dnd = settings((item) => {
-      item.notify.dnd = true
-      item.notify.dndStart = '00:00'
-      item.notify.dndEnd = '23:59'
-    })
-    expect(
-      shouldBlink({ unread: 3, active: false, settings: dnd, now: new Date('2026-11-20T12:00:00') })
-    ).toBe(false)
+  })
+
+  it('提示音冷却：15 秒内最多响一次', () => {
+    expect(soundCooldownReady(0, 1_000)).toBe(true)
+    const last = 1_000_000
+    expect(soundCooldownReady(last, last + 14_999)).toBe(false)
+    expect(soundCooldownReady(last, last + 15_000)).toBe(true)
   })
 })

@@ -220,10 +220,15 @@ const rowStyle = { height: `${TRAY_POPUP.rowHeight}px` }
 </style>
 
 <style>
-html,
-body {
+:root,
+html body,
+#app {
   margin: 0;
   background: transparent;
+}
+
+html,
+body {
   overflow: hidden;
 }
 </style>

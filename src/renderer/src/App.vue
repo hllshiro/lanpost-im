@@ -42,10 +42,10 @@ function handleToastJump(conversationId: string): void {
   window.api.ui.jumpToConversation(conversationId)
 }
 
-// 每次播音前读实时设置：切换提示音或音量后下一条消息立即生效
+// 每次播音前读实时设置：切换提示音后下一条消息立即生效
 async function playFromSettings(): Promise<void> {
   const settings = await window.api.settings.get()
-  playNotifySound(settings.notify.soundPreset, settings.notify.soundVolume)
+  playNotifySound(settings.notify.soundPreset)
 }
 
 const currentLoadingMessages = computed(() => {

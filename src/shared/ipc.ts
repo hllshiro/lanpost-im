@@ -169,7 +169,8 @@ export interface NotifyListPayload {
 }
 
 // 弹窗窗口与渲染端共用的尺寸，禁止两侧各写一份数字
-export const TOAST_LAYOUT = { width: 320, cardHeight: 64, gap: 8, padding: 16 } as const
+// 窗口贴合卡片：宽度与卡片一致，高度按卡片数累加；edgeOffset 只是离屏幕工作区边缘的距离
+export const TOAST_LAYOUT = { width: 320, cardHeight: 64, edgeOffset: 16 } as const
 
 // 悬停未读列表窗口与渲染端共用的尺寸
 export const TRAY_POPUP = {

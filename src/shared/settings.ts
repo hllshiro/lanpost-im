@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { DEFAULT_NOTIFY_SOUND, NOTIFY_SOUND_IDS, type NotifySoundId } from './notify-sounds'
 
 export const SETTINGS_VERSION = 1
 
@@ -30,17 +31,25 @@ const networkSchema = z.object({
   privateSeeds: z.array(z.string()).default([])
 })
 
+// 弹窗通知开关；兼容一度使用过的 system/app/none 三选一取值
+const popupSchema = z
+  .union([z.boolean(), z.enum(['system', 'app', 'none'])])
+  .default(true)
+  .transform((value) => (typeof value === 'boolean' ? value : value !== 'none'))
+
 const notifySchema = z.object({
   enabled: z.boolean().default(true),
   sound: z.boolean().default(true),
-  soundPreset: z.enum(['a', 'b', 'c']).default('a'),
-  soundVolume: z.number().int().min(0).max(100).default(70),
-  flashTaskbar: z.boolean().default(true),
-  systemNotification: z.boolean().default(true),
-  inAppToast: z.boolean().default(true),
-  dnd: z.boolean().default(false),
-  dndStart: z.string().default('22:00'),
-  dndEnd: z.string().default('08:00')
+  // 内置提示音；历史取值（a/b/c 与已删除的音效 id）映射到默认音效
+  soundPreset: z
+    .string()
+    .default(DEFAULT_NOTIFY_SOUND)
+    .transform((value) =>
+      (NOTIFY_SOUND_IDS as readonly string[]).includes(value)
+        ? (value as NotifySoundId)
+        : DEFAULT_NOTIFY_SOUND
+    ),
+  popup: popupSchema
 })
 
 const filesSchema = z.object({

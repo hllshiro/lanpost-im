@@ -3,14 +3,10 @@ import { copyFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import tray16 from '../../resources/tray-16.png?asset'
 import tray22 from '../../resources/tray-22.png?asset'
-import trayUnread16 from '../../resources/tray-unread-16.png?asset'
-import trayUnread22 from '../../resources/tray-unread-22.png?asset'
 
 let tray: TrayType | null = null
 let normalImage: Electron.NativeImage | null = null
-let unreadImage: Electron.NativeImage | null = null
 let emptyImage: Electron.NativeImage | null = null
-let unreadCount = 0
 // 闪烁是独立于未读数的状态：亮 500 毫秒、灭 500 毫秒
 let blinking = false
 let phase = false
@@ -29,17 +25,13 @@ export function createTray(actions: TrayActions): TrayType {
   // Windows 用 16；Linux 用 22（麒麟信安无效时改 24，资源已备好）
   const size = process.platform === 'win32' ? 16 : 22
   const sourceNormal = size === 16 ? tray16 : tray22
-  const sourceUnread = size === 16 ? trayUnread16 : trayUnread22
   // 启动时把图标复制到数据目录的真实路径（asar 之外）：
   // 桌面宿主按路径加载托盘图标时读不了 asar 内部，会退回系统默认图标
   const iconDir = join(app.getPath('userData'), 'icons')
   mkdirSync(iconDir, { recursive: true })
   const normalPath = join(iconDir, `tray-${size}.png`)
-  const unreadPath = join(iconDir, `tray-unread-${size}.png`)
   copyFileSync(sourceNormal, normalPath)
-  copyFileSync(sourceUnread, unreadPath)
   normalImage = nativeImage.createFromPath(normalPath)
-  unreadImage = nativeImage.createFromPath(unreadPath)
   emptyImage = nativeImage.createEmpty()
   tray = new Tray(normalImage)
   tray.setToolTip('内网传书')
@@ -64,24 +56,18 @@ export function trayBounds(): Electron.Rectangle | null {
 
 function render(): void {
   if (tray === null) return
-  const image = blinking
-    ? phase
-      ? unreadImage
-      : emptyImage
-    : unreadCount > 0 && unreadImage !== null
-      ? unreadImage
-      : normalImage
+  // 未读状态只用闪烁表达：亮相位是普通图标，熄灭相位是空图；不画未读徽标
+  const image = blinking ? (phase ? normalImage : emptyImage) : normalImage
   if (image !== null) {
     tray.setImage(image)
   }
 }
 
-export function setTrayBadge(count: number): void {
-  unreadCount = count
+// 未读数只用于悬停提示；图标本身由闪烁状态决定
+export function setTrayUnread(count: number): void {
   if (tray !== null) {
     tray.setToolTip(count > 0 ? `内网传书 · ${count} 条未读` : '内网传书')
   }
-  render()
 }
 
 // 同一状态重复设置无副作用；开启时立即显示一个亮起相位
@@ -102,10 +88,6 @@ export function setTrayBlinking(active: boolean): void {
   render()
 }
 
-export function currentTrayUnread(): number {
-  return unreadCount
-}
-
 export function destroyTray(): void {
   if (blinkTimer !== null) {
     clearInterval(blinkTimer)
@@ -114,9 +96,7 @@ export function destroyTray(): void {
   tray?.destroy()
   tray = null
   normalImage = null
-  unreadImage = null
   emptyImage = null
-  unreadCount = 0
   blinking = false
   phase = false
 }

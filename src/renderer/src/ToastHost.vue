@@ -11,7 +11,7 @@ function handleJump(conversationId: string): void {
 }
 
 onMounted(() => {
-  // 独立标题：主进程按标题从同进程的窗口里认出主窗口（弹窗窗口不叫这个名）
+  // 独立标题：CDP 脚本与窗口列表里据此认出弹窗窗口
   document.title = 'lanpost-toast'
   unsubscribe = window.api.ui.onToastList((payload) => {
     toasts.value = payload.toasts
@@ -29,11 +29,16 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-/* 弹窗窗口本身透明，内容之外的区域不抢点击 */
-html,
-body {
+/* 卡片铺满窗口，页面本身不留底色 */
+:root,
+html body,
+#app {
   margin: 0;
   background: transparent;
+}
+
+html,
+body {
   overflow: hidden;
 }
 </style>

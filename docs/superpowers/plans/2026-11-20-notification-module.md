@@ -26,7 +26,7 @@
 1. **锁屏期间到达的通知**：解锁后弹窗完整显示 10 秒，解锁后 3 秒内的窗口聚焦不清除它们——Task 4 的 `toast-list.test.ts` 与 manager 接线覆盖。
 2. **同一会话连续来消息**：只刷新内容并重置计时，不叠多个弹窗——Task 4 `toast-list.test.ts` 的 upsert 用例覆盖。
 3. **前台有焦点时**：声音、弹窗、闪烁、系统通知全部抑制，未读照常累计；失焦后恢复——Task 2 `policy.test.ts` 覆盖。
-4. **闪烁条件**：仅未读 > 0 且窗口非活跃且 `notify.enabled`、`flashTaskbar` 开且不在勿扰时段——Task 3 `policy.test.ts` 的 `shouldBlink` 用例覆盖。
+4. **闪烁条件**：未读 > 0 且 `notify.enabled` 打开；窗口焦点不参与，闪烁固定启用——Task 3 `policy.test.ts` 的 `shouldBlink` 用例覆盖。
 5. **10 秒到期**：只隐藏弹窗，未读、角标、闪烁状态不受影响——Task 4 `toast-list.test.ts`（expireDue 不触碰未读）与 Task 9 e2e 覆盖。
 6. **一键已读**：水位线推进到每会话最新消息、私有会话回执走既有去重、事件广播后未读归零——Task 6 仓储与服务测试覆盖。
 7. **弹窗窗口 `focusable: false` 下点击送达**：Task 9 e2e 用 CDP `Input.dispatchMouseEvent` 点击弹窗断言跳转；系统级投递行为由人工清单确认。
@@ -34,6 +34,8 @@
 ---
 
 ### Task 1: 提示音三选一
+
+> 2026-11-25 复核：本任务最初使用三个合成 WAV，后来改为需求方提供的 2 个内置音效（默认 `online`，经典叮咚，EBU R128 归一化后存为 WAV）；应用内音量已移除，播放固定 100%；`scripts/gen-assets.py` 不再生成音频，下面的 WAV 步骤保留为当时的执行记录，当前状态见文末「进度核对」。
 
 **Files:**
 - Modify: `src/shared/settings.ts`（notifySchema）
@@ -52,7 +54,7 @@
   - `src/renderer/src/utils/notify-sound.ts` 导出 `NOTIFY_SOUNDS: Record<'a' | 'b' | 'c', string>`（三个 wav 的 import 结果）与 `playNotifySound(preset: 'a' | 'b' | 'c', volume: number): void`（内部 `new Audio` + `play().catch(() => undefined)`）。
   - App.vue 与 SettingsOverlay 都只通过该工具播音。
 
-- [ ] **Step 1: 写失败的设置测试**
+- [x] **Step 1: 写失败的设置测试**
 
 在 `src/main/settings/store.test.ts` 追加（沿用该文件已有的 store 构造方式）：
 
@@ -69,36 +71,36 @@ it('soundPreset 默认 a 且旧配置里的 soundFile 被忽略', () => {
 Run: `pnpm exec vitest run src/main/settings/store.test.ts`
 Expected: FAIL（`soundPreset` 不存在）
 
-- [ ] **Step 3: 改 schema**
+- [x] **Step 3: 改 schema**
 
 `src/shared/settings.ts` notifySchema：删 `soundFile` 行，加 `soundPreset: z.enum(['a', 'b', 'c']).default('a')`。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm exec vitest run src/main/settings/store.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: 生成三个提示音资源**
+- [x] **Step 5: 生成三个提示音资源**
 
 `scripts/gen-assets.py` 在现有 `notify.wav` 段落处替换为三个合成段，参数抄 `.dev-data/sound-candidates/gen.py`（A：988→1319Hz 两声上行；B：1046.5→784Hz 钟声下行；C：1568Hz 单声），输出 `notify-a.wav`、`notify-b.wav`、`notify-c.wav`，删除对旧 `notify.wav` 的写入。删除仓库里的 `src/renderer/src/assets/notify.wav`。
 
 Run: `python scripts/gen-assets.py && ls src/renderer/src/assets/`
 Expected: 三个新 wav 存在，无 `notify.wav`
 
-- [ ] **Step 6: 播音工具与调用方**
+- [x] **Step 6: 播音工具与调用方**
 
 创建 `src/renderer/src/utils/notify-sound.ts`（签名见 Interfaces）。`App.vue`：删 `import notifySound`，改用 `playNotifySound`；`onNotify` 回调只保留播音（toast 显示的职责在 Task 4 移交列表通道，本任务先维持现状不动 toast 代码）；播音前 `const settings = await window.api.settings.get()` 取实时 `soundPreset` 与 `soundVolume`（这样切换后下一条消息立即生效，不等重启）。
 
-- [ ] **Step 7: 设置界面**
+- [x] **Step 7: 设置界面**
 
-`SettingsOverlay.vue` 通知区在「提示音」开关行之后新增一行：标签「提示音样式」，`<select>` 三项（`A 轻快两声` / `B 柔和门铃` / `C 清脆单声`），`@change` 里 `saveField('notify', { soundPreset: settings.notify.soundPreset })`；同一行加「试听」按钮，点击调 `playNotifySound(settings.notify.soundPreset, settings.notify.soundVolume)`。同时把「任务栏闪烁」行的标签改为「托盘图标闪烁」，hint 改为「窗口不在前台时托盘图标闪烁，直到未读清零」。
+`SettingsOverlay.vue` 通知区在「提示音」开关行之后新增一行：标签「提示音样式」，`<select>` 三项（`A 轻快两声` / `B 柔和门铃` / `C 清脆单声`），`@change` 里 `saveField('notify', { soundPreset: settings.notify.soundPreset })`；同一行放一个耳机图标按钮（`Headphones`，标题「试听提示音」），点击调 `playNotifySound(settings.notify.soundPreset, settings.notify.soundVolume)`。
 
-- [ ] **Step 8: 全量验证**
+- [x] **Step 8: 全量验证**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: 全过
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add -A
@@ -124,7 +126,7 @@ git commit -m "feat: 提示音三选一并支持试听"
   - `app-service` 新增 `onWindowFocus(): void`、`onWindowBlur(): void`、`setScreenLocked(locked: boolean): void`，内部转发给 `notifications`。
   - `grep uiActiveConversation` 与 `grep setActiveConversation` 在 `src/` 下零结果。
 
-- [ ] **Step 1: 写失败的策略测试**
+- [x] **Step 1: 写失败的策略测试**
 
 `policy.test.ts` 追加（构造函数方式沿用现有用例）：
 
@@ -148,19 +150,19 @@ it('窗口有焦点时任意会话都只保留未读角标', () => {
 Run: `pnpm exec vitest run src/main/notify/policy.test.ts`
 Expected: FAIL（类型里还有 `activeConversationId`，新断言不成立）
 
-- [ ] **Step 3: 改策略**
+- [x] **Step 3: 改策略**
 
 `policy.ts`：`NotificationInput` 删 `activeConversationId`；焦点早返回改为 `if (input.windowFocused) return decision`（decision 为 badge-only）。
 
-- [ ] **Step 4: manager 合并锁屏状态**
+- [x] **Step 4: manager 合并锁屏状态**
 
 `manager.ts`：加 `private locked = false` 与 `setLocked(locked: boolean)`；新增私有方法 `private isActive(): boolean { return (this.getWindow()?.isFocused() ?? false) && !this.locked }`；`notify()` 里 `decideNotification` 的 `windowFocused` 传 `this.isActive()`，删 `activeConversationId` 传参。删除 `setActiveConversation` 方法与字段。
 
-- [ ] **Step 5: 删 activeConversation 全链路**
+- [x] **Step 5: 删 activeConversation 全链路**
 
 grep 定位并删除：`src/shared/ipc.ts` 的 `uiActiveConversation` 常量与 `Api.ui.setActiveConversation`；`src/preload/index.ts` 对应实现；main 侧 `ipcMain.on(IPC.uiActiveConversation)` 注册处；`app-service.setActiveConversation`；`App.vue` 里监听 `store.currentConversationId` 调 `setActiveConversation` 的整个 `watch`（`onSelectConversation` 的订阅保留）。`manager.setActiveConversation` 里的 `flashFrame(false)` 一并删除。
 
-- [ ] **Step 6: 焦点与锁屏事件接线**
+- [x] **Step 6: 焦点与锁屏事件接线**
 
 `index.ts` 在 `createMainWindow(...)` 之后接：
 
@@ -173,12 +175,12 @@ powerMonitor.on('unlock-screen', () => appService.setScreenLocked(false))
 
 `powerMonitor` 已在 index.ts 导入。`app-service` 三个薄方法只转发 `this.notifications.*`；`onWindowFocus/onWindowBlur` 在本任务里先只调 `this.notifications.refresh()`——`refresh()` 是 Task 3 的方法，本任务先在 manager 里放一个空实现（只记录，后续任务填充），保持每步可编译可测。
 
-- [ ] **Step 7: 全量验证**
+- [x] **Step 7: 全量验证**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: 全过
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add -A
@@ -196,25 +198,21 @@ git commit -m "feat: 前台焦点与锁屏统一抑制全部通知"
 - Modify: `src/main/app-service.ts`（`applySettings` 里触发刷新）
 
 **Interfaces:**
-- Consumes: Task 2 的 `manager.isActive()`、`refresh()` 空实现、`inDndWindow`。
+- Consumes: Task 2 的 `manager.isActive()`、`refresh()` 空实现。
 - Produces:
-  - `policy.shouldBlink(input: { unread: number; active: boolean; settings: Settings; now?: Date }): boolean`。
-  - `tray.setTrayBlinking(active: boolean): void`（500ms 未读图 ↔ 空图切换；重复调用同值无副作用）。
+  - `policy.shouldBlink(input: { unread: number; settings: Settings }): boolean`。
+  - `tray.setTrayBlinking(active: boolean): void`（500ms 普通图 ↔ 空图切换；重复调用同值无副作用）。
   - `manager.refresh(): void` 真实实现 = 重算闪烁状态；`manager.stop()` 停闪。
-- [ ] **Step 1: 写失败的 shouldBlink 测试**
+- [x] **Step 1: 写失败的 shouldBlink 测试**
 
 `policy.test.ts` 追加：
 
 ```ts
-it('闪烁只在未读大于0、窗口非活跃、开关打开且不在勿扰时段时成立', () => {
+it('未读大于0就闪烁，新消息提醒关闭时停止', () => {
   const settings = baseSettings() // 沿用文件里已有的 settings 构造
-  expect(shouldBlink({ unread: 3, active: false, settings })).toBe(true)
-  expect(shouldBlink({ unread: 0, active: false, settings })).toBe(false)
-  expect(shouldBlink({ unread: 3, active: true, settings })).toBe(false)
-  expect(shouldBlink({ unread: 3, active: false, settings: { ...settings, notify: { ...settings.notify, enabled: false } } })).toBe(false)
-  expect(shouldBlink({ unread: 3, active: false, settings: { ...settings, notify: { ...settings.notify, flashTaskbar: false } } })).toBe(false)
-  const inDnd = { ...settings, notify: { ...settings.notify, dnd: true, dndStart: '00:00', dndEnd: '23:59' } }
-  expect(shouldBlink({ unread: 3, active: false, settings: inDnd, now: new Date('2026-11-20T12:00:00') })).toBe(false)
+  expect(shouldBlink({ unread: 3, settings })).toBe(true)
+  expect(shouldBlink({ unread: 0, settings })).toBe(false)
+  expect(shouldBlink({ unread: 3, settings: { ...settings, notify: { ...settings.notify, enabled: false } } })).toBe(false)
 })
 ```
 
@@ -223,33 +221,33 @@ it('闪烁只在未读大于0、窗口非活跃、开关打开且不在勿扰时
 Run: `pnpm exec vitest run src/main/notify/policy.test.ts`
 Expected: FAIL（`shouldBlink` 未导出）
 
-- [ ] **Step 3: 实现 shouldBlink**
+- [x] **Step 3: 实现 shouldBlink**
 
-`policy.ts` 导出 `shouldBlink`：`unread > 0 && !active && settings.notify.enabled && settings.notify.flashTaskbar && !inDndWindow(settings, input.now)`。
+`policy.ts` 导出 `shouldBlink`：`unread > 0 && settings.notify.enabled`；窗口焦点不参与，闪烁固定启用。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm exec vitest run src/main/notify/policy.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: tray 图元状态机**
+- [x] **Step 5: tray 图元状态机**
 
-`tray.ts`：模块级状态 `unreadCount`、`blinking`、`phase`、`blinkTimer`、`emptyImage = nativeImage.createEmpty()`；私有 `render()` 选图——`blinking ? (phase ? unreadImage : emptyImage) : (unreadCount > 0 ? unreadImage : normalImage)`；`setTrayBadge` 改为更新 count + tooltip 后调 `render()`；新增 `setTrayBlinking(active)`：值不变直接返回，开启时 `phase = true`、`setInterval(() => { phase = !phase; render() }, 500)`，关闭时清定时器并 `render()`；`destroyTray` 清定时器。
+`tray.ts`：模块级状态 `blinking`、`phase`、`blinkTimer`、`emptyImage = nativeImage.createEmpty()`；私有 `render()` 选图——`blinking ? (phase ? normalImage : emptyImage) : normalImage`，未读状态只用闪烁表达，托盘图标不画红点徽标；`setTrayUnread` 只更新 tooltip；新增 `setTrayBlinking(active)`：值不变直接返回，开启时 `phase = true`、`setInterval(() => { phase = !phase; render() }, 500)`，关闭时清定时器并 `render()`；`destroyTray` 清定时器。
 
-- [ ] **Step 6: manager 接闪烁状态**
+- [x] **Step 6: manager 接闪烁状态**
 
-`manager.ts`：字段 `private unread = 0`、`private blinkActive = false`、构造函数里 `setInterval(() => this.recomputeBlink(), 60_000)`（`unref()`，`stop()` 清除——60 秒周期兜底勿扰时段边界）。`setUnread(count)` 存字段并调 `recomputeBlink()`；`recomputeBlink()` 用 `shouldBlink({ unread: this.unread, active: this.isActive(), settings: this.settings.get() })`，结果与 `blinkActive` 不同才调 `setTrayBlinking`。`refresh()` 填充为 `this.recomputeBlink()`；`setLocked` 末尾补 `this.recomputeBlink()`（Task 2 的空壳在此接实）。`stop()` 里 `setTrayBlinking(false)`。删除 `notify()` 里的 `window?.flashFrame(true)` 与整个 `startIconFlash` 方法。
+`manager.ts`：字段 `private unread = 0`、`private blinkActive = false`。`setUnread(count)` 存字段并调 `recomputeBlink()`；`recomputeBlink()` 用 `shouldBlink({ unread: this.unread, settings: this.settings.get() })`，结果与 `blinkActive` 不同才调 `setTrayBlinking`。`refresh()` 填充为 `this.recomputeBlink()`；`setLocked` 末尾补 `this.recomputeBlink()`（Task 2 的空壳在此接实）。`stop()` 里 `setTrayBlinking(false)`。删除 `notify()` 里的 `window?.flashFrame(true)` 与整个 `startIconFlash` 方法。
 
-- [ ] **Step 7: 设置变更触发刷新**
+- [x] **Step 7: 设置变更触发刷新**
 
 `app-service.applySettings` 末尾加 `this.notifications.refresh()`。
 
-- [ ] **Step 8: 全量验证**
+- [x] **Step 8: 全量验证**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: 全过
 
-- [ ] **Step 9: 提交**
+- [x] **Step 9: 提交**
 
 ```bash
 git add -A
@@ -278,7 +276,7 @@ git commit -m "feat: 托盘图标按未读持续闪烁"
     uiJumpToConversation: 'ui:jump-to-conversation',
     export interface NotifyToastItem { conversationId: string; title: string; body: string }
     export interface NotifyListPayload { toasts: NotifyToastItem[] }
-    export const TOAST_LAYOUT = { width: 320, cardHeight: 64, gap: 8, padding: 16 } as const
+    export const TOAST_LAYOUT = { width: 320, cardHeight: 64, edgeOffset: 16 } as const
     ```
   - `Api.ui` 新增 `onToastList(listener: (payload: NotifyListPayload) => void): () => void` 与 `jumpToConversation(conversationId: string): void`。
   - `ToastList`（纯类，`src/main/notify/toast-list.ts`）：
@@ -297,7 +295,7 @@ git commit -m "feat: 托盘图标按未读持续闪烁"
   - `manager` 新增 `clearToasts(): void`、`onWindowFocus(): void`；`setLocked` 扩展为含解锁释放。
   - `NotifyToast.vue`：props `{ toasts: NotifyToastItem[] }`，emit `jump(conversationId: string)`；固定右下角定位、卡片高 `TOAST_LAYOUT.cardHeight`。
 
-- [ ] **Step 1: 写失败的 ToastList 测试**
+- [x] **Step 1: 写失败的 ToastList 测试**
 
 `toast-list.test.ts`（用注入的假时钟）：
 
@@ -344,32 +342,32 @@ it('clearAll 清空且不影响其他状态', () => {
 Run: `pnpm exec vitest run src/main/notify/toast-list.test.ts`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现 ToastList**
+- [x] **Step 3: 实现 ToastList**
 
 按 Interfaces 签名实现；`upsert` 对已存在的 `conversationId` 覆盖 title/body 并替换 `expiresAt`（不新增条目）。
 
-- [ ] **Step 4: 跑测试确认通过**
+- [x] **Step 4: 跑测试确认通过**
 
 Run: `pnpm exec vitest run src/main/notify/toast-list.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: shared/preload 契约**
+- [x] **Step 5: shared/preload 契约**
 
 按 Interfaces 加 `IPC.uiToastList`、`IPC.uiJumpToConversation`、`NotifyToastItem`、`NotifyListPayload`、`TOAST_LAYOUT`；preload 实现 `onToastList`（`ipcRenderer.on` + 返回解绑，照抄 `onNotify` 写法）与 `jumpToConversation`（`ipcRenderer.send`）。
 
-- [ ] **Step 6: manager 弹窗状态机**
+- [x] **Step 6: manager 弹窗状态机**
 
 `manager.ts`：
 - 字段 `private toastList = new ToastList()`、`private toastTimer: ReturnType<typeof setTimeout> | null = null`、`private ignoreFocusUntil = 0`，常量 `TOAST_TTL_MS = 10_000`。
 - `notify()` 中 `decision.toast` 为真时：`this.toastList.upsert(input.conversationId, input.title, input.body, this.locked ? null : Date.now() + TOAST_TTL_MS)`，然后 `scheduleToastTimer()` + `pushToasts()`。声音走既有 `IPC.uiNotify` 通道不变（仅 `decision.sound` 时发）；删掉 `decision.toast` 参与 `uiNotify` 发送的条件（改 `if (decision.sound && window !== null)`）。
 - 私有 `scheduleToastTimer()`：清旧定时器，`nextExpiry()` 非空则 `setTimeout` 到期后 `expireDue()`、非空才 `pushToasts()`、再调度，`unref()`。
 - 私有 `pushToasts()`：`window?.webContents.send(IPC.uiToastList, { toasts: this.toastList.snapshot() })`（Task 5 会在这里加平台分支）。
-- `onWindowFocus()`：`if (this.locked || Date.now() < this.ignoreFocusUntil) return`；否则 `clearAll()` + `pushToasts()`；末尾 `this.recomputeBlink()`。
+- `onWindowFocus()`：用纯函数 `shouldClearToastsOnFocus`（`toast-list.ts`）判断——锁屏中或解锁 3 秒宽限期内不清除，否则 `clearAll()` + `pushToasts()` + 逐条 `close()` 系统通知；末尾 `this.recomputeBlink()`。守卫连同单测覆盖聚焦事件先于解锁事件到达的时序。
 - `setLocked(locked)`：置字段；解锁时 `releaseAll(TOAST_TTL_MS)`、`ignoreFocusUntil = Date.now() + 3000`、`scheduleToastTimer()`、`pushToasts()`；末尾 `recomputeBlink()`。
-- `clearToasts()`：`clearAll()` + 清定时器 + `pushToasts()`。
+- `clearToasts()`：`clearAll()` + 清定时器 + `pushToasts()`，并关闭当前系统通知；系统通知同一时间只保留一条，`notify()` 里先 `close()` 上一条再 `show()` 新的，`close` 事件只清自己的引用。
 - `stop()`：清 toast 定时器。
 
-- [ ] **Step 7: 服务与 IPC 薄方法**
+- [x] **Step 7: 服务与 IPC 薄方法**
 
 `app-service` 加 `clearToasts(): void { this.notifications.clearToasts() }`。`app-ipc.ts` 注册：
 
@@ -383,21 +381,21 @@ ipcMain.on(IPC.uiJumpToConversation, (_event, conversationId: string) => {
 
 （`showMainWindow` 从 `../window` 导入。）
 
-- [ ] **Step 8: 渲染端**
+- [x] **Step 8: 渲染端**
 
-新建 `src/renderer/src/components/NotifyToast.vue`（样式参考被删的 `.notify-toast`：白卡、圆角、阴影、标题 + 单行省略正文，定位改为 `position: fixed; right: 20px; bottom: 20px`，卡片高由 `TOAST_LAYOUT` 常量约束）。`App.vue`：
+新建 `src/renderer/src/components/NotifyToast.vue`（铺满窗口的矩形面板：白色背景、1 像素边框、左侧 4 像素强调条、标题 + 单行省略正文，无圆角、无阴影、无透明留白；卡片高由 `TOAST_LAYOUT` 常量约束）。`App.vue`：
 - 删 `toast` ref、`toastTimer`、`openToast`、模板里 `.notify-toast` 按钮与相关样式。
 - `onNotify` 回调只剩播音（Task 1 已改）。
 - 新增 `toastList = ref<NotifyToastItem[]>([])`，`onMounted` 里订阅 `window.api.ui.onToastList(payload => { toastList.value = payload.toasts })`，`onBeforeUnmount` 解绑。
 - 模板加 `<NotifyToast :toasts="toastList" @jump="handleToastJump" />`，`handleToastJump(conversationId: string)` 函数体调 `window.api.ui.jumpToConversation(conversationId)`（模板里不能直接写 `window`，必须走具名函数，与现有风格一致）。
 - Linux 主窗口隐藏时列表照常推送但不可见，用户聚焦主窗口即触发清除——无需额外分支（这正是设计的弱化行为）。
 
-- [ ] **Step 9: 全量验证**
+- [x] **Step 9: 全量验证**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: 全过（新增 toast-list 用例）
 
-- [ ] **Step 10: 提交**
+- [x] **Step 10: 提交**
 
 ```bash
 git add -A
@@ -426,11 +424,11 @@ git commit -m "feat: 右下角通知弹窗与锁屏队列"
   - `main.ts` 分支：`?window=toast` 渲染 `ToastHost.vue`。
   - `manager.pushToasts()`：`process.platform === 'win32'` 走 `pushToastWindow`，否则发主窗口。
 
-- [ ] **Step 1: ToastHost 渲染组件**
+- [x] **Step 1: ToastHost 渲染组件**
 
-`src/renderer/src/ToastHost.vue`：订阅 `onToastList`，渲染 `<NotifyToast>`，`jump` 时调 `window.api.ui.jumpToConversation($event)`（跳转会聚焦主窗口，主进程侧弹窗随聚焦清除而清空）。页面 body 透明、无边距。
+`src/renderer/src/ToastHost.vue`：订阅 `onToastList`，渲染 `<NotifyToast>`，`jump` 时调 `window.api.ui.jumpToConversation($event)`（跳转会聚焦主窗口，主进程侧弹窗随聚焦清除而清空）。页面 body 透明、无边距；`document.title` 设为 `lanpost-toast`，CDP 与日志里据此区分弹窗窗口。
 
-- [ ] **Step 2: main.ts 分支**
+- [x] **Step 2: main.ts 分支**
 
 ```ts
 const kind = new URLSearchParams(window.location.search).get('window')
@@ -440,24 +438,26 @@ createApp(root).use(createPinia()).mount('#app')
 
 （pinia 对 ToastHost 无害，保留统一 `.use`。）
 
-- [ ] **Step 3: toast-window.ts**
+- [x] **Step 3: toast-window.ts**
 
 创建 `src/main/notify/toast-window.ts`：
-- `ensureToastWindow()`：懒创建，`new BrowserWindow({ width: TOAST_LAYOUT.width, height: 计算值, show: false, frame: false, transparent: true, resizable: false, alwaysOnTop: true, focusable: false, skipTaskbar: true, hasShadow: false, webPreferences: { preload, sandbox: true, contextIsolation: true } })`，加载 `?window=toast`（dev 用 `ELECTRON_RENDERER_URL + '/?window=toast'`，prod 用 `loadFile(html, { search: '?window=toast' })`，写法照 `window.ts:104-108`）。
-- `pushToastWindow(items)`：`items.length === 0` → `hide()`；否则高度 = `items.length * TOAST_LAYOUT.cardHeight + (items.length - 1) * TOAST_LAYOUT.gap + TOAST_LAYOUT.padding * 2`，`x = workArea.x + workArea.width - width - 16`，`y = workArea.y + workArea.height - height - 16`（`screen.getPrimaryDisplay().workArea`），`setBounds` → `webContents.send(IPC.uiToastList, { toasts: items })` → `showInactive()`。
+- `ensureToastWindow()`：懒创建，`new BrowserWindow({ width: TOAST_LAYOUT.width, height: TOAST_LAYOUT.cardHeight, show: false, frame: false, transparent: false, backgroundColor: '#ffffff', resizable: false, alwaysOnTop: true, focusable: false, skipTaskbar: true, webPreferences: { preload, sandbox: true, contextIsolation: true } })`，加载 `?window=toast`（dev 用 `ELECTRON_RENDERER_URL + '/?window=toast'`，prod 用 `loadFile(html, { search: '?window=toast' })`，写法照 `window.ts:104-108`）。
+- `pushToastWindow(items)`：`items.length === 0` → 窗口已存在时发送空列表并 `hide()`，窗口尚未创建就直接返回（清空动作不新建窗口）；否则高度 = `items.length * TOAST_LAYOUT.cardHeight`，`x = workArea.x + workArea.width - width - TOAST_LAYOUT.edgeOffset`，`y = workArea.y + workArea.height - height - TOAST_LAYOUT.edgeOffset`（`screen.getPrimaryDisplay().workArea`），`setBounds` → `webContents.send(IPC.uiToastList, { toasts: items })` → `showInactive()`。
 - `destroyToastWindow()`：`destroy()`。
 - 只在 win32 被调用（manager 分支保证），无需内部平台判断。
 
-- [ ] **Step 4: manager 分支与销毁**
+- [x] **Step 4: manager 分支与销毁**
 
 `manager.pushToasts()` 改为：`if (process.platform === 'win32') { pushToastWindow(this.toastList.snapshot()); return }` 后接原主窗口发送。`index.ts` 的 `will-quit` 里 `destroyTray()` 旁加 `destroyToastWindow()`。
 
-- [ ] **Step 5: 手工冒烟（Windows）**
+- [x] **Step 5: 手工冒烟（Windows）**
 
 Run: `pnpm dev`，用另一个实例发一条消息。
 Expected: 屏幕右下角出现独立弹窗（不在主窗口内），不抢焦点，10 秒消失；点击弹窗跳转会话；回软件主窗口时弹窗立即清空。
 
-- [ ] **Step 6: 全量验证与提交**
+四项行为已由 `.dev-data/verify-toast.mjs` 在真实 Windows 实例上逐项断言。
+
+- [x] **Step 6: 全量验证与提交**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 
@@ -484,7 +484,7 @@ git commit -m "feat: Windows 右下角独立置顶弹窗"
   - `app-service.markAllRead(): void`。
   - `Api.conversations.markAllRead(): Promise<void>`，通道 `IPC.conversationReadAll: 'conversation:read-all'`。
 
-- [ ] **Step 1: 写失败的仓储测试**
+- [x] **Step 1: 写失败的仓储测试**
 
 `repositories.test.ts` 追加（沿用文件里已有的会话/消息构造方式）：
 
@@ -505,11 +505,11 @@ it('markAllRead 语义：unreadIds 返回有未读的会话，latestId 返回最
 Run: `pnpm exec vitest run src/main/store/repositories.test.ts`
 Expected: FAIL（方法不存在）
 
-- [ ] **Step 3: 实现两个仓储方法**
+- [x] **Step 3: 实现两个仓储方法**
 
 按 Interfaces 的 SQL 实现，风格照 `markRead`/`touch`。
 
-- [ ] **Step 4: 服务层 markAllRead**
+- [x] **Step 4: 服务层 markAllRead**
 
 `app-service.markAllRead()`：
 
@@ -525,11 +525,11 @@ markAllRead(): void {
 }
 ```
 
-- [ ] **Step 5: IPC 通道**
+- [x] **Step 5: IPC 通道**
 
 `ipc.ts` 加 `conversationReadAll: 'conversation:read-all'` 与 `Api.conversations.markAllRead()`；`app-ipc.ts` `ipcMain.handle(IPC.conversationReadAll, () => service.markAllRead())`；preload 实现。
 
-- [ ] **Step 6: 全量验证与提交**
+- [x] **Step 6: 全量验证与提交**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 
@@ -558,11 +558,11 @@ git commit -m "feat: 一键已读"
 - Produces:
   - `src/shared/ipc.ts`：
     ```ts
-    uiPopupResize: 'ui:popup-resize',
+    uiPopupRows: 'ui:popup-rows',
     uiPopupLeave: 'ui:popup-leave',
     export const TRAY_POPUP = { width: 300, rowHeight: 56, footerHeight: 48, maxHeight: 380, padding: 12 } as const
     ```
-    `Api.ui` 增 `popupResize(request: { height: number }): void` 与 `popupLeave(): void`（均为 renderer→main `send`）。
+    `Api.ui` 增 `popupRows(rows: number): void` 与 `popupLeave(): void`（均为 renderer→main `send`）。
   - `popup-layout.ts`（纯函数，可单测）：
     ```ts
     export function computeTrayPopupBounds(
@@ -573,9 +573,9 @@ git commit -m "feat: 一键已读"
   - `tray.ts` `TrayActions` 增 `onHoverEnter: () => void`、`onHoverLeave: () => void`，`createTray` 里 `tray.on('mouse-enter', ...)` / `tray.on('mouse-leave', ...)`。
   - `tray-popup.ts`：`ensureTrayPopup(rows: number)`、`showTrayPopup()`、`hideTrayPopup()`、`onTrayLeave()`（200ms 后用 `screen.getCursorScreenPoint()` 复查光标同时离开托盘与列表才真隐藏）、`destroyTrayPopup()`、`setPopupUnreadCount(count: number)`（0 时隐藏）。
   - `main.ts` 分支：`?window=tray-popup` 渲染 `TrayPopup.vue`。
-  - `Api.ui.onPopupResize` 不需要；新增 renderer→main 的 `ui:popup-resize`（`ipcRenderer.send(IPC.uiPopupResize, { height })`），main 重设 bounds（保持底边不动）。
+  - 行数变化走 renderer→main 的 `ui:popup-rows`（`ipcRenderer.send(IPC.uiPopupRows, rows)`），main 按同一个 `computeTrayPopupBounds` 重设 bounds（保持底边不动）。
 
-- [ ] **Step 1: 写失败的布局测试**
+- [x] **Step 1: 写失败的布局测试**
 
 `popup-layout.test.ts`：
 
@@ -601,19 +601,19 @@ it('行数很多时高度封顶', () => {
 Run: `pnpm exec vitest run src/main/notify/popup-layout.test.ts`
 Expected: FAIL（模块不存在）
 
-- [ ] **Step 3: 实现 computeTrayPopupBounds 并跑通**
+- [x] **Step 3: 实现 computeTrayPopupBounds 并跑通**
 
 按签名实现；跑测试到 PASS。
 
-- [ ] **Step 4: 事件广播**
+- [x] **Step 4: 事件广播**
 
 `app-service.emit` 从 `this.window?.webContents.send(...)` 改为遍历 `BrowserWindow.getAllWindows()` 逐个 `webContents.send`（弹窗窗口靠这个拿到会话更新；未订阅的窗口收到即忽略）。`app-service` 需导入 `BrowserWindow`。
 
-- [ ] **Step 5: tray hover 接线**
+- [x] **Step 5: tray hover 接线**
 
 `tray.ts`：`TrayActions` 加 `onHoverEnter`/`onHoverLeave`，`createTray` 注册两个事件。`index.ts` 的 `createTray({...})` 传 `onHoverEnter: () => showTrayPopup()`、`onHoverLeave: () => onTrayLeave()`（导入 `tray-popup` 模块）。
 
-- [ ] **Step 6: tray-popup 控制器**
+- [x] **Step 6: tray-popup 控制器**
 
 `tray-popup.ts`：
 - `ensureTrayPopup(rows)` 懒创建窗口：`width: TRAY_POPUP.width, height: computeTrayPopupBounds(...).height, show: false, frame: false, transparent: true, resizable: false, alwaysOnTop: true, focusable: false, skipTaskbar: true, hasShadow: false`，加载 `?window=tray-popup`（dev/prod 写法同 Task 5）。
@@ -624,17 +624,17 @@ Expected: FAIL（模块不存在）
 - `app-ipc.ts` 的 `uiJumpToConversation` 处理里追加 `hideTrayPopup()`：点条目跳转后收起列表（聚焦清除只管通知弹窗，管不到这个窗口）。
 - `destroyTrayPopup()`：`will-quit` 里 `destroyTray` 旁调用。
 
-- [ ] **Step 7: TrayPopup 渲染组件**
+- [x] **Step 7: TrayPopup 渲染组件**
 
 `src/renderer/src/TrayPopup.vue`：
 - `onMounted`：`window.api.state.snapshot()` 初始化会话行，订阅 `window.api.state.onEvent`，`conversation` / `conversation-removed` 事件增删本地行；只保留 `unread > 0` 的行，按 `lastMessageAt` 倒序。
 - 行渲染：头像（direct 用 `peers` 里 `peerKey` 对应的 `avatarMd5`，group 用 `groups` 的 `photoMd5`，`avatarUrl` 来自 `utils/avatar.ts`；头像为空显示首字圆形占位）、标题、红色角标（`>99` 显示 `99+`）——头像与列表结构参考 `ConversationList.vue:70-80` 的 `peerOf` 写法。
 - 点击行：`window.api.ui.jumpToConversation(id)`。
 - 底部按钮「一键已读」：`window.api.conversations.markAllRead()`。
-- 行数变化时 `ipcRenderer` 不可直接用——用 `window.api.ui.popupResize({ height })`（preload 里 `ipcRenderer.send(IPC.uiPopupResize, request)`，Api 加 `popupResize(request: { height: number }): void`），高度 = 实际行数按 `TRAY_POPUP` 常量计算。
+- 行数变化时 `ipcRenderer` 不可直接用——用 `window.api.ui.popupRows(rows)`（preload 里 `ipcRenderer.send(IPC.uiPopupRows, rows)`），主进程按实际行数与 `TRAY_POPUP` 常量重算并重设高度。
 - 页面 body 透明无边距，内容区右下角对齐（窗口本身已定位）。
 
-- [ ] **Step 8: main.ts 分支**
+- [x] **Step 8: main.ts 分支**
 
 同 Task 5 模式，加 `tray-popup` 分支。
 
@@ -643,7 +643,9 @@ Expected: FAIL（模块不存在）
 Run: `pnpm dev`，双实例互发消息制造未读。
 Expected: 鼠标悬停托盘图标 120ms 后弹出列表（贴图标上方）；光标移入列表不消失，移开 200ms 后收起；点条目跳转会话；点「一键已读」列表收起、闪烁停止；窗口聚焦时闪烁暂停、失焦恢复。
 
-- [ ] **Step 10: 全量验证与提交**
+`.dev-data/verify-popup.mjs` 走同一条路径自动断言，前提是托盘图标固定在任务栏，复跑时按该条件执行。
+
+- [x] **Step 10: 全量验证与提交**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 
@@ -658,21 +660,21 @@ git commit -m "feat: 托盘悬停未读列表与一键已读入口"
 
 **Files:**
 - Modify: `scripts/gen-assets.py`
-- Create: `resources/tray-16.png`、`tray-unread-16.png`、`tray-22.png`、`tray-unread-22.png`、`tray-24.png`、`tray-unread-24.png`（生成物，提交入库）
+- Create: `resources/tray-16.png`、`tray-22.png`、`tray-24.png`（生成物，提交入库）
 - Modify: `src/main/tray.ts`
 
 **Interfaces:**
-- Consumes: 现有 `build/icon.png` 与 `gen-assets.py` 里画红点徽标的逻辑。
+- Consumes: 现有 `build/icon.png`。
 - Produces: `createTray` 用「复制到 `userData/icons/` 的真实路径」创建托盘，Windows 取 16、Linux 取 22，运行时不再 `resize()`。
 
-- [ ] **Step 1: 生成精确尺寸图标**
+- [x] **Step 1: 生成精确尺寸图标**
 
-`gen-assets.py`：保留红点徽标绘制，改成导出 6 个文件（256 基图 `LANCZOS` 缩到目标尺寸）：`tray-{16,22,24}.png` 与 `tray-unread-{16,22,24}.png`，放进 `resources/`；删除旧的 256 尺寸 `tray-unread.png` 引用（`tray.ts` 不再用它）。
+`gen-assets.py`：删掉红点徽标绘制，导出 3 个文件（256 基图 `LANCZOS` 缩到目标尺寸）：`tray-{16,22,24}.png`，放进 `resources/`；旧的 256 尺寸 `tray-unread.png` 与带红点的 `tray-unread-*.png` 一并删除。
 
 Run: `python scripts/gen-assets.py && ls resources/`
-Expected: 6 个新文件，无旧 `tray-unread.png`
+Expected: 3 个新文件，无任何 `tray-unread*.png`
 
-- [ ] **Step 2: tray.ts 用真实路径**
+- [x] **Step 2: tray.ts 用真实路径**
 
 `createTray`：
 ```ts
@@ -682,15 +684,12 @@ const suffix = `${size}`
 const iconDir = join(app.getPath('userData'), 'icons')
 mkdirSync(iconDir, { recursive: true })
 const normalPath = join(iconDir, `tray-${suffix}.png`)
-const unreadPath = join(iconDir, `tray-unread-${suffix}.png`)
 copyFileSync(join(__dirname, ...原资源路径), normalPath)  // 资源路径用 ?asset 导入得到的原文件
-copyFileSync(..., unreadPath)
 normalImage = nativeImage.createFromPath(normalPath)
-unreadImage = nativeImage.createFromPath(unreadPath)
 ```
 （`?asset` 导入的原文件路径作为 copy 源；`copyFileSync`/`mkdirSync` 失败直接抛出——按仓库的 fast-fail 约定，不静默回退。`window.ts` 的 `icon` 导入方式可参考。）
 
-- [ ] **Step 3: 全量验证与提交**
+- [x] **Step 3: 全量验证与提交**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test && pnpm build`
 
@@ -715,35 +714,60 @@ git commit -m "fix: 托盘图标改用精确尺寸并复制到数据目录"
 - Consumes: 全部前序任务；`.dev-data/` 现有双实例 e2e 启动方式（`LANPOST_DATA_DIR`、独立端口、`privateSeeds`，参考现有 `verify-*.mjs` 与 AGENTS.md 测试节）。
 - Produces: 可重复运行的弹窗验证脚本；CHANGELOG `[未发布]` 段。
 
-- [ ] **Step 1: 写弹窗 e2e 脚本**
+- [x] **Step 1: 写弹窗 e2e 脚本**
 
-`.dev-data/verify-toast.mjs`（文件头无 shebang；顶部 `const DEADLINE = Date.now() + 120_000`，所有等待循环里 `if (Date.now() > DEADLINE) throw new Error('超时')`）：
+`.dev-data/verify-toast.mjs`（文件头无 shebang；顶部 `const DEADLINE = Date.now() + 240_000`，所有等待循环里 `if (Date.now() > DEADLINE) throw new Error('超时')`）：
 
 1. 启动实例 A（9333，e2e-a）与实例 B（9334，e2e-b），等待就绪。
 2. B 通过 `window.api.messages.send` 给 A 的会话发文本。
 3. 轮询 A 的 `/json/list`，找到 url 含 `window=toast` 的 target；断言弹窗窗口存在。
-4. 在弹窗 target 里 `Input.dispatchMouseEvent` 点击卡片 → 断言 A 主窗口 `document.hasFocus()` 为 true 且 `store.currentConversationId` 为目标会话；断言弹窗已隐藏。
-5. 再发一条消息 → 弹窗重新出现 → 主窗口 `window.focus()` → 断言弹窗隐藏（聚焦清除）。
+4. 在弹窗 target 里 `Input.dispatchMouseEvent` 点击卡片 → 断言 A 主窗口 `document.hasFocus()` 为 true、聊天页显示该条消息；断言弹窗已隐藏。
+5. 再发一条消息 → 弹窗重新出现 → 再次启动应用（single-instance 唤回主窗口）→ 断言弹窗隐藏（聚焦清除）。
 6. 再发一条 → 等 11 秒 → 断言弹窗隐藏（10 秒到期），且 A 的未读仍 > 0（到期不清未读）。
-7. 全程输出 `log(...)` 到 `.dev-data/toast-verify.txt`。
+7. 全程输出 `log(...)` 到 stdout；运行时重定向到 `.dev-data/toast-verify-run.txt` 留档。
 
-- [ ] **Step 2: 跑脚本**
+- [x] **Step 2: 跑脚本**
 
-Run: `timeout 300 node .dev-data/verify-toast.mjs`
+Run: `node .dev-data/verify-toast.mjs > .dev-data/toast-verify-run.txt 2>&1`（脚本内置 240 秒 deadline）
 Expected: exit=0，日志含每步结果
 
-- [ ] **Step 3: 回归全量**
+- [x] **Step 3: 回归全量**
 
 Run: `pnpm lint && pnpm typecheck && pnpm test`
 Expected: 全过
 
-- [ ] **Step 4: CHANGELOG**
+- [x] **Step 4: CHANGELOG**
 
-`CHANGELOG.md` 加 `## [未发布]` 段，`### 新增` 写：右下角 10 秒置顶通知（点击跳转、回软件自动清除、锁屏解锁补显示）、托盘图标 500ms 闪烁直到未读清零、Windows 悬停未读列表与一键已读、提示音三选一（默认 A，可试听）。`### 变更` 写：前台有焦点时不再弹任何通知（含系统通知）；「任务栏闪烁」文案改为「托盘图标闪烁」。**不改版本号。**
+`CHANGELOG.md` 加 `## [未发布]` 段，`### 新增` 写：右下角 10 秒置顶通知（点击跳转、回软件自动清除、锁屏解锁补显示）、托盘图标 500ms 闪烁直到未读清零、Windows 悬停未读列表与一键已读、2 个内置提示音（默认经典叮咚，可试听）。`### 变更` 写：前台有焦点时不弹应用内弹窗、不播声音；弹窗通知改为开关（默认开启），系统通知渠道移除；提示音 15 秒全局冷却；移除免打扰与托盘闪烁开关。**不改版本号。**
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add -A
 git commit -m "test: 通知弹窗端到端验证与变更记录"
 ```
+
+---
+
+## 进度核对（2026-11-24，2026-11-25 补充）
+
+- 产物：9 个任务的文件与测试均已在 `feat/notification` 上，提交范围 `adcf026`…`24bda6a`。
+- 自动化：`pnpm lint`、`pnpm typecheck`、`pnpm test`（55 文件 379 用例）与 `pnpm build` 全部通过。
+- 端到端：`.dev-data/verify-toast.mjs` 连续多次 exit=0，最后一次日志 `.dev-data/toast-verify-run17.txt`；脚本补了「切到丙机会话」的等待与重试，避免会话未切换时新消息当场记读导致断言失真，并断言弹窗铺满窗口、无圆角、边框与强调条生效。`.dev-data/verify-notify-channel.mjs` 覆盖渠道与闪烁：前台有未读即开始闪烁且不弹窗、失焦后弹窗出现、同一会话两条消息只保留一条卡片、15 秒内第二条消息跳过提示音、回到软件后弹窗清除、关闭弹窗开关后不弹、重新开启后恢复（`.dev-data/channel-verify-run13.txt`，实例用 `--mute-audio` 避免测试发声）。`.dev-data/verify-settings-notify.mjs` 核对设置页：无免打扰、闪烁开关与提示音音量设置，弹窗通知为开关且默认开启、2 个提示音（经典叮咚 / 清脆单音）、试听为耳机图标、关闭提醒后其余项隐藏（`.dev-data/settings-verify-run10.txt`）。
+- 复核后的需求调整（已同步到 `docs/superpowers/specs/2026-11-19-notification-module-design.md`）：
+  - 托盘闪烁只看未读：未读 > 0 就闪，主窗口在前台也闪；亮相位用普通图标，未读红点徽标整体删除。
+  - 弹窗通知是 `notify.popup` 布尔开关（默认开启），不再区分系统与应用通道；同一时间同一会话只保留一条弹窗，回到软件时清除。
+- 2026-11-25 设置调整：
+  - 移除免打扰（`dnd` / `dndStart` / `dndEnd`）与对应策略、界面。
+  - 移除「托盘图标闪烁」开关（`flashTaskbar`），未读闪烁固定开启。
+  - `systemNotification` 与 `inAppToast` 合并为 `notify.popup` 布尔开关，旧字段由 zod 丢弃；一度使用过的 `system/app/none` 取值在 schema 里兼容映射为布尔。
+  - 「试听」改为耳机图标按钮；新消息提醒关闭后隐藏其余通知设置，提示音、弹窗与闪烁全部停止。
+  - 系统通知渠道整体移除：WinRT 通知一定进入通知中心，且通知可见时 Electron 的 `close()` 只隐藏、不移除历史，弹窗统一由应用内窗口承载。
+  - 弹窗窗口改为不依赖透明：卡片铺满窗口，矩形面板，1 像素边框加左侧 4 像素强调条；移除圆角、阴影、透明留白与 `setShape`。
+  - 内置提示音为需求方提供的 2 个音效，`scripts/normalize-sounds.py` 按 EBU R128 统一到 -14 LUFS、真峰值上限 -1.5 dBTP、48 kHz / 16-bit WAV（`online` 经典叮咚默认 -14.0 LUFS、`receive` 清脆单音 -14.2 LUFS，峰值由前视限幅器保护）；应用内音量设置移除，播放固定 100%；删除三个合成 WAV 与 `gen-assets.py` 的音频合成代码；`soundPreset` 只保留这 2 个 id，历史取值映射到默认。
+  - 提示音增加 15 秒全局冷却（`soundCooldownReady`），试听不受影响。
+- 未勾选的步骤：
+  - 6 个「跑测试确认失败」：红阶段执行未留档，最终测试全绿。
+  - Task 7 Step 9：`verify-popup.mjs` 需要托盘图标固定在任务栏，未复跑。
+  - Task 8 Step 4：麒麟信安实机验证，CHANGELOG 已记录待确认状态。
+- 计划文本已按实际实现修正：悬停列表行数通道为 `uiPopupRows`；e2e 总超时 240 秒；聚焦清除由纯函数 `shouldClearToastsOnFocus` 守卫锁屏与解锁宽限期。

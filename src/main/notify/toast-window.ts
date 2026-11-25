@@ -19,16 +19,17 @@ function ensureToastWindow(): BrowserWindow | null {
   }
   const window = new BrowserWindow({
     width: TOAST_LAYOUT.width,
-    height: TOAST_LAYOUT.cardHeight + TOAST_LAYOUT.padding * 2,
+    height: TOAST_LAYOUT.cardHeight,
     show: false,
     frame: false,
-    transparent: true,
+    // 卡片铺满整个窗口，不依赖透明背景；透明在部分 Windows 环境下不可靠
+    transparent: false,
+    backgroundColor: '#ffffff',
     resizable: false,
     movable: false,
     alwaysOnTop: true,
     focusable: false,
     skipTaskbar: true,
-    hasShadow: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: true,
@@ -55,25 +56,24 @@ function ensureToastWindow(): BrowserWindow | null {
 
 export function pushToastWindow(items: NotifyToastItem[]): void {
   lastItems = items
-  const window = ensureToastWindow()
-  if (window === null) {
-    return
-  }
   if (items.length === 0) {
-    // 隐藏前把空列表发给渲染进程，DOM 不残留旧内容
+    // 没有内容时只在窗口已存在的情况下清空并隐藏，不为了清空去创建窗口
+    const window = toastWindow
+    if (window === null || window.isDestroyed()) return
     window.webContents.send(IPC.uiToastList, { toasts: [] })
     window.hide()
     return
   }
+  const window = ensureToastWindow()
+  if (window === null) {
+    return
+  }
   const area = screen.getPrimaryDisplay().workArea
-  const height =
-    items.length * TOAST_LAYOUT.cardHeight +
-    (items.length - 1) * TOAST_LAYOUT.gap +
-    TOAST_LAYOUT.padding * 2
+  const height = items.length * TOAST_LAYOUT.cardHeight
   const width = TOAST_LAYOUT.width
   const bounds = {
-    x: area.x + area.width - width - TOAST_LAYOUT.padding,
-    y: area.y + area.height - height - TOAST_LAYOUT.padding,
+    x: area.x + area.width - width - TOAST_LAYOUT.edgeOffset,
+    y: area.y + area.height - height - TOAST_LAYOUT.edgeOffset,
     width,
     height
   }

@@ -4,20 +4,12 @@ import { TOAST_LAYOUT, type NotifyToastItem } from '../../../shared/ipc'
 defineProps<{ toasts: NotifyToastItem[] }>()
 const emit = defineEmits<{ jump: [conversationId: string] }>()
 
-// 尺寸取自 shared 常量，与主进程弹窗窗口的 bounds 计算保持一致
-const cardStyle = {
-  width: `${TOAST_LAYOUT.width - TOAST_LAYOUT.padding * 2}px`,
-  height: `${TOAST_LAYOUT.cardHeight}px`
-}
-const stackStyle = {
-  right: `${TOAST_LAYOUT.padding}px`,
-  bottom: `${TOAST_LAYOUT.padding}px`,
-  gap: `${TOAST_LAYOUT.gap}px`
-}
+// 高度取自 shared 常量，窗口按卡片数累加高度，卡片铺满整个窗口
+const cardStyle = { height: `${TOAST_LAYOUT.cardHeight}px` }
 </script>
 
 <template>
-  <div class="toast-stack" :style="stackStyle">
+  <div class="toast-stack">
     <button
       v-for="item in toasts"
       :key="item.conversationId"
@@ -35,28 +27,38 @@ const stackStyle = {
 <style scoped>
 .toast-stack {
   position: fixed;
+  inset: 0;
   z-index: 60;
   display: flex;
   flex-direction: column;
-  /* 空列表与缝隙不拦截主窗口操作 */
-  pointer-events: none;
+  background: #ffffff;
 }
 
 .notify-toast {
   display: flex;
+  flex: 1;
   flex-direction: column;
   justify-content: center;
   gap: 3px;
-  padding: 10px 14px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  width: 100%;
+  min-height: 0;
+  padding: 8px 12px;
+  border: 0;
+  border-right: 1px solid #c9c9c9;
+  border-bottom: 1px solid #c9c9c9;
+  border-left: 4px solid var(--accent);
   background: #ffffff;
   color: var(--text);
   text-align: left;
-  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.16);
-  cursor: pointer;
   overflow: hidden;
-  pointer-events: auto;
+}
+
+.notify-toast:first-child {
+  border-top: 1px solid #c9c9c9;
+}
+
+.notify-toast:hover {
+  background: #f4f4f4;
 }
 
 .notify-toast strong {

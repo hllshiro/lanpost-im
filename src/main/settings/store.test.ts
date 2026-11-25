@@ -71,11 +71,11 @@ describe('SettingsStore', () => {
   it('keeps untouched groups when applying a patch', () => {
     const file = tempFile()
     const store = new SettingsStore(file)
-    store.update({ identity: { displayName: '值班机' }, notify: { soundVolume: 30 } })
+    store.update({ identity: { displayName: '值班机' }, notify: { soundPreset: 'receive' } })
     store.update({ files: { autoAccept: true } })
     const loaded = new SettingsStore(file).get()
     expect(loaded.identity.displayName).toBe('值班机')
-    expect(loaded.notify.soundVolume).toBe(30)
+    expect(loaded.notify.soundPreset).toBe('receive')
   })
 
   it('backs up a settings file from a newer version', () => {
@@ -109,11 +109,54 @@ describe('SettingsStore', () => {
     expect(existsSync(file + '.bak')).toBe(true)
   })
 
-  it('soundPreset 默认 a 且旧配置里的 soundFile 被忽略', () => {
+  it('提示音默认经典叮咚，旧配置里的 soundFile 被忽略', () => {
     const file = tempFile()
     writeFileSync(file, JSON.stringify({ notify: { soundFile: 'builtin' } }))
     const loaded = new SettingsStore(file).get()
-    expect(loaded.notify.soundPreset).toBe('a')
+    expect(loaded.notify.soundPreset).toBe('online')
     expect('soundFile' in loaded.notify).toBe(false)
+  })
+
+  it('历史的 a/b/c 与已删除音效 id 映射到默认音效', () => {
+    const file = tempFile()
+    for (const legacy of ['a', 'b', 'c', 'blip-muted', 'guitar-strum']) {
+      writeFileSync(file, JSON.stringify({ notify: { soundPreset: legacy } }))
+      expect(new SettingsStore(file).get().notify.soundPreset).toBe('online')
+    }
+  })
+
+  it('弹窗通知默认开启，旧的通知开关与免打扰字段被忽略', () => {
+    const file = tempFile()
+    writeFileSync(
+      file,
+      JSON.stringify({
+        notify: {
+          systemNotification: false,
+          inAppToast: true,
+          flashTaskbar: false,
+          soundVolume: 30,
+          dnd: true,
+          dndStart: '01:00',
+          dndEnd: '02:00'
+        }
+      })
+    )
+    const loaded = new SettingsStore(file).get()
+    expect(loaded.notify.popup).toBe(true)
+    expect('systemNotification' in loaded.notify).toBe(false)
+    expect('inAppToast' in loaded.notify).toBe(false)
+    expect('flashTaskbar' in loaded.notify).toBe(false)
+    expect('soundVolume' in loaded.notify).toBe(false)
+    expect('dnd' in loaded.notify).toBe(false)
+  })
+
+  it('旧的 system/app/none 取值映射为弹窗通知开关', () => {
+    const file = tempFile()
+    writeFileSync(file, JSON.stringify({ notify: { popup: 'none' } }))
+    expect(new SettingsStore(file).get().notify.popup).toBe(false)
+    writeFileSync(file, JSON.stringify({ notify: { popup: 'system' } }))
+    expect(new SettingsStore(file).get().notify.popup).toBe(true)
+    writeFileSync(file, JSON.stringify({ notify: { popup: 'app' } }))
+    expect(new SettingsStore(file).get().notify.popup).toBe(true)
   })
 })

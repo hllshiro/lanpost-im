@@ -1,18 +1,15 @@
-import notifyA from '../assets/notify-a.wav'
-import notifyB from '../assets/notify-b.wav'
-import notifyC from '../assets/notify-c.wav'
+import online from '../assets/notify-sounds/online.wav'
+import receive from '../assets/notify-sounds/receive.wav'
+import type { NotifySoundId } from '../../../shared/notify-sounds'
 
-export type SoundPreset = 'a' | 'b' | 'c'
-
-export const NOTIFY_SOUNDS: Record<SoundPreset, string> = {
-  a: notifyA,
-  b: notifyB,
-  c: notifyC
+export const NOTIFY_SOUNDS: Record<NotifySoundId, string> = {
+  online,
+  receive
 }
 
-// 按设置里的样式与音量播一遍提示音；播放被浏览器策略拒绝时静默
-export function playNotifySound(preset: SoundPreset, volume: number): void {
+// 按设置里的音效播一遍；音量固定 100%，由系统音量控制
+export function playNotifySound(preset: NotifySoundId): void {
   const audio = new Audio(NOTIFY_SOUNDS[preset])
-  audio.volume = Math.max(0, Math.min(100, volume)) / 100
+  audio.volume = 1
   void audio.play().catch(() => undefined)
 }

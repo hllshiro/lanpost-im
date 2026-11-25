@@ -8,7 +8,7 @@ describe('mergeSettings', () => {
     const second = mergeSettings(first, { notify: { sound: false } })
     expect(second.notify.enabled).toBe(false)
     expect(second.notify.sound).toBe(false)
-    expect(second.notify.flashTaskbar).toBe(defaultSettings.notify.flashTaskbar)
+    expect(second.notify.popup).toBe(defaultSettings.notify.popup)
   })
 
   it('merges nested sections and leaves other sections untouched', () => {
