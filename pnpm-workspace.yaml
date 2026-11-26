@@ -1,2 +1,5 @@
 allowBuilds:
   electron-winstaller: true
+  # ws 的可选原生加速包；不编译，使用纯 JS 回退
+  bufferutil: false
+  utf-8-validate: false
