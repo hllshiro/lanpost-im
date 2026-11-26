@@ -107,6 +107,18 @@ export interface FirewallStatus {
   detail: string
 }
 
+// Agent RPC 网关的运行时状态；令牌永远不在这里出现
+export interface GatewayStatus {
+  enabled: boolean
+  running: boolean
+  url: string
+  bindAddr: string
+  port: number
+  fingerprint: string
+  lastError: string
+  clients: number
+}
+
 // 选完目录后的预览：账号、群数量与可选的会话清单
 export interface NwtImportSession {
   key: string

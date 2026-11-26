@@ -59,7 +59,8 @@ import type {
   StagePathsResult
 } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
-import type { Settings } from '../shared/settings'
+import type { RpcSettings, Settings } from '../shared/settings'
+import type { GatewayStatus } from '../shared/ipc'
 import { createPayloadId } from './protocol/private/messages'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
@@ -103,6 +104,9 @@ import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
 import { AppServiceBridge } from './gateway-bridge'
 import type { GatewayBridge, GatewayBridgeEvent, GatewaySendResult } from './gateway/bridge'
+import { GatewayServer } from './gateway'
+import { createRpcToken } from './gateway/auth'
+import { decideGatewayRestart } from './gateway/lifecycle'
 import { isPrivateUserId } from '../shared/private-id'
 import {
   isPresenceStatus,
@@ -308,6 +312,10 @@ export class AppService {
   // Agent 网关的业务桥接；只有网关启用时才创建
   private gatewayBridgeInstance: AppServiceBridge | null = null
   private readonly gatewayListeners = new Set<(event: GatewayBridgeEvent) => void>()
+  private gateway: GatewayServer | null = null
+  private gatewayError = ''
+  private gatewayTask: Promise<void> = Promise.resolve()
+  private lastRpc: RpcSettings | null = null
   // 最近一次收到 9011 发现通告的时间，按远端地址记录
   private readonly discoveredAt = new Map<string, number>()
   // 读取网卡地址的节流时间，按地址记录
@@ -459,6 +467,10 @@ export class AppService {
     this.scheduleMacSync(5000)
     this.startPresenceSweep()
     this.notifications.setUnread(this.unreadTotal())
+    if (this.settings.get().network.rpc.enabled) {
+      await this.startGateway()
+    }
+    this.lastRpc = this.settings.get().network.rpc
   }
 
   // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用；
@@ -1761,6 +1773,7 @@ export class AppService {
 
   async stop(): Promise<void> {
     this.started = false
+    await this.stopGateway()
     if (this.presenceTimer !== null) {
       clearInterval(this.presenceTimer)
       this.presenceTimer = null
@@ -2220,6 +2233,92 @@ export class AppService {
       nwtMsgId: result.message.remoteSeq,
       status: result.status,
       ...(result.status === 'failed' ? { reason: '群成员都不在线' } : {})
+    }
+  }
+
+  /** 开启网关前保证有令牌；没有就生成并写回设置。 */
+  private ensureRpcToken(): string {
+    const rpc = this.settings.get().network.rpc
+    if (rpc.token !== '') return rpc.token
+    const token = createRpcToken()
+    const next = this.settings.update({ network: { rpc: { ...rpc, token } } })
+    this.lastRpc = next.network.rpc
+    this.emit({ type: 'settings', settings: next })
+    return token
+  }
+
+  private async startGateway(): Promise<void> {
+    if (this.gateway !== null) return
+    const rpc = this.settings.get().network.rpc
+    const token = this.ensureRpcToken()
+    const server = new GatewayServer({
+      db: this.db,
+      bridge: this.gatewayBridge(),
+      dataDir: app.getPath('userData'),
+      tls: { mode: 'self-signed' },
+      host: rpc.bindAddr,
+      port: rpc.port,
+      token,
+      onLog: (message, detail) =>
+        logStartup(`gateway: ${message}${detail === undefined ? '' : ' ' + JSON.stringify(detail)}`)
+    })
+    this.gateway = server
+    try {
+      const info = await server.start()
+      this.gatewayError = ''
+      logStartup(`网关已启动 ${info.url} 指纹=${info.fingerprint}`)
+    } catch (error) {
+      this.gatewayError = (error as Error).message
+      this.gateway = null
+      logStartup(`网关启动失败：${this.gatewayError}`)
+      await server.stop().catch(() => undefined)
+    }
+  }
+
+  private async stopGateway(): Promise<void> {
+    const server = this.gateway
+    this.gateway = null
+    if (server === null) return
+    try {
+      await server.stop()
+      logStartup('网关已停止')
+    } catch (error) {
+      this.gatewayError = (error as Error).message
+      logStartup(`网关停止失败：${this.gatewayError}`)
+    }
+  }
+
+  // 快速连续改设置时串行化启停，避免同一个端口被并发绑定
+  private enqueueGateway(task: () => Promise<void>): void {
+    this.gatewayTask = this.gatewayTask.then(task).catch((error: unknown) => {
+      this.gatewayError = error instanceof Error ? error.message : String(error)
+      logStartup(`网关任务失败：${this.gatewayError}`)
+    })
+  }
+
+  rotateRpcToken(): string {
+    const rpc = this.settings.get().network.rpc
+    const token = createRpcToken()
+    const next = this.settings.update({ network: { rpc: { ...rpc, token } } })
+    this.lastRpc = next.network.rpc
+    this.emit({ type: 'settings', settings: next })
+    this.gateway?.setToken(token)
+    logStartup('网关令牌已重新生成')
+    return token
+  }
+
+  gatewayStatus(): GatewayStatus {
+    const rpc = this.settings.get().network.rpc
+    const status = this.gateway?.status()
+    return {
+      enabled: rpc.enabled,
+      running: status?.running ?? false,
+      url: status?.url ?? '',
+      bindAddr: rpc.bindAddr,
+      port: status?.port ?? rpc.port,
+      fingerprint: status?.fingerprint ?? '',
+      lastError: this.gatewayError,
+      clients: status?.clients ?? 0
     }
   }
 
@@ -4001,6 +4100,21 @@ export class AppService {
     }
     // 新消息提醒总开关的改动立即反映到闪烁状态
     this.notifications.refresh()
+    const nextRpc = settings.network.rpc
+    const action = decideGatewayRestart(this.lastRpc, nextRpc)
+    if (action === 'start') {
+      this.enqueueGateway(() => this.startGateway())
+    } else if (action === 'stop') {
+      this.enqueueGateway(() => this.stopGateway())
+    } else if (action === 'restart') {
+      this.enqueueGateway(async () => {
+        await this.stopGateway()
+        await this.startGateway()
+      })
+    } else if (this.lastRpc !== null && this.lastRpc.token !== nextRpc.token) {
+      this.gateway?.setToken(nextRpc.token)
+    }
+    this.lastRpc = nextRpc
   }
 
   firewallPorts(): { udp: number[]; tcp: number[] } {
@@ -4009,6 +4123,7 @@ export class AppService {
     const enetPort = this.privateService?.localEnetPort ?? settings.network.privateEnetPort
     if (enetPort > 0) udp.push(enetPort)
     const tcp = [settings.network.privateFilePort, settings.network.privateFolderPort]
+    if (settings.network.rpc.enabled) tcp.push(settings.network.rpc.port)
     return {
       udp: udp.filter((port) => port > 0),
       tcp: tcp.filter((port) => port > 0)
