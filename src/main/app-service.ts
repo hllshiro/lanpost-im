@@ -59,7 +59,8 @@ import type {
   StagePathsResult
 } from '../shared/ipc'
 import { IPC } from '../shared/ipc'
-import type { Settings } from '../shared/settings'
+import type { RpcSettings, Settings } from '../shared/settings'
+import type { GatewayStatus } from '../shared/ipc'
 import { createPayloadId } from './protocol/private/messages'
 import type { PrivateFileOffer, PrivateImageRef } from './protocol/private/messages'
 import type {
@@ -101,6 +102,11 @@ import { applyNwtImport, readNwtData, type NwtData } from './store/nwt-import'
 import { applyNwtHistory, readNwtHistory, type NwtHistory } from './store/nwt-history'
 import type { SettingsStore } from './settings/store'
 import { createPrivateId, privateUserId } from './identity'
+import { AppServiceBridge } from './gateway-bridge'
+import type { GatewayBridge, GatewayBridgeEvent, GatewaySendResult } from './gateway/bridge'
+import { GatewayServer } from './gateway'
+import { createRpcToken } from './gateway/auth'
+import { decideGatewayRestart, gatewayPending as computeGatewayPending } from './gateway/lifecycle'
 import { isPrivateUserId } from '../shared/private-id'
 import {
   isPresenceStatus,
@@ -303,6 +309,15 @@ export class AppService {
   private lastStatus = 0
   private lastPrivateProfile: PrivateProfile | null = null
   private privateService: PrivateService | null = null
+  // Agent 网关的业务桥接；只有网关启用时才创建
+  private gatewayBridgeInstance: AppServiceBridge | null = null
+  private readonly gatewayListeners = new Set<(event: GatewayBridgeEvent) => void>()
+  private gateway: GatewayServer | null = null
+  private gatewayError = ''
+  private gatewayTask: Promise<void> = Promise.resolve()
+  private lastRpc: RpcSettings | null = null
+  // 最近一次真正应用到网关的 RPC 配置；与设置不一致时只提示重载，不自动重启
+  private appliedRpc: RpcSettings | null = null
   // 最近一次收到 9011 发现通告的时间，按远端地址记录
   private readonly discoveredAt = new Map<string, number>()
   // 读取网卡地址的节流时间，按地址记录
@@ -454,6 +469,11 @@ export class AppService {
     this.scheduleMacSync(5000)
     this.startPresenceSweep()
     this.notifications.setUnread(this.unreadTotal())
+    if (this.settings.get().network.rpc.enabled) {
+      await this.startGateway()
+    }
+    this.lastRpc = this.settings.get().network.rpc
+    this.appliedRpc = this.settings.get().network.rpc
   }
 
   // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用；
@@ -1196,6 +1216,20 @@ export class AppService {
       this.repos.conversations.touch(conversation.id, message.createdAt, 1)
       this.emit({ type: 'message', message })
       this.emitConversation(conversation.id)
+      this.emitGateway({
+        kind: 'text-in',
+        imMessageId: message.id,
+        conversationId: conversation.id,
+        conversationType: 'group',
+        sender: {
+          protocolId: senderId,
+          username: senderName ?? senderId,
+          displayName: senderName ?? ip,
+          hostname: ''
+        },
+        text: body,
+        timestamp: message.createdAt
+      })
       if (photos.length > 0) {
         this.requestImages(ip, message.id, photos, conversation.id)
       }
@@ -1742,6 +1776,7 @@ export class AppService {
 
   async stop(): Promise<void> {
     this.started = false
+    await this.stopGateway()
     if (this.presenceTimer !== null) {
       clearInterval(this.presenceTimer)
       this.presenceTimer = null
@@ -1982,7 +2017,7 @@ export class AppService {
       throw new Error('会话不存在')
     }
     if (conversation.kind === 'group') {
-      return this.sendGroupText(conversation, request.text)
+      return { message: this.sendGroupText(conversation, request.text).message }
     }
     if (conversation.peerKey === null) {
       throw new Error('会话不存在')
@@ -2047,7 +2082,12 @@ export class AppService {
   }
 
   // 群消息逐个成员投递：按成员的用户号找到对端 IP，只发给会话就绪的人
-  private sendGroupText(conversation: ConversationInfo, text: string): SendTextResult {
+  // allowEmpty 供 Agent 网关使用：没人在线时也记一条 failed 消息，而不是抛错
+  private sendGroupText(
+    conversation: ConversationInfo,
+    text: string,
+    options: { allowEmpty?: boolean } = {}
+  ): { message: MessageInfo; delivered: number } {
     const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
     const service = this.privateService
     if (groupId === '' || service === null) {
@@ -2065,11 +2105,249 @@ export class AppService {
         delivered += 1
       }
     }
-    if (delivered === 0) {
+    if (delivered === 0 && options.allowEmpty !== true) {
       throw new Error('群成员都不在线')
     }
     const meta = JSON.stringify({ source: 'private-group', groupId })
-    return { message: this.recordOutgoing(conversation.id, text, msgId, 'sent', meta) }
+    return {
+      message: this.recordOutgoing(
+        conversation.id,
+        text,
+        msgId,
+        delivered > 0 ? 'sent' : 'failed',
+        meta
+      ),
+      delivered
+    }
+  }
+
+  /** Agent 网关的业务入口；网关关闭时也可以安全调用。 */
+  gatewayBridge(): GatewayBridge {
+    if (this.gatewayBridgeInstance === null) {
+      this.gatewayBridgeInstance = new AppServiceBridge({
+        peers: () => this.repos.peers.list(),
+        peer: (protocolId) => this.repos.peers.get(protocolId),
+        groups: () => this.repos.groups.list(),
+        group: (groupId) => this.repos.groups.get(groupId),
+        members: (groupId) => this.repos.groups.members(groupId),
+        sendPrivateText: (protocolId, text) => this.sendPrivateTextViaGateway(protocolId, text),
+        sendGroupText: (groupId, text) => this.sendGroupTextViaGateway(groupId, text),
+        sendPrivateImage: (protocolId, path, name, mimeType, reuseMessageId) =>
+          this.sendPrivateImageViaGateway(protocolId, path, name, mimeType, reuseMessageId),
+        sendGroupImage: (groupId, path, name, mimeType) =>
+          this.sendGroupImageViaGateway(groupId, path, name, mimeType),
+        subscribe: (listener) => {
+          this.gatewayListeners.add(listener)
+          return () => {
+            this.gatewayListeners.delete(listener)
+          }
+        }
+      })
+    }
+    return this.gatewayBridgeInstance
+  }
+
+  private emitGateway(event: GatewayBridgeEvent): void {
+    for (const listener of this.gatewayListeners) {
+      try {
+        listener(event)
+      } catch (error) {
+        // 网关异常不得影响正常收发
+        logStartup(`网关事件处理失败：${(error as Error).message}`)
+      }
+    }
+  }
+
+  private gatewayResult(message: MessageInfo): GatewaySendResult {
+    const status: GatewaySendResult['status'] =
+      message.status === 'failed' ? 'failed' : message.status === 'queued' ? 'queued' : 'sent'
+    return {
+      imMessageId: message.id,
+      nwtMsgId: message.remoteSeq,
+      status,
+      ...(status === 'failed' ? { reason: '发送失败' } : {})
+    }
+  }
+
+  private sendPrivateTextViaGateway(protocolId: string, text: string): GatewaySendResult {
+    const peer = this.repos.peers.get(protocolId)
+    if (peer === null) throw new Error('联系人不存在')
+    const conversation = this.repos.conversations.ensureDirect(
+      peer.key,
+      peer.alias || peer.name || peer.host
+    )
+    return this.gatewayResult(this.sendText({ conversationId: conversation.id, text }).message)
+  }
+
+  private sendGroupTextViaGateway(groupId: string, text: string): GatewaySendResult {
+    const group = this.repos.groups.get(groupId)
+    if (group === null) throw new Error('群不存在')
+    const conversation = this.repos.conversations.ensureGroup(groupId, group.name || '群聊')
+    const { message, delivered } = this.sendGroupText(conversation, text, { allowEmpty: true })
+    return {
+      imMessageId: message.id,
+      nwtMsgId: message.remoteSeq,
+      status: delivered > 0 ? 'sent' : 'failed',
+      ...(delivered > 0 ? {} : { reason: '群成员都不在线' })
+    }
+  }
+
+  private sendPrivateImageViaGateway(
+    protocolId: string,
+    path: string,
+    name: string,
+    mimeType: string,
+    reuseMessageId?: number
+  ): GatewaySendResult {
+    // 图片卡片只带文件路径与 MIME 由内网通私有协议自己处理，这里仅保留接口形状
+    void name
+    void mimeType
+    const peer = this.repos.peers.get(protocolId)
+    if (peer === null) throw new Error('联系人不存在')
+    const conversation = this.repos.conversations.ensureDirect(
+      peer.key,
+      peer.alias || peer.name || peer.host
+    )
+    const result = this.sendPrivateImages(conversation, peer.ip, peer.key, [path], false, '', {
+      allowOffline: true,
+      reuseMessageId
+    })
+    return {
+      imMessageId: result.message.id,
+      nwtMsgId: result.nwtMsgId,
+      status: result.status
+    }
+  }
+
+  private sendGroupImageViaGateway(
+    groupId: string,
+    path: string,
+    name: string,
+    mimeType: string
+  ): GatewaySendResult {
+    void name
+    void mimeType
+    const group = this.repos.groups.get(groupId)
+    if (group === null) throw new Error('群不存在')
+    const conversation = this.repos.conversations.ensureGroup(groupId, group.name || '群聊')
+    const result = this.sendGroupImages(conversation, [path], false, '', { allowEmpty: true })
+    return {
+      imMessageId: result.message.id,
+      nwtMsgId: result.message.remoteSeq,
+      status: result.status,
+      ...(result.status === 'failed' ? { reason: '群成员都不在线' } : {})
+    }
+  }
+
+  /** 开启网关前保证有令牌；没有就生成并写回设置。 */
+  private ensureRpcToken(): string {
+    const rpc = this.settings.get().network.rpc
+    if (rpc.token !== '') return rpc.token
+    const token = createRpcToken()
+    const next = this.settings.update({ network: { rpc: { ...rpc, token } } })
+    this.lastRpc = next.network.rpc
+    this.emit({ type: 'settings', settings: next })
+    return token
+  }
+
+  private async startGateway(): Promise<void> {
+    if (this.gateway !== null) return
+    const rpc = this.settings.get().network.rpc
+    const token = this.ensureRpcToken()
+    const server = new GatewayServer({
+      db: this.db,
+      bridge: this.gatewayBridge(),
+      dataDir: app.getPath('userData'),
+      host: rpc.bindAddr,
+      port: rpc.port,
+      token,
+      onLog: (message, detail) =>
+        logStartup(`gateway: ${message}${detail === undefined ? '' : ' ' + JSON.stringify(detail)}`)
+    })
+    this.gateway = server
+    try {
+      const info = await server.start()
+      this.gatewayError = ''
+      logStartup(`网关已启动 ${info.url}`)
+    } catch (error) {
+      this.gatewayError = (error as Error).message
+      this.gateway = null
+      logStartup(`网关启动失败：${this.gatewayError}`)
+      await server.stop().catch(() => undefined)
+    }
+  }
+
+  private async stopGateway(): Promise<void> {
+    const server = this.gateway
+    this.gateway = null
+    if (server === null) return
+    try {
+      await server.stop()
+      logStartup('网关已停止')
+    } catch (error) {
+      this.gatewayError = (error as Error).message
+      logStartup(`网关停止失败：${this.gatewayError}`)
+    }
+  }
+
+  // 快速连续改设置时串行化启停，避免同一个端口被并发绑定
+  private enqueueGateway(task: () => Promise<void>): Promise<void> {
+    this.gatewayTask = this.gatewayTask.then(task).catch((error: unknown) => {
+      this.gatewayError = error instanceof Error ? error.message : String(error)
+      logStartup(`网关任务失败：${this.gatewayError}`)
+    })
+    return this.gatewayTask
+  }
+
+  /** 按当前设置重启网关：仅用于监听地址或端口变更后的手动重启。 */
+  reloadGateway(): Promise<void> {
+    return this.enqueueGateway(async () => {
+      const rpc = this.settings.get().network.rpc
+      const action = decideGatewayRestart(this.appliedRpc, rpc)
+      if (action === 'start') {
+        await this.startGateway()
+      } else if (action === 'stop') {
+        await this.stopGateway()
+      } else if (action === 'restart') {
+        await this.stopGateway()
+        await this.startGateway()
+      } else if (rpc.enabled && this.gateway === null) {
+        await this.startGateway()
+      }
+      this.appliedRpc = rpc
+      this.lastRpc = rpc
+      logStartup(`网关已按设置重载（${rpc.enabled ? '启用' : '关闭'}）`)
+    })
+  }
+
+  private gatewayPending(): boolean {
+    return computeGatewayPending(this.appliedRpc, this.settings.get().network.rpc)
+  }
+
+  rotateRpcToken(): string {
+    const rpc = this.settings.get().network.rpc
+    const token = createRpcToken()
+    const next = this.settings.update({ network: { rpc: { ...rpc, token } } })
+    this.lastRpc = next.network.rpc
+    this.emit({ type: 'settings', settings: next })
+    this.gateway?.setToken(token)
+    logStartup('网关令牌已重新生成')
+    return token
+  }
+
+  gatewayStatus(): GatewayStatus {
+    const rpc = this.settings.get().network.rpc
+    const status = this.gateway?.status()
+    return {
+      enabled: rpc.enabled,
+      running: status?.running ?? false,
+      url: status?.url ?? '',
+      bindAddr: rpc.bindAddr,
+      port: status?.port ?? rpc.port,
+      pending: this.gatewayPending(),
+      lastError: this.gatewayError,
+      clients: status?.clients ?? 0
+    }
   }
 
   private recordOutgoing(
@@ -2136,6 +2414,12 @@ export class AppService {
   private failPrivateSend(entry: OutstandingPrivateSend): void {
     this.privateOutstanding.delete(entry.msgId)
     this.updatePrivateMessageStatus(entry.conversationId, entry.msgId, 'failed')
+    this.emitGateway({
+      kind: 'failed',
+      conversationId: entry.conversationId,
+      nwtMsgId: entry.msgId,
+      reason: '发送失败'
+    })
   }
 
   private handlePrivateSendFailed(ip: string, msgId: number): void {
@@ -2149,7 +2433,9 @@ export class AppService {
       logStartup(`私有消息 ${msgId} 发送失败：没有对应的联系人（${ip}）`)
       return
     }
-    this.updatePrivateMessageStatus(directConversationId(peerKey), msgId, 'failed')
+    const conversationId = directConversationId(peerKey)
+    this.updatePrivateMessageStatus(conversationId, msgId, 'failed')
+    this.emitGateway({ kind: 'failed', conversationId, nwtMsgId: msgId, reason: '发送失败' })
   }
 
   markRead(conversationId: string, messageId: number): void {
@@ -3402,8 +3688,9 @@ export class AppService {
     conversation: ConversationInfo,
     paths: string[],
     sticker = false,
-    text = ''
-  ): void {
+    text = '',
+    options: { allowEmpty?: boolean } = {}
+  ): { message: MessageInfo; status: 'sent' | 'failed' } {
     const groupId = conversation.id.startsWith('group:') ? conversation.id.slice(6) : ''
     const service = this.privateService
     const transfer = this.privateFiles
@@ -3417,9 +3704,10 @@ export class AppService {
       const ip = service.peerIpByUserId(member.userId)
       if (ip !== null && service.isReady(ip)) targets.push({ ip })
     }
-    if (targets.length === 0) {
+    if (targets.length === 0 && options.allowEmpty !== true) {
       throw new Error('群成员都不在线')
     }
+    const status: 'sent' | 'failed' = targets.length > 0 ? 'sent' : 'failed'
     const messageId = this.nextPrivateMessageId()
     const values: string[] = []
     const tasks: FileTaskInfo[] = []
@@ -3461,7 +3749,7 @@ export class AppService {
         ip: pushes[0]?.ip ?? ''
       })
     }
-    if (values.length === 0) return
+    if (values.length === 0) throw new Error('没有可发送的图片')
     const message = this.repos.messages.insertOutgoing(
       conversation.id,
       text === '' ? '[图片]' : text,
@@ -3478,7 +3766,7 @@ export class AppService {
         ...(sticker ? { sticker: true } : {})
       })
     )
-    this.repos.messages.setStatus(message.id, 'sent')
+    this.repos.messages.setStatus(message.id, status)
     // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
     for (const task of tasks) {
       task.messageId = message.id
@@ -3487,12 +3775,13 @@ export class AppService {
       this.emit({ type: 'file', file: task })
     }
     this.repos.conversations.touch(conversation.id, message.createdAt, 0)
-    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    this.emit({ type: 'message', message: { ...message, status } })
     this.emitConversation(conversation.id)
     for (const target of targets) {
       service.sendGroupImage(target.ip, groupId, message.id, values, text)
     }
     logStartup(`群图片已发卡片 ${values.length} 张 成员=${targets.length}`)
+    return { message: this.repos.messages.getMessage(message.id) ?? message, status }
   }
 
   stagedImagePath(id: string): string | null {
@@ -3614,18 +3903,30 @@ export class AppService {
   }
 
   // 多张图片（包括表情）合并成一条消息发出，对端会按 dt 里的多个 img 节点取图
+  // 网关离线重试时用 reuseMessageId 复用第一次的气泡，避免每条重试都多一条消息
   private sendPrivateImages(
     conversation: ConversationInfo,
     ip: string,
     peerKey: string,
     paths: string[],
     sticker: boolean,
-    text = ''
-  ): void {
+    text = '',
+    options: { reuseMessageId?: number; allowOffline?: boolean } = {}
+  ): { message: MessageInfo; nwtMsgId: number; status: 'sent' | 'queued' } {
     const service = this.privateService
     const transfer = this.privateFiles
-    if (service === null || transfer === null) return
-    const messageId = this.nextPrivateMessageId()
+    if (service === null || transfer === null) {
+      throw new Error('内网通私有文件通道未启动')
+    }
+    const ready = service.isReady(ip)
+    if (!ready && options.allowOffline !== true) {
+      throw new Error('内网通私有会话未就绪')
+    }
+    const reuse =
+      options.reuseMessageId === undefined
+        ? null
+        : this.repos.messages.getMessage(options.reuseMessageId)
+    const messageId = reuse === null ? this.nextPrivateMessageId() : reuse.remoteSeq
     const values: string[] = []
     const tasks: FileTaskInfo[] = []
     for (const path of paths) {
@@ -3659,7 +3960,9 @@ export class AppService {
       values.push(value)
       this.privateImagePushes.set(fileId, [{ ip, taskId }])
     }
-    if (values.length === 0) return
+    if (values.length === 0) {
+      throw new Error('没有可发送的图片')
+    }
     const meta = JSON.stringify({
       source: 'private-image',
       files: tasks.map((task) => task.id),
@@ -3669,13 +3972,22 @@ export class AppService {
       ],
       ...(sticker ? { sticker: true } : {})
     })
-    const message = this.repos.messages.insertOutgoing(
-      conversation.id,
-      text === '' ? '[图片]' : text,
-      messageId,
-      'text',
-      meta
-    )
+    const status: 'sent' | 'queued' = ready ? 'sent' : 'queued'
+    let message: MessageInfo
+    if (reuse === null) {
+      message = this.repos.messages.insertOutgoing(
+        conversation.id,
+        text === '' ? '[图片]' : text,
+        messageId,
+        'text',
+        meta
+      )
+    } else {
+      this.repos.messages.setRemoteSeq(reuse.id, messageId)
+      this.repos.messages.setMeta(reuse.id, meta)
+      message = this.repos.messages.getMessage(reuse.id) ?? reuse
+    }
+    this.repos.messages.setStatus(message.id, status)
     // 先把文件任务交给渲染进程，气泡第一次渲染时就能拿到图片地址
     for (const task of tasks) {
       task.messageId = message.id
@@ -3684,10 +3996,13 @@ export class AppService {
       this.handleFileUpdate(task)
     }
     this.repos.conversations.touch(conversation.id, message.createdAt, 0)
-    service.sendImageCard(ip, message.id, values, text)
-    this.repos.messages.setStatus(message.id, 'sent')
-    this.emit({ type: 'message', message: { ...message, status: 'sent' } })
+    if (ready) {
+      service.sendImageCard(ip, message.id, values, text)
+    }
+    const updated = this.repos.messages.getMessage(message.id) ?? message
+    this.emit({ type: 'message', message: updated })
     this.emitConversation(conversation.id)
+    return { message: updated, nwtMsgId: messageId, status }
   }
 
   private nextPrivateMessageId(): number {
@@ -3813,6 +4128,25 @@ export class AppService {
     }
     // 新消息提醒总开关的改动立即反映到闪烁状态
     this.notifications.refresh()
+    const nextRpc = settings.network.rpc
+    if (this.lastRpc !== null && this.lastRpc.token !== nextRpc.token) {
+      this.gateway?.setToken(nextRpc.token)
+    }
+    // 开关是手动按钮，切换后立即启停；监听地址与端口只在运行中变更时才需要点「重启」
+    const prevRpc = this.appliedRpc
+    if (prevRpc !== null && prevRpc.enabled !== nextRpc.enabled) {
+      this.appliedRpc = nextRpc
+      this.enqueueGateway(async () => {
+        const current = this.settings.get().network.rpc
+        if (current.enabled) {
+          if (this.gateway === null) await this.startGateway()
+        } else if (this.gateway !== null) {
+          await this.stopGateway()
+        }
+        this.appliedRpc = current
+      })
+    }
+    this.lastRpc = nextRpc
   }
 
   firewallPorts(): { udp: number[]; tcp: number[] } {
@@ -3821,6 +4155,7 @@ export class AppService {
     const enetPort = this.privateService?.localEnetPort ?? settings.network.privateEnetPort
     if (enetPort > 0) udp.push(enetPort)
     const tcp = [settings.network.privateFilePort, settings.network.privateFolderPort]
+    if (settings.network.rpc.enabled) tcp.push(settings.network.rpc.port)
     return {
       udp: udp.filter((port) => port > 0),
       tcp: tcp.filter((port) => port > 0)
@@ -4322,7 +4657,11 @@ export class AppService {
   }
 
   private handleStatus(peerKey: string, seq: number, status: 'delivered' | 'read'): void {
-    this.updatePrivateMessageStatus(directConversationId(peerKey), seq, status)
+    const conversationId = directConversationId(peerKey)
+    this.updatePrivateMessageStatus(conversationId, seq, status)
+    if (status === 'delivered') {
+      this.emitGateway({ kind: 'delivered', conversationId, nwtMsgId: seq })
+    }
   }
 
   // 传输层状态只前进不后退：迟到的 1005 不能把已经置为 read 的消息降回 delivered
@@ -4380,6 +4719,20 @@ export class AppService {
     const meta = JSON.stringify(metaRecord)
     const body = text === '' && stickers.length > 0 ? '[表情]' : text
     const message = this.handleIncoming(peerKey, peer?.alias || peer?.name || ip, body, msgId, meta)
+    this.emitGateway({
+      kind: 'text-in',
+      imMessageId: message.id,
+      conversationId: message.conversationId,
+      conversationType: 'private',
+      sender: {
+        protocolId: peerKey,
+        username: peer?.user || peerKey,
+        displayName: peer?.alias || peer?.name || ip,
+        hostname: peer?.host ?? ''
+      },
+      text: body,
+      timestamp: message.createdAt
+    })
     if (photos.length > 0) {
       this.requestImages(ip, message.id, photos)
     }
@@ -4810,6 +5163,10 @@ export class AppService {
       this.registry.assignUserId(ip, validUserId)
     }
     this.flushQueuedMessages(ip)
+    const readyId = validUserId || this.registry.peerKeyForIp(ip)
+    if (readyId !== null && readyId !== '') {
+      this.emitGateway({ kind: 'peer-ready', protocolId: readyId })
+    }
     this.reconcileGroups(ip, validUserId)
   }
 
@@ -5177,7 +5534,49 @@ export class AppService {
       '',
       saved
     )
+    if (entry.direction === 'in') {
+      this.emitGatewayImageIn(task, saved, entry.ip)
+    }
     this.privateFileTasks.delete(fileId)
+  }
+
+  // 把落盘的入站图片交给网关（仅图片文件，普通文件不推）
+  private emitGatewayImageIn(task: FileTaskInfo, path: string, ip: string): void {
+    if (task.messageId === null || task.messageId <= 0 || !isImagePath(path)) return
+    let size: number
+    let sha256: string
+    try {
+      size = statSync(path).size
+      sha256 = createHash('sha256').update(readFileSync(path)).digest('hex')
+    } catch (error) {
+      logStartup(`网关图片读取失败：${(error as Error).message}`)
+      return
+    }
+    const conversation = this.repos.conversations.get(task.conversationId)
+    if (conversation === null) return
+    const senderId =
+      conversation.kind === 'direct'
+        ? (conversation.peerKey ?? '')
+        : (this.privateService?.peerUserId(ip) ?? '')
+    const peer = senderId === '' ? null : this.repos.peers.get(senderId)
+    this.emitGateway({
+      kind: 'image-in',
+      imMessageId: task.messageId,
+      conversationId: conversation.id,
+      conversationType: conversation.kind === 'group' ? 'group' : 'private',
+      sender: {
+        protocolId: senderId,
+        username: peer?.user || senderId,
+        displayName: peer?.alias || peer?.name || senderId,
+        hostname: peer?.host ?? ''
+      },
+      path,
+      name: basename(path),
+      mimeType: imageMimeOf(basename(path)),
+      size,
+      sha256,
+      timestamp: this.repos.messages.getMessage(task.messageId)?.createdAt ?? Date.now()
+    })
   }
 
   // 收到的图片存成 image-<编号>.png；按文件头把扩展名改回真实格式，GIF 才能动

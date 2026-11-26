@@ -20,6 +20,7 @@ import {
 import type {
   AppInfo,
   FirewallStatus,
+  GatewayStatus,
   NwtImportPreview,
   NwtImportSummary
 } from '../../../shared/ipc'
@@ -110,6 +111,9 @@ const appInfo = ref<AppInfo | null>(null)
 const appInfoError = ref('')
 const firewall = ref<FirewallStatus | null>(null)
 const firewallBusy = ref(false)
+const gatewayStatus = ref<GatewayStatus | null>(null)
+const gatewayBusy = ref(false)
+const gatewayNote = ref('')
 const nwtBusy = ref(false)
 const nwtResult = ref('')
 const nwtPreview = ref<NwtImportPreview | null>(null)
@@ -291,6 +295,81 @@ async function repairFirewall(): Promise<void> {
     error.value = errorMessage(reason)
   } finally {
     firewallBusy.value = false
+  }
+}
+
+const gatewayStateText = computed(() => {
+  const status = gatewayStatus.value
+  if (status === null) return '尚未读取状态'
+  if (status.lastError !== '') return `启动失败：${status.lastError}`
+  if (!status.enabled) return '未启用'
+  if (status.pending) return '配置已修改，重启后生效'
+  if (!status.running) return '正在启动…'
+  const endpoint = new URL(status.url)
+  return `${endpoint.host} · ${status.clients} 个连接`
+})
+
+async function loadGatewayStatus(): Promise<void> {
+  try {
+    gatewayStatus.value = await window.api.gateway.status()
+  } catch (reason) {
+    gatewayStatus.value = null
+    gatewayNote.value = errorMessage(reason)
+  }
+}
+
+// network 段在 SettingsPatch 里是浅合并，必须整体带上 rpc 对象
+function saveRpcField(patch: Partial<Settings['network']['rpc']>): void {
+  const rpc = { ...settings.value.network.rpc, ...patch }
+  settings.value.network.rpc = rpc
+  saveField('network', { rpc })
+  gatewayNote.value =
+    patch.enabled === undefined
+      ? '设置已保存，点开关旁的「重启」后生效'
+      : '开关已保存，网关正在启动或停止'
+  window.setTimeout(() => void loadGatewayStatus(), 300)
+  if (patch.enabled !== undefined) window.setTimeout(() => void loadGatewayStatus(), 1200)
+}
+
+async function reloadGateway(): Promise<void> {
+  if (gatewayBusy.value) return
+  gatewayBusy.value = true
+  error.value = ''
+  try {
+    await window.api.gateway.reload()
+    await loadGatewayStatus()
+    gatewayNote.value = '网关已按当前设置重启'
+  } catch (reason) {
+    gatewayNote.value = errorMessage(reason)
+  } finally {
+    gatewayBusy.value = false
+  }
+}
+
+async function rotateGatewayToken(): Promise<void> {
+  if (gatewayBusy.value) return
+  gatewayBusy.value = true
+  error.value = ''
+  try {
+    await window.api.gateway.rotateToken()
+    await loadSettings()
+    await loadGatewayStatus()
+    gatewayNote.value = '令牌已重新生成，旧连接已断开'
+  } catch (reason) {
+    gatewayNote.value = errorMessage(reason)
+  } finally {
+    gatewayBusy.value = false
+  }
+}
+
+async function copyGatewayToken(): Promise<void> {
+  const token = settings.value.network.rpc.token
+  if (token === '') return
+  try {
+    await navigator.clipboard.writeText(token)
+    gatewayNote.value = '令牌已复制到剪贴板'
+  } catch {
+    gatewayNote.value = '复制失败，请手动选择令牌文本'
   }
 }
 
@@ -493,6 +572,7 @@ onMounted(() => {
   void loadSettings()
   void loadAppInfo()
   void loadFirewall()
+  void loadGatewayStatus()
 })
 
 onBeforeUnmount(() => {
@@ -810,6 +890,122 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <p class="note">只使用内网通私有协议；9011 广播不可达时用固定地址直连。</p>
+        </div>
+
+        <div v-show="current === 'network'" class="group">
+          <h2>RPC</h2>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">允许 Agent 通过 RPC 接入</span>
+              <p class="hint">切换后立即生效：关闭即停止监听，开启即使用下方令牌启动</p>
+            </div>
+            <div class="control control-auto">
+              <button
+                v-if="
+                  gatewayStatus &&
+                  (gatewayStatus.pending ||
+                    (gatewayStatus.enabled && gatewayStatus.lastError !== ''))
+                "
+                class="reset"
+                type="button"
+                :disabled="gatewayBusy"
+                @click="reloadGateway"
+              >
+                {{ gatewayBusy ? '重启中…' : '重启' }}
+              </button>
+              <ToggleSwitch
+                :model-value="settings.network.rpc.enabled"
+                @update:model-value="saveRpcField({ enabled: $event })"
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">监听地址</span>
+              <p class="hint">默认 127.0.0.1，仅本机可访问；改成 0.0.0.0 会暴露给局域网</p>
+            </div>
+            <div class="control">
+              <input
+                v-model="settings.network.rpc.bindAddr"
+                class="input"
+                aria-label="RPC 监听地址"
+                @change="saveRpcField({ bindAddr: settings.network.rpc.bindAddr })"
+              />
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">端口</span>
+              <p class="hint">
+                默认 9015（私有通道端口 9011–9014 之后），修改后点开关旁的「重启」生效
+              </p>
+            </div>
+            <div class="control">
+              <input
+                v-model.number="settings.network.rpc.port"
+                class="input"
+                type="number"
+                min="1"
+                max="65535"
+                aria-label="RPC 端口"
+                @change="saveRpcField({ port: settings.network.rpc.port })"
+              />
+            </div>
+          </div>
+          <div class="row align-top">
+            <div class="row-text">
+              <label class="label" for="setting-rpc-token">访问令牌</label>
+              <p class="hint">客户端用同一令牌登录；重新生成会让已连接的客户端断开</p>
+            </div>
+            <div class="control">
+              <div class="rpc-token">
+                <input
+                  id="setting-rpc-token"
+                  class="input"
+                  :value="settings.network.rpc.token"
+                  readonly
+                  aria-label="RPC 访问令牌"
+                />
+                <button
+                  class="reset"
+                  type="button"
+                  :disabled="settings.network.rpc.token === ''"
+                  @click="copyGatewayToken"
+                >
+                  复制
+                </button>
+                <button
+                  class="reset"
+                  type="button"
+                  :disabled="gatewayBusy"
+                  @click="rotateGatewayToken"
+                >
+                  {{ gatewayBusy ? '生成中…' : '重新生成' }}
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="row">
+            <div class="row-text">
+              <span class="label">运行状态</span>
+              <p class="hint">{{ gatewayStateText }}</p>
+              <p v-if="gatewayStatus?.pending" class="hint">
+                监听地址或端口已修改，点开关旁的「重启」后生效（开关切换本身立即生效）。
+              </p>
+              <p v-if="gatewayStatus?.running" class="hint">
+                明文 HTTP/WebSocket，无 TLS；图片通道在同一端口下走 /media；默认只监听
+                127.0.0.1，改成非回环地址时请只在可信网络使用。
+              </p>
+              <p v-if="gatewayNote" class="hint">{{ gatewayNote }}</p>
+            </div>
+            <div class="control control-auto">
+              <button class="reset" type="button" @click="loadGatewayStatus">刷新</button>
+            </div>
+          </div>
+          <p class="note">
+            只提供本机内网通的联系人、消息与图片能力；不保存 Agent
+            会话历史，令牌保存在本机设置文件里。
+          </p>
         </div>
 
         <div v-show="current === 'notify'" class="group">
@@ -1442,6 +1638,19 @@ onBeforeUnmount(() => {
 
 .avatar-control {
   gap: 10px;
+}
+
+.rpc-token {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rpc-token .input {
+  min-width: 0;
+  flex: 1;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12px;
 }
 
 .avatar-preview {
