@@ -1,4 +1,4 @@
-export const SCHEMA_VERSION = 6
+export const SCHEMA_VERSION = 7
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS conversations (
@@ -114,4 +114,55 @@ CREATE TABLE IF NOT EXISTS peer_avatars (
   avatar_id INTEGER NOT NULL DEFAULT 0,
   avatar_md5 TEXT NOT NULL DEFAULT ''
 );
+
+CREATE TABLE IF NOT EXISTS gateway_events (
+  sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE,
+  method TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  acked_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS gateway_requests (
+  request_id TEXT PRIMARY KEY,
+  method TEXT NOT NULL,
+  args_hash TEXT NOT NULL,
+  result TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS gateway_attachments (
+  id TEXT PRIMARY KEY,
+  kind TEXT NOT NULL,               -- upload | inbound
+  mime_type TEXT NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL,
+  sha256 TEXT NOT NULL,
+  path TEXT NOT NULL,
+  transfer_id TEXT NOT NULL DEFAULT '',
+  state TEXT NOT NULL,              -- pending | ready | consumed
+  message_id TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_gateway_attachments_transfer
+  ON gateway_attachments(transfer_id);
+
+CREATE TABLE IF NOT EXISTS gateway_messages (
+  id TEXT PRIMARY KEY,
+  direction TEXT NOT NULL,          -- out | in
+  conversation_type TEXT NOT NULL,  -- private | group
+  conversation_id TEXT NOT NULL,
+  protocol_id TEXT NOT NULL DEFAULT '',
+  group_id TEXT NOT NULL DEFAULT '',
+  im_message_id INTEGER NOT NULL DEFAULT 0,
+  nwt_msg_id INTEGER NOT NULL DEFAULT 0,
+  status TEXT NOT NULL,             -- queued | delivered | failed
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gateway_messages_lookup
+  ON gateway_messages(conversation_id, nwt_msg_id);
 `

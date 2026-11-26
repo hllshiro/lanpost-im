@@ -175,3 +175,53 @@ describe('openDatabase', () => {
     }
   })
 })
+
+describe('gateway schema', () => {
+  it('建库后版本为 7 且包含四张 gateway 表', () => {
+    const db = openDatabase(':memory:')
+    const version = db.prepare('PRAGMA user_version').get() as { user_version: number }
+    expect(version.user_version).toBe(7)
+    const tables = db
+      .prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'gateway_%'`)
+      .all() as Array<{ name: string }>
+    expect(tables.map((row) => row.name).sort()).toEqual([
+      'gateway_attachments',
+      'gateway_events',
+      'gateway_messages',
+      'gateway_requests'
+    ])
+    db.close()
+  })
+
+  it('gateway_events.sequence 自增且重启后继续', () => {
+    const file = tempDb()
+    const first = openDatabase(file)
+    first
+      .prepare(
+        `INSERT INTO gateway_events (event_id, method, payload, created_at) VALUES ('e1', 'm', '{}', 1)`
+      )
+      .run()
+    first.close()
+
+    const second = openDatabase(file)
+    second
+      .prepare(
+        `INSERT INTO gateway_events (event_id, method, payload, created_at) VALUES ('e2', 'm', '{}', 2)`
+      )
+      .run()
+    const row = second
+      .prepare(`SELECT sequence, event_id FROM gateway_events ORDER BY sequence`)
+      .all() as Array<{ sequence: number; event_id: string }>
+    expect(row).toEqual([
+      { sequence: 1, event_id: 'e1' },
+      { sequence: 2, event_id: 'e2' }
+    ])
+    second.close()
+  })
+
+  it('重复打开同一个库不报错', () => {
+    const file = tempDb()
+    openDatabase(file).close()
+    expect(() => openDatabase(file).close()).not.toThrow()
+  })
+})
