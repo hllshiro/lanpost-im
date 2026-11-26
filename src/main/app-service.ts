@@ -2299,7 +2299,7 @@ export class AppService {
     return this.gatewayTask
   }
 
-  /** 应用当前 RPC 设置：只在用户点「重载网关」时执行，设置变更本身不重启。 */
+  /** 按当前设置重启网关：仅用于监听地址或端口变更后的手动重启。 */
   reloadGateway(): Promise<void> {
     return this.enqueueGateway(async () => {
       const rpc = this.settings.get().network.rpc
@@ -2321,8 +2321,7 @@ export class AppService {
   }
 
   private gatewayPending(): boolean {
-    const running = this.gateway !== null && this.gateway.status().running
-    return computeGatewayPending(this.appliedRpc, this.settings.get().network.rpc, running)
+    return computeGatewayPending(this.appliedRpc, this.settings.get().network.rpc)
   }
 
   rotateRpcToken(): string {
@@ -4133,7 +4132,20 @@ export class AppService {
     if (this.lastRpc !== null && this.lastRpc.token !== nextRpc.token) {
       this.gateway?.setToken(nextRpc.token)
     }
-    // 开关、地址与端口的改动只提示重载，避免连续修改时反复重启
+    // 开关是手动按钮，切换后立即启停；监听地址与端口只在运行中变更时才需要点「重启」
+    const prevRpc = this.appliedRpc
+    if (prevRpc !== null && prevRpc.enabled !== nextRpc.enabled) {
+      this.appliedRpc = nextRpc
+      this.enqueueGateway(async () => {
+        const current = this.settings.get().network.rpc
+        if (current.enabled) {
+          if (this.gateway === null) await this.startGateway()
+        } else if (this.gateway !== null) {
+          await this.stopGateway()
+        }
+        this.appliedRpc = current
+      })
+    }
     this.lastRpc = nextRpc
   }
 

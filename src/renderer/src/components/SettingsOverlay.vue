@@ -303,7 +303,7 @@ const gatewayStateText = computed(() => {
   if (status === null) return '尚未读取状态'
   if (status.lastError !== '') return `启动失败：${status.lastError}`
   if (!status.enabled) return '未启用'
-  if (status.pending) return '配置已修改，等待重载'
+  if (status.pending) return '配置已修改，重启后生效'
   if (!status.running) return '正在启动…'
   const endpoint = new URL(status.url)
   return `${endpoint.host} · ${status.clients} 个连接`
@@ -323,8 +323,12 @@ function saveRpcField(patch: Partial<Settings['network']['rpc']>): void {
   const rpc = { ...settings.value.network.rpc, ...patch }
   settings.value.network.rpc = rpc
   saveField('network', { rpc })
-  gatewayNote.value = '设置已保存，点击「重载网关」后生效'
+  gatewayNote.value =
+    patch.enabled === undefined
+      ? '设置已保存，点开关旁的「重启」后生效'
+      : '开关已保存，网关正在启动或停止'
   window.setTimeout(() => void loadGatewayStatus(), 300)
+  if (patch.enabled !== undefined) window.setTimeout(() => void loadGatewayStatus(), 1200)
 }
 
 async function reloadGateway(): Promise<void> {
@@ -334,7 +338,7 @@ async function reloadGateway(): Promise<void> {
   try {
     await window.api.gateway.reload()
     await loadGatewayStatus()
-    gatewayNote.value = '网关已按当前设置重载'
+    gatewayNote.value = '网关已按当前设置重启'
   } catch (reason) {
     gatewayNote.value = errorMessage(reason)
   } finally {
@@ -893,9 +897,22 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <span class="label">允许 Agent 通过 RPC 接入</span>
-              <p class="hint">关闭时不监听任何端口；开启后使用下方令牌登录</p>
+              <p class="hint">切换后立即生效：关闭即停止监听，开启即使用下方令牌启动</p>
             </div>
             <div class="control control-auto">
+              <button
+                v-if="
+                  gatewayStatus &&
+                  (gatewayStatus.pending ||
+                    (gatewayStatus.enabled && gatewayStatus.lastError !== ''))
+                "
+                class="reset"
+                type="button"
+                :disabled="gatewayBusy"
+                @click="reloadGateway"
+              >
+                {{ gatewayBusy ? '重启中…' : '重启' }}
+              </button>
               <ToggleSwitch
                 :model-value="settings.network.rpc.enabled"
                 @update:model-value="saveRpcField({ enabled: $event })"
@@ -919,7 +936,9 @@ onBeforeUnmount(() => {
           <div class="row">
             <div class="row-text">
               <span class="label">端口</span>
-              <p class="hint">默认 9015（私有通道端口 9011–9014 之后），修改后点「重载网关」生效</p>
+              <p class="hint">
+                默认 9015（私有通道端口 9011–9014 之后），修改后点开关旁的「重启」生效
+              </p>
             </div>
             <div class="control">
               <input
@@ -971,7 +990,7 @@ onBeforeUnmount(() => {
               <span class="label">运行状态</span>
               <p class="hint">{{ gatewayStateText }}</p>
               <p v-if="gatewayStatus?.pending" class="hint">
-                开关、监听地址或端口已修改，点「重载网关」后生效（不会自动重启）。
+                监听地址或端口已修改，点开关旁的「重启」后生效（开关切换本身立即生效）。
               </p>
               <p v-if="gatewayStatus?.running" class="hint">
                 明文 HTTP/WebSocket，无 TLS；图片通道在同一端口下走 /media；默认只监听
@@ -980,14 +999,6 @@ onBeforeUnmount(() => {
               <p v-if="gatewayNote" class="hint">{{ gatewayNote }}</p>
             </div>
             <div class="control control-auto">
-              <button
-                class="reset"
-                type="button"
-                :disabled="gatewayBusy || !gatewayStatus?.pending"
-                @click="reloadGateway"
-              >
-                {{ gatewayBusy ? '重载中…' : '重载网关' }}
-              </button>
               <button class="reset" type="button" @click="loadGatewayStatus">刷新</button>
             </div>
           </div>

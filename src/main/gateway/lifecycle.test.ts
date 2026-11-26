@@ -53,33 +53,30 @@ describe('decideGatewayRestart', () => {
 })
 
 describe('gatewayPending', () => {
-  it('从未应用过配置时只有启用才提示重载', () => {
-    expect(gatewayPending(null, rpc(), false)).toBe(false)
-    expect(gatewayPending(null, rpc({ enabled: true }), false)).toBe(true)
+  it('开关变化不算待重启（切换后立即启停）', () => {
+    expect(gatewayPending(rpc(), rpc({ enabled: true }))).toBe(false)
+    expect(gatewayPending(rpc({ enabled: true }), rpc())).toBe(false)
   })
 
-  it('开关变化时提示重载', () => {
-    expect(gatewayPending(rpc(), rpc({ enabled: true }), false)).toBe(true)
-    expect(gatewayPending(rpc({ enabled: true }), rpc(), true)).toBe(true)
-  })
-
-  it('地址或端口变化时提示重载', () => {
-    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, port: 9016 }), true)).toBe(
-      true
-    )
+  it('运行中修改地址或端口时才提示重启', () => {
+    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, port: 9016 }))).toBe(true)
     expect(
-      gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, bindAddr: '0.0.0.0' }), true)
+      gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, bindAddr: '0.0.0.0' }))
     ).toBe(true)
   })
 
-  it('配置一致且运行中时不提示，未运行则提示', () => {
-    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true }), true)).toBe(false)
-    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true }), false)).toBe(true)
+  it('关闭状态下改地址或端口不提示，下次开启时生效', () => {
+    expect(gatewayPending(rpc(), rpc({ port: 9016 }))).toBe(false)
   })
 
-  it('令牌变化不算待重载', () => {
-    expect(
-      gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, token: 'next' }), true)
-    ).toBe(false)
+  it('从未应用过配置时不提示', () => {
+    expect(gatewayPending(null, rpc({ enabled: true }))).toBe(false)
+  })
+
+  it('配置一致或仅令牌变化不提示', () => {
+    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true }))).toBe(false)
+    expect(gatewayPending(rpc({ enabled: true }), rpc({ enabled: true, token: 'next' }))).toBe(
+      false
+    )
   })
 })

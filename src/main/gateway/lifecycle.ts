@@ -18,17 +18,10 @@ export function decideGatewayRestart(
 }
 
 /**
- * 当前设置是否还没有应用到网关：开关、地址或端口与上次应用的不一致，或应当运行却没跑起来。
- * 设置变更后界面据此提示用户手动重载，而不是自动重启。
+ * 当前设置是否还需要重启网关：只有监听地址或端口与已应用的不一致时才需要。
+ * 开关切换会立即启停，不算待处理；关闭状态下改地址或端口也不用提示，下次开启时生效。
  */
-export function gatewayPending(
-  prev: RpcSettings | null,
-  next: RpcSettings,
-  running: boolean
-): boolean {
-  if (prev === null) return next.enabled
-  if (next.enabled !== prev.enabled) return true
-  if (!next.enabled) return false
-  if (next.bindAddr !== prev.bindAddr || next.port !== prev.port) return true
-  return !running
+export function gatewayPending(prev: RpcSettings | null, next: RpcSettings): boolean {
+  if (prev === null || !prev.enabled || !next.enabled) return false
+  return prev.bindAddr !== next.bindAddr || prev.port !== next.port
 }
