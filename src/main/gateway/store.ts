@@ -160,6 +160,12 @@ export class GatewayStore {
       .run(messageId, id)
   }
 
+  markAttachmentReady(id: string, expiresAt: number): void {
+    this.db
+      .prepare(`UPDATE gateway_attachments SET state = 'ready', expires_at = ? WHERE id = ?`)
+      .run(expiresAt, id)
+  }
+
   attachmentsForCleanup(now: number): GatewayAttachmentRow[] {
     return this.db
       .prepare(
