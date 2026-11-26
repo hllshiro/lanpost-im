@@ -139,7 +139,8 @@ const api: Api = {
   },
   gateway: {
     status: () => ipcRenderer.invoke(IPC.gatewayStatus),
-    rotateToken: () => ipcRenderer.invoke(IPC.gatewayRotateToken)
+    rotateToken: () => ipcRenderer.invoke(IPC.gatewayRotateToken),
+    reload: () => ipcRenderer.invoke(IPC.gatewayReload)
   },
   identity: {
     pickAvatar: () => ipcRenderer.invoke(IPC.identityPickAvatar),

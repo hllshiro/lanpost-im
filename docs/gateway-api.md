@@ -26,9 +26,11 @@ lanpost-im 在设置页提供一个可选的 **Agent Gateway**。开启后，本
 
 1. 打开 lanpost 设置页：连续点击设置按钮 5 次解锁「网络」分类（重启后恢复隐藏）。
 2. 进入「网络 → RPC」，打开「启用 RPC 网关」。首次开启会自动生成令牌。
-3. 记录两项：地址（默认 `ws://127.0.0.1:8443/ws/dsh`）、令牌（点「复制」）。
+3. 记录两项：地址（默认 `ws://127.0.0.1:9015/ws/dsh`）、令牌（点「复制」）。
 4. 客户端连接 → `rpc.login({ token })` → 订阅事件 → `events.resume` 补发。
 5. 之后即可调用业务方法、上传/下载图片。
+
+修改开关、监听地址或端口后不会自动重启，需要在设置页点「重载网关」生效；只换令牌会立即断开旧连接。
 
 设置项说明：
 
@@ -36,7 +38,7 @@ lanpost-im 在设置页提供一个可选的 **Agent Gateway**。开启后，本
 | --- | --- | --- |
 | 启用 RPC 网关 | 关 | 开启后才监听端口；关闭后端口释放 |
 | 监听地址 | `127.0.0.1` | 改成 `0.0.0.0` 会暴露给局域网，需谨慎 |
-| 端口 | `8443` | 1–65535，修改后网关自动重启 |
+| 端口 | `9015` | 1–65535，修改后需点「重载网关」 |
 | 令牌 | 自动生成 | 43 字符 base64url；可重新生成（旧连接立即断开） |
 
 ## 3. 传输与认证
@@ -502,9 +504,9 @@ connect
 ```js
 import { Client } from 'rpc-websockets'
 
-const url = 'ws://127.0.0.1:8443/ws/dsh'
+const url = 'ws://127.0.0.1:9015/ws/dsh'
 const token = process.env.LANPOST_GATEWAY_TOKEN
-const baseHttp = 'http://127.0.0.1:8443'
+const baseHttp = 'http://127.0.0.1:9015'
 let lastAcked = 0
 
 const client = new Client(url, {
@@ -593,7 +595,7 @@ client.connect()
 仓库自带 `scripts/gateway-smoke.mjs`（Node 24，需本机已开启网关并复制令牌），用于服务端与对方客户端联调；不依赖额外 npm 包。
 
 ```text
-node scripts/gateway-smoke.mjs --url ws://127.0.0.1:8443/ws/dsh --token <token> list
+node scripts/gateway-smoke.mjs --url ws://127.0.0.1:9015/ws/dsh --token <token> list
 node scripts/gateway-smoke.mjs ... send <protocol_id> "hello"
 node scripts/gateway-smoke.mjs ... listen
 node scripts/gateway-smoke.mjs ... upload ./a.png <protocol_id>

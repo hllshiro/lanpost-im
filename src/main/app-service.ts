@@ -106,7 +106,7 @@ import { AppServiceBridge } from './gateway-bridge'
 import type { GatewayBridge, GatewayBridgeEvent, GatewaySendResult } from './gateway/bridge'
 import { GatewayServer } from './gateway'
 import { createRpcToken } from './gateway/auth'
-import { decideGatewayRestart } from './gateway/lifecycle'
+import { decideGatewayRestart, gatewayPending as computeGatewayPending } from './gateway/lifecycle'
 import { isPrivateUserId } from '../shared/private-id'
 import {
   isPresenceStatus,
@@ -316,6 +316,8 @@ export class AppService {
   private gatewayError = ''
   private gatewayTask: Promise<void> = Promise.resolve()
   private lastRpc: RpcSettings | null = null
+  // 最近一次真正应用到网关的 RPC 配置；与设置不一致时只提示重载，不自动重启
+  private appliedRpc: RpcSettings | null = null
   // 最近一次收到 9011 发现通告的时间，按远端地址记录
   private readonly discoveredAt = new Map<string, number>()
   // 读取网卡地址的节流时间，按地址记录
@@ -471,6 +473,7 @@ export class AppService {
       await this.startGateway()
     }
     this.lastRpc = this.settings.get().network.rpc
+    this.appliedRpc = this.settings.get().network.rpc
   }
 
   // 私有通道的用户标识首次运行时生成并写进设置，之后一直沿用；
@@ -2288,11 +2291,38 @@ export class AppService {
   }
 
   // 快速连续改设置时串行化启停，避免同一个端口被并发绑定
-  private enqueueGateway(task: () => Promise<void>): void {
+  private enqueueGateway(task: () => Promise<void>): Promise<void> {
     this.gatewayTask = this.gatewayTask.then(task).catch((error: unknown) => {
       this.gatewayError = error instanceof Error ? error.message : String(error)
       logStartup(`网关任务失败：${this.gatewayError}`)
     })
+    return this.gatewayTask
+  }
+
+  /** 应用当前 RPC 设置：只在用户点「重载网关」时执行，设置变更本身不重启。 */
+  reloadGateway(): Promise<void> {
+    return this.enqueueGateway(async () => {
+      const rpc = this.settings.get().network.rpc
+      const action = decideGatewayRestart(this.appliedRpc, rpc)
+      if (action === 'start') {
+        await this.startGateway()
+      } else if (action === 'stop') {
+        await this.stopGateway()
+      } else if (action === 'restart') {
+        await this.stopGateway()
+        await this.startGateway()
+      } else if (rpc.enabled && this.gateway === null) {
+        await this.startGateway()
+      }
+      this.appliedRpc = rpc
+      this.lastRpc = rpc
+      logStartup(`网关已按设置重载（${rpc.enabled ? '启用' : '关闭'}）`)
+    })
+  }
+
+  private gatewayPending(): boolean {
+    const running = this.gateway !== null && this.gateway.status().running
+    return computeGatewayPending(this.appliedRpc, this.settings.get().network.rpc, running)
   }
 
   rotateRpcToken(): string {
@@ -2315,6 +2345,7 @@ export class AppService {
       url: status?.url ?? '',
       bindAddr: rpc.bindAddr,
       port: status?.port ?? rpc.port,
+      pending: this.gatewayPending(),
       lastError: this.gatewayError,
       clients: status?.clients ?? 0
     }
@@ -4099,19 +4130,10 @@ export class AppService {
     // 新消息提醒总开关的改动立即反映到闪烁状态
     this.notifications.refresh()
     const nextRpc = settings.network.rpc
-    const action = decideGatewayRestart(this.lastRpc, nextRpc)
-    if (action === 'start') {
-      this.enqueueGateway(() => this.startGateway())
-    } else if (action === 'stop') {
-      this.enqueueGateway(() => this.stopGateway())
-    } else if (action === 'restart') {
-      this.enqueueGateway(async () => {
-        await this.stopGateway()
-        await this.startGateway()
-      })
-    } else if (this.lastRpc !== null && this.lastRpc.token !== nextRpc.token) {
+    if (this.lastRpc !== null && this.lastRpc.token !== nextRpc.token) {
       this.gateway?.setToken(nextRpc.token)
     }
+    // 开关、地址与端口的改动只提示重载，避免连续修改时反复重启
     this.lastRpc = nextRpc
   }
 

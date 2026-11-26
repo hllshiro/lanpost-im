@@ -3,7 +3,7 @@
 export const PROTOCOL_VERSION = '1.0'
 export const RPC_PATH = '/ws/dsh'
 export const MEDIA_PATH = '/media'
-export const DEFAULT_RPC_PORT = 8443
+export const DEFAULT_RPC_PORT = 9015
 export const DEFAULT_RPC_BIND = '127.0.0.1'
 export const MAX_RPC_BYTES = 1024 * 1024
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024

@@ -166,7 +166,7 @@ describe('rpc settings', () => {
     expect(defaultSettings.network.rpc).toEqual({
       enabled: false,
       bindAddr: '127.0.0.1',
-      port: 8443,
+      port: 9015,
       token: ''
     })
   })

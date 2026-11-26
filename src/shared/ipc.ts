@@ -22,6 +22,7 @@ export const IPC = {
   firewallRepair: 'firewall:repair',
   gatewayStatus: 'gateway:status',
   gatewayRotateToken: 'gateway:rotate-token',
+  gatewayReload: 'gateway:reload',
   identityPickAvatar: 'identity:pick-avatar',
   identityClearAvatar: 'identity:clear-avatar',
   identityStatus: 'identity:status',
@@ -116,6 +117,7 @@ export interface GatewayStatus {
   url: string
   bindAddr: string
   port: number
+  pending: boolean
   lastError: string
   clients: number
 }
@@ -282,6 +284,8 @@ export type Api = {
     status(): Promise<GatewayStatus>
     // 生成新令牌：旧连接会被断开，令牌只留在主进程设置里
     rotateToken(): Promise<void>
+    // 应用当前 RPC 设置（开关、监听地址、端口）；设置变更不会自动重启
+    reload(): Promise<void>
   }
   identity: {
     pickAvatar(): Promise<void>

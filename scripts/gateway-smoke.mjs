@@ -2,7 +2,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type -- 纯 JS 冒烟脚本没有类型注解 */
 // 网关冒烟脚本：Node 24 + rpc-websockets 客户端，用来验真实例的认证、联系人、发送与图片通道。
 // 用法：
-//   node scripts/gateway-smoke.mjs --url ws://127.0.0.1:8443/ws/dsh --token <token> list
+//   node scripts/gateway-smoke.mjs --url ws://127.0.0.1:9015/ws/dsh --token <token> list
 //   node scripts/gateway-smoke.mjs ... send <protocol_id> "hello"
 //   node scripts/gateway-smoke.mjs ... listen
 //   node scripts/gateway-smoke.mjs ... upload ./a.png [protocol_id]
@@ -14,7 +14,7 @@ import { basename, extname } from 'node:path'
 import { request as httpRequest } from 'node:http'
 import { Client } from 'rpc-websockets'
 
-const DEFAULT_URL = 'ws://127.0.0.1:8443/ws/dsh'
+const DEFAULT_URL = 'ws://127.0.0.1:9015/ws/dsh'
 const TIMEOUT_MS = 10_000
 const MIME_BY_EXT = {
   '.png': 'image/png',
@@ -139,7 +139,7 @@ function postMedia(options, file, transfer, sha256, size, mimeType) {
     const req = httpRequest(
       {
         host: target.hostname,
-        port: Number(target.port || 8443),
+        port: Number(target.port || 9015),
         path: '/media',
         method: 'POST',
         headers: {
