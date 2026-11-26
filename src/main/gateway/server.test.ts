@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
-import { request as httpsRequest } from 'node:https'
+import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -69,9 +69,7 @@ function sha256(data: Buffer): string {
 }
 
 function connect(port: number): Promise<Client> {
-  const client = new Client(`wss://127.0.0.1:${port}${RPC_PATH}`, {
-    rejectUnauthorized: false
-  })
+  const client = new Client(`ws://127.0.0.1:${port}${RPC_PATH}`)
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error('连接超时')), 5000)
     client.once('open', () => {
@@ -94,8 +92,8 @@ function callMedia(
   body?: Buffer
 ): Promise<{ status: number; body: Buffer }> {
   return new Promise((resolve, reject) => {
-    const req = httpsRequest(
-      { host: '127.0.0.1', port, method, path, headers, rejectUnauthorized: false, agent: false },
+    const req = httpRequest(
+      { host: '127.0.0.1', port, method, path, headers, agent: false },
       (res) => {
         const chunks: Buffer[] = []
         res.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -146,7 +144,6 @@ function makeServer(): { server: GatewayServer; bridge: FakeBridge; port: number
     db,
     bridge,
     dataDir: dir,
-    tls: { mode: 'self-signed' },
     host: '127.0.0.1',
     port: 0,
     token: TOKEN
@@ -166,7 +163,7 @@ describe('GatewayServer', () => {
     const { server } = makeServer()
     const first = await server.start()
     expect(first.port).toBeGreaterThan(0)
-    expect(first.fingerprint).toMatch(/^([0-9A-F]{2}:)+[0-9A-F]{2}$/)
+    expect(first.url).toBe(`ws://127.0.0.1:${first.port}${RPC_PATH}`)
     expect(server.status().running).toBe(true)
 
     await server.stop()

@@ -22,7 +22,7 @@ Electron 44 + Vue 3 + TypeScript 的局域网即时通信客户端。单应用�
 - `src/main/index.ts`：启动、数据目录、窗口、托盘、IPC 注册。
 - `src/main/app-service.ts`：主进程编排（协议、仓储、文件、通知）；新业务接这里，不要再塞回 `index.ts`。
 - `src/main/protocol/private/`：9011 发现、ENet 会话、TEA 与私有 XML；`src/main/peers/registry.ts`：联系人状态源；`src/main/files/`：私有 TCP 文件与文件夹收发；`src/main/store/`：SQLite schema、仓储、旧历史导入；`src/main/notify/`：通知策略与效果。
-- `src/main/gateway/`：Agent RPC 网关（https + rpc-websockets + `/media`）；`src/main/gateway-bridge.ts` 把 AppService 适配成网关的 `GatewayBridge`，网关模块不 import Electron。
+- `src/main/gateway/`：Agent RPC 网关（http + rpc-websockets + `/media`）；`src/main/gateway-bridge.ts` 把 AppService 适配成网关的 `GatewayBridge`，网关模块不 import Electron。
 - `src/main/shortcuts.ts`、`src/main/autostart.ts`、`src/main/presence.ts`、`src/main/firewall.ts`：桌面集成；默认值在 `src/shared/settings.ts`。
 - `src/shared/`：main/preload/renderer 的三方契约（`domain.ts`、`ipc.ts`、`settings.ts`），保持不依赖 Electron/Node。新增 IPC 必须同时改 shared 的 `Api`、preload、main handler 和 renderer 调用。
 - `src/renderer/src/`：Vue 3 + Pinia；`App.vue` 是外壳，`stores/app.ts` 管快照、事件、当前会话。

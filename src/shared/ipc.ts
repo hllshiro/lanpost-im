@@ -116,7 +116,6 @@ export interface GatewayStatus {
   url: string
   bindAddr: string
   port: number
-  fingerprint: string
   lastError: string
   clients: number
 }

@@ -8,8 +8,8 @@
 
 - 内置 Agent 网关（默认关闭，只监听 `127.0.0.1`）：设置项位于「设置 - 网络 - RPC」，默认不可见；开启后自动生成访问令牌，可复制或重新生成。
 - 网关接口：RPC `users.list`、`message.sendUser`、`message.sendGroup`、`media.prepareUpload`、`events.ack`、`events.resume`，事件 `message.received`、`message.deliveryStatus`；文字与图片都走本机内网通私有通道，发送结果同步出现在聊天界面。
-- 图片通道：同一 HTTPS 服务的 `POST /media` 与 `GET /media/<attachment_id>`，Bearer 令牌认证，只接受 PNG/JPEG/WebP/GIF，单图上限 10 MiB；入站图片在 ACK 后保留 24 小时。
-- 自签 TLS 证书（首次启动生成，SAN 覆盖 localhost 与本机地址），RPC 使用 `rpc-websockets` 10 的 `setAuth`/`rpc.login` + 受保护方法与事件；轮换令牌会断开旧连接。
+- 图片通道：同一 HTTP 服务的 `POST /media` 与 `GET /media/<attachment_id>`，Bearer 令牌认证，只接受 PNG/JPEG/WebP/GIF，单图上限 10 MiB；入站图片在 ACK 后保留 24 小时。
+- 明文 HTTP/WebSocket 传输（不启用 TLS，默认只监听回环地址），RPC 使用 `rpc-websockets` 10 的 `setAuth`/`rpc.login` + 受保护方法与事件；轮换令牌会断开旧连接。
 - 接口契约与客户端接入说明见 `docs/gateway-api.md`，冒烟脚本 `scripts/gateway-smoke.mjs`。
 
 ## [0.7.1] - 2026-11-25

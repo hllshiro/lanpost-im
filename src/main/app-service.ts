@@ -2255,7 +2255,6 @@ export class AppService {
       db: this.db,
       bridge: this.gatewayBridge(),
       dataDir: app.getPath('userData'),
-      tls: { mode: 'self-signed' },
       host: rpc.bindAddr,
       port: rpc.port,
       token,
@@ -2266,7 +2265,7 @@ export class AppService {
     try {
       const info = await server.start()
       this.gatewayError = ''
-      logStartup(`网关已启动 ${info.url} 指纹=${info.fingerprint}`)
+      logStartup(`网关已启动 ${info.url}`)
     } catch (error) {
       this.gatewayError = (error as Error).message
       this.gateway = null
@@ -2316,7 +2315,6 @@ export class AppService {
       url: status?.url ?? '',
       bindAddr: rpc.bindAddr,
       port: status?.port ?? rpc.port,
-      fingerprint: status?.fingerprint ?? '',
       lastError: this.gatewayError,
       clients: status?.clients ?? 0
     }

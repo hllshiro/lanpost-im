@@ -26,7 +26,7 @@ lanpost-im 在设置页提供一个可选的 **Agent Gateway**。开启后，本
 
 1. 打开 lanpost 设置页：连续点击设置按钮 5 次解锁「网络」分类（重启后恢复隐藏）。
 2. 进入「网络 → RPC」，打开「启用 RPC 网关」。首次开启会自动生成令牌。
-3. 记录三项：地址（默认 `wss://127.0.0.1:8443/ws/dsh`）、令牌（点「复制」）、证书指纹（状态行显示前 16 位，完整值可展开）。
+3. 记录两项：地址（默认 `ws://127.0.0.1:8443/ws/dsh`）、令牌（点「复制」）。
 4. 客户端连接 → `rpc.login({ token })` → 订阅事件 → `events.resume` 补发。
 5. 之后即可调用业务方法、上传/下载图片。
 
@@ -45,20 +45,15 @@ lanpost-im 在设置页提供一个可选的 **Agent Gateway**。开启后，本
 
 | 用途 | 地址 | 认证 |
 | --- | --- | --- |
-| RPC | `wss://<host>:<port>/ws/dsh` | `rpc.login` 提交令牌 |
-| 图片上传 | `POST https://<host>:<port>/media` | `Authorization: Bearer <token>` |
-| 图片下载 | `GET https://<host>:<port>/media/<attachment_id>` | 同上 |
+| RPC | `ws://<host>:<port>/ws/dsh` | `rpc.login` 提交令牌 |
+| 图片上传 | `POST http://<host>:<port>/media` | `Authorization: Bearer <token>` |
+| 图片下载 | `GET http://<host>:<port>/media/<attachment_id>` | 同上 |
 
 协议版本 `1.0` 出现在本文与 `events.resume` 的说明里，不做版本握手；新增字段保持向后兼容，删除/改义才升版本。
 
-### 3.2 TLS
+### 3.2 明文传输
 
-网关使用自签证书（或用户提供的 PEM）。客户端必须满足其一：
-
-- 设置 `rejectUnauthorized: false`（本机连接，v1 推荐）；或
-- 按设置页显示的 SHA-256 指纹做证书固定（pinning）。
-
-指纹格式：证书 DER 的 SHA-256，十六进制大写、冒号分隔（`AB:CD:…`）。
+网关只提供明文 HTTP 与 WebSocket，不做 TLS（`rpc-websockets` 客户端直接连 `ws://` 即可）。默认监听 `127.0.0.1`，流量不出本机；如果把监听地址改成 `0.0.0.0` 或局域网地址，令牌、消息与图片会以明文经过网络，必须只在可信局域网内使用，或在外层自己加 TLS 终止代理。
 
 ### 3.3 RPC 认证（`rpc-websockets` 内建）
 
@@ -497,8 +492,7 @@ connect
 ### 8.5 安全
 
 - 令牌等同账号密码：不要写进日志、异常信息、agent 上下文或 git；
-- 建议只监听 `127.0.0.1`；改成 `0.0.0.0` 前必须确认网络环境可信；
-- 自签证书请用 `rejectUnauthorized: false` 仅限本机，或做指纹固定；
+- 建议只监听 `127.0.0.1`；改成 `0.0.0.0` 前必须确认网络环境可信，因为传输没有 TLS 加密；
 - 重新生成令牌会断开所有客户端，需要重新分发。
 
 ## 9. Node.js 参考实现
@@ -508,14 +502,13 @@ connect
 ```js
 import { Client } from 'rpc-websockets'
 
-const url = 'wss://127.0.0.1:8443/ws/dsh'
+const url = 'ws://127.0.0.1:8443/ws/dsh'
 const token = process.env.LANPOST_GATEWAY_TOKEN
-const baseHttp = 'https://127.0.0.1:8443'
+const baseHttp = 'http://127.0.0.1:8443'
 let lastAcked = 0
 
 const client = new Client(url, {
   autoconnect: false,
-  rejectUnauthorized: false,
   reconnect: true,
   reconnect_interval: 2000,
   max_reconnects: -1
@@ -600,13 +593,13 @@ client.connect()
 仓库自带 `scripts/gateway-smoke.mjs`（Node 24，需本机已开启网关并复制令牌），用于服务端与对方客户端联调；不依赖额外 npm 包。
 
 ```text
-node scripts/gateway-smoke.mjs --url wss://127.0.0.1:8443/ws/dsh --token <token> list
+node scripts/gateway-smoke.mjs --url ws://127.0.0.1:8443/ws/dsh --token <token> list
 node scripts/gateway-smoke.mjs ... send <protocol_id> "hello"
 node scripts/gateway-smoke.mjs ... listen
 node scripts/gateway-smoke.mjs ... upload ./a.png <protocol_id>
 ```
 
-令牌也可用环境变量 `LANPOST_GATEWAY_TOKEN` 传入；脚本默认 10 秒超时，自签证书不校验（仅适合本机联调）。
+令牌也可用环境变量 `LANPOST_GATEWAY_TOKEN` 传入；脚本默认 10 秒超时，明文 `ws://`/`http://` 直连（仅适合本机联调）。
 
 对方客户端的最小验收：
 

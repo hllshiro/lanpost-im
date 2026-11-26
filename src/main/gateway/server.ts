@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
-import { createServer as createHttpsServer } from 'node:https'
+import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
@@ -21,14 +21,12 @@ import {
   RPC_PATH
 } from './protocol'
 import { GatewayStore } from './store'
-import { loadTlsMaterial } from './tls'
 import { listUsers } from './users'
 
 export interface GatewayServerOptions {
   db: DatabaseSync
   bridge: GatewayBridge
   dataDir: string
-  tls: { mode: 'self-signed' | 'files'; certPath?: string; keyPath?: string }
   host: string
   port: number
   token: string
@@ -42,7 +40,6 @@ export interface GatewayStatus {
   running: boolean
   port: number
   url: string
-  fingerprint: string
   lastError: string
   clients: number
 }
@@ -56,8 +53,8 @@ const DEFAULT_MAX_CLIENTS = 8
 const CLEANUP_INTERVAL_MS = 60 * 60_000
 
 /**
- * 网关的装配点：https + rpc-websockets + /media。
- * 本文件是网关里唯一 import rpc-websockets / node:https 的模块。
+ * 网关的装配点：http + rpc-websockets + /media。
+ * 本文件是网关里唯一 import rpc-websockets / node:http 的模块。
  */
 export class GatewayServer {
   private readonly store: GatewayStore
@@ -69,13 +66,12 @@ export class GatewayServer {
   private readonly maxClients: number
   private bridgeUnsub: (() => void) | null = null
   private rpc: Server | null = null
-  private https: ReturnType<typeof createHttpsServer> | null = null
+  private http: ReturnType<typeof createServer> | null = null
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
   private token: string
   private running = false
   private port = 0
   private url = ''
-  private fingerprint = ''
   private lastError = ''
   private clients = 0
 
@@ -99,23 +95,16 @@ export class GatewayServer {
     this.sender = new MessageSender(this.options.bridge, this.store, this.events, this.attachments)
   }
 
-  async start(): Promise<{ url: string; fingerprint: string; port: number }> {
-    if (this.running) return { url: this.url, fingerprint: this.fingerprint, port: this.port }
+  async start(): Promise<{ url: string; port: number }> {
+    if (this.running) return { url: this.url, port: this.port }
     this.bridgeUnsub?.()
     this.bridgeUnsub = this.options.bridge.subscribe((event) => this.sender.onBridgeEvent(event))
     try {
-      const material = await loadTlsMaterial({
-        mode: this.options.tls.mode,
-        dir: join(this.options.dataDir, 'gateway'),
-        certPath: this.options.tls.certPath,
-        keyPath: this.options.tls.keyPath
-      })
-
-      const https = createHttpsServer({ key: material.key, cert: material.cert }, (req, res) => {
+      const http = createServer((req, res) => {
         void this.handleHttp(req, res)
       })
-      this.https = https
-      const rpc = new Server({ server: https, path: RPC_PATH, maxPayload: MAX_RPC_BYTES })
+      this.http = http
+      const rpc = new Server({ server: http, path: RPC_PATH, maxPayload: MAX_RPC_BYTES })
       this.rpc = rpc
       this.registerMethods(rpc)
 
@@ -131,27 +120,26 @@ export class GatewayServer {
 
       await new Promise<void>((resolve, reject) => {
         const onError = (error: Error): void => {
-          https.off('listening', onListening)
+          http.off('listening', onListening)
           reject(error)
         }
         const onListening = (): void => {
-          https.off('error', onError)
+          http.off('error', onError)
           resolve()
         }
-        https.once('error', onError)
-        https.once('listening', onListening)
-        https.listen(this.options.port, this.options.host)
+        http.once('error', onError)
+        http.once('listening', onListening)
+        http.listen(this.options.port, this.options.host)
       })
 
-      const address = https.address() as AddressInfo
+      const address = http.address() as AddressInfo
       this.port = address.port
-      this.url = `https://${this.options.host}:${this.port}`
-      this.fingerprint = material.fingerprint
+      this.url = `ws://${displayHost(this.options.host)}:${this.port}${RPC_PATH}`
       this.running = true
       this.lastError = ''
       this.cleanupTimer = setInterval(() => this.cleanup(), CLEANUP_INTERVAL_MS)
       this.cleanupTimer.unref?.()
-      return { url: this.url, fingerprint: this.fingerprint, port: this.port }
+      return { url: this.url, port: this.port }
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error)
       await this.stopResources()
@@ -178,7 +166,6 @@ export class GatewayServer {
       running: this.running,
       port: this.port,
       url: this.url,
-      fingerprint: this.fingerprint,
       lastError: this.lastError,
       clients: this.clients
     }
@@ -325,14 +312,20 @@ export class GatewayServer {
         this.options.onLog?.('关闭 RPC 服务失败', { error: String(error) })
       }
     }
-    const https = this.https
-    this.https = null
-    if (https) {
+    const http = this.http
+    this.http = null
+    if (http) {
       await new Promise<void>((resolve) => {
-        https.close(() => resolve())
+        http.close(() => resolve())
       })
     }
     this.clients = 0
     this.running = false
   }
+}
+
+/** 监听 0.0.0.0/:: 时对外展示的连接地址回落到回环地址。 */
+function displayHost(host: string): string {
+  if (host === '0.0.0.0' || host === '::' || host === '') return '127.0.0.1'
+  return host
 }

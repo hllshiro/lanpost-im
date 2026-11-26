@@ -12,7 +12,7 @@
 - 文件：TCP 9013，proto=1 的 HELLO/ACK/PATH/DATA；文件夹：TCP 9014，proto=2。
 - 群聊、头像、图片、表情与富文本均已接入。
 - 桌面集成：全局快捷键、开机启动、最小化启动、空闲自动离开、在线状态快捷切换、接收目录布局、防火墙检测与修复。
-- Agent 网关（可选，默认关闭）：`src/main/gateway/` 提供 HTTPS + rpc-websockets RPC 与 `/media` 图片通道，经 `src/main/gateway-bridge.ts` 复用 AppService；设置项在「设置 - 网络 - RPC」（需在设置页两秒内连点 5 次解锁网络分类），接口契约见 `docs/gateway-api.md`，冒烟脚本 `scripts/gateway-smoke.mjs`。
+- Agent 网关（可选，默认关闭）：`src/main/gateway/` 提供明文 HTTP/WebSocket RPC 与 `/media` 图片通道（默认只监听 127.0.0.1，无 TLS），经 `src/main/gateway-bridge.ts` 复用 AppService；设置项在「设置 - 网络 - RPC」（需在设置页两秒内连点 5 次解锁网络分类），接口契约见 `docs/gateway-api.md`，冒烟脚本 `scripts/gateway-smoke.mjs`。
 
 ## 新环境准备
 
