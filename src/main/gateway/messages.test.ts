@@ -22,12 +22,17 @@ afterEach(() => {
 
 function setup(
   status: GatewaySendResult['status'] = 'sent',
-  peerExists = true
+  peerExists = true,
+  group: { id: string; status: GatewaySendResult['status']; reason?: string } | null = {
+    id: 'g-1',
+    status: 'sent'
+  }
 ): {
   sender: MessageSender
   store: GatewayStore
   log: EventLog
   calls: Array<{ protocolId: string; text: string }>
+  groupCalls: Array<{ groupId: string; text: string }>
   emit: (event: GatewayBridgeEvent) => void
 } {
   const db = openDatabase(':memory:')
@@ -35,6 +40,7 @@ function setup(
   const store = new GatewayStore(db)
   const log = new EventLog(store, { retentionHours: 24 })
   const calls: Array<{ protocolId: string; text: string }> = []
+  const groupCalls: Array<{ groupId: string; text: string }> = []
   const listeners: Array<(event: GatewayBridgeEvent) => void> = []
   const bridge: GatewayBridge = {
     listPeers: () => [],
@@ -49,13 +55,22 @@ function setup(
             lastSeenAt: 1
           }
         : null,
-    listGroups: () => [],
-    getGroup: () => null,
+    listGroups: () => (group ? [{ id: group.id, name: '测试群', members: [] }] : []),
+    getGroup: (groupId) =>
+      group && group.id === groupId ? { id: group.id, name: '测试群', members: [] } : null,
     sendPrivateText: async (protocolId, text) => {
       calls.push({ protocolId, text })
       return { imMessageId: 42, nwtMsgId: 7, status }
     },
-    sendGroupText: async () => ({ imMessageId: 0, nwtMsgId: 0, status: 'queued' }),
+    sendGroupText: async (groupId, text) => {
+      groupCalls.push({ groupId, text })
+      return {
+        imMessageId: 43,
+        nwtMsgId: 8,
+        status: group?.status ?? 'sent',
+        reason: group?.reason
+      }
+    },
     sendPrivateImage: async () => ({ imMessageId: 0, nwtMsgId: 0, status: 'queued' }),
     sendGroupImage: async () => ({ imMessageId: 0, nwtMsgId: 0, status: 'queued' }),
     subscribe: (listener) => {
@@ -71,6 +86,7 @@ function setup(
     store,
     log,
     calls,
+    groupCalls,
     emit: (event) => {
       for (const listener of listeners) listener(event)
     }
@@ -302,5 +318,91 @@ describe('MessageSender.onBridgeEvent', () => {
       timestamp: 1
     })
     expect(log.pending(0)[0].data.group_id).toBe('g-1')
+  })
+})
+
+describe('MessageSender.sendGroup', () => {
+  it('群不存在返回 -32012', async () => {
+    const { sender } = setup('sent', true, null)
+    try {
+      await sender.sendGroup({
+        request_id: requestId(),
+        group_id: 'missing',
+        content: { type: 'text', text: 'hi' }
+      })
+      throw new Error('应当抛错')
+    } catch (error) {
+      expect((error as { rpcCode?: number }).rpcCode).toBe(-32012)
+    }
+  })
+
+  it('全部在线成员接受时写 delivered 并推 deliveryStatus', async () => {
+    const { sender, store, log, groupCalls } = setup('sent')
+    const result = await sender.sendGroup({
+      request_id: requestId(),
+      group_id: 'g-1',
+      content: { type: 'text', text: '大家好' }
+    })
+    expect(result).toEqual({ message_id: 'im:43', accepted: true, delivery_status: 'queued' })
+    expect(groupCalls).toEqual([{ groupId: 'g-1', text: '大家好' }])
+    expect(store.messageById('im:43')).toMatchObject({
+      direction: 'out',
+      conversation_type: 'group',
+      conversation_id: 'group:g-1',
+      group_id: 'g-1',
+      status: 'delivered'
+    })
+    const events = log.pending(0).filter((e) => e.method === 'message.deliveryStatus')
+    expect(events).toHaveLength(1)
+    expect(events[0].data).toMatchObject({
+      message_id: 'im:43',
+      conversation_id: 'group:g-1',
+      status: 'delivered'
+    })
+  })
+
+  it('没有成员可达时写 failed 并带原因，RPC 响应仍是 queued', async () => {
+    const { sender, store, log } = setup('sent', true, {
+      id: 'g-1',
+      status: 'failed',
+      reason: '群成员都不在线'
+    })
+    const result = await sender.sendGroup({
+      request_id: requestId(),
+      group_id: 'g-1',
+      content: { type: 'text', text: '有人吗' }
+    })
+    expect(result.delivery_status).toBe('queued')
+    expect(store.messageById('im:43')?.status).toBe('failed')
+    const events = log.pending(0).filter((e) => e.method === 'message.deliveryStatus')
+    expect(events[0].data).toMatchObject({ status: 'failed', reason: '群成员都不在线' })
+  })
+
+  it('群消息幂等：重复 request_id 只发一次', async () => {
+    const { sender, groupCalls } = setup('queued')
+    const id = requestId()
+    const first = await sender.sendGroup({
+      request_id: id,
+      group_id: 'g-1',
+      content: { type: 'text', text: 'hi' }
+    })
+    const second = await sender.sendGroup({
+      request_id: id,
+      group_id: 'g-1',
+      content: { type: 'text', text: 'hi' }
+    })
+    expect(second).toEqual(first)
+    expect(groupCalls).toHaveLength(1)
+  })
+
+  it('queued 不立即推投递事件', async () => {
+    const { sender, store, log } = setup('sent', true, { id: 'g-1', status: 'queued' })
+    await sender.sendGroup({
+      request_id: requestId(),
+      group_id: 'g-1',
+      content: { type: 'text', text: 'hi' }
+    })
+    expect(store.messageById('im:43')?.status).toBe('queued')
+    expect(log.pending(0)).toHaveLength(0)
   })
 })

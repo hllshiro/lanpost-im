@@ -29,6 +29,8 @@ export interface GatewaySendResult {
   imMessageId: number
   nwtMsgId: number
   status: 'queued' | 'sending' | 'sent' | 'failed'
+  /** 仅 status='failed' 时给出，展示给 Agent。 */
+  reason?: string
 }
 
 export type GatewayBridgeEvent =

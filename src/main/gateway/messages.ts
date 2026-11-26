@@ -64,14 +64,17 @@ function parseContent(value: unknown): MessageContent {
   throw gwError('UNSUPPORTED_CONTENT_TYPE')
 }
 
-function parseSend(params: Record<string, unknown>): ParsedSend {
+function parseSend(
+  params: Record<string, unknown>,
+  targetKey: 'protocol_id' | 'group_id'
+): ParsedSend {
   const requestId = params.request_id
   if (typeof requestId !== 'string' || requestId.length === 0 || requestId.length > 128) {
     throw gwError('INVALID_ARGUMENT', 'request_id 必须是 1..128 字符的字符串')
   }
-  const target = params.protocol_id
+  const target = params[targetKey]
   if (typeof target !== 'string' || target.length === 0) {
-    throw gwError('INVALID_ARGUMENT', 'protocol_id 必须是非空字符串')
+    throw gwError('INVALID_ARGUMENT', `${targetKey} 必须是非空字符串`)
   }
   return { requestId, target, content: parseContent(params.content) }
 }
@@ -102,10 +105,10 @@ export class MessageSender {
   }
 
   sendUser(params: Record<string, unknown>): Promise<SendResult> {
-    const parsed = parseSend(params)
+    const parsed = parseSend(params, 'protocol_id')
     const hash = this.argsHash('message.sendUser', parsed)
     const existing = this.store.findRequest(parsed.requestId)
-    if (existing) return Promise.resolve(this.replay(existing, hash))
+    if (existing) return Promise.resolve(this.replay(existing, hash, 'message.sendUser'))
 
     const running = this.inFlight.get(parsed.requestId)
     if (running) return running
@@ -117,10 +120,20 @@ export class MessageSender {
     return task
   }
 
-  async sendGroup(params: Record<string, unknown>): Promise<SendResult> {
-    const parsed = parseSend(params)
-    void parsed
-    throw gwError('INTERNAL_ERROR', '群消息尚未启用')
+  sendGroup(params: Record<string, unknown>): Promise<SendResult> {
+    const parsed = parseSend(params, 'group_id')
+    const hash = this.argsHash('message.sendGroup', parsed)
+    const existing = this.store.findRequest(parsed.requestId)
+    if (existing) return Promise.resolve(this.replay(existing, hash, 'message.sendGroup'))
+
+    const running = this.inFlight.get(parsed.requestId)
+    if (running) return running
+
+    const task = this.doSendGroup(parsed, hash).finally(() => {
+      this.inFlight.delete(parsed.requestId)
+    })
+    this.inFlight.set(parsed.requestId, task)
+    return task
   }
 
   private async doSendUser(parsed: ParsedSend, hash: string): Promise<SendResult> {
@@ -159,11 +172,66 @@ export class MessageSender {
     return sendResult
   }
 
+  private async doSendGroup(parsed: ParsedSend, hash: string): Promise<SendResult> {
+    const group = this.bridge.getGroup(parsed.target)
+    if (!group) throw gwError('GROUP_NOT_FOUND')
+    if (parsed.content.type !== 'text') throw gwError('UNSUPPORTED_CONTENT_TYPE')
+
+    const result = await this.bridge.sendGroupText(parsed.target, parsed.content.text)
+    const messageId = `im:${result.imMessageId}`
+    const now = this.now()
+    const conversationId = `group:${parsed.target}`
+    const status: GatewayMessageRow['status'] =
+      result.status === 'sent' ? 'delivered' : result.status === 'failed' ? 'failed' : 'queued'
+    if (!this.store.messageById(messageId)) {
+      this.store.insertMessage({
+        id: messageId,
+        direction: 'out',
+        conversation_type: 'group',
+        conversation_id: conversationId,
+        protocol_id: '',
+        group_id: parsed.target,
+        im_message_id: result.imMessageId,
+        nwt_msg_id: result.nwtMsgId,
+        status,
+        content: JSON.stringify(parsed.content),
+        created_at: now,
+        updated_at: now
+      })
+    }
+    if (status === 'delivered') {
+      this.events.append('message.deliveryStatus', {
+        message_id: messageId,
+        conversation_id: conversationId,
+        status: 'delivered',
+        reason: '',
+        timestamp: new Date(now).toISOString()
+      })
+    } else if (status === 'failed') {
+      this.events.append('message.deliveryStatus', {
+        message_id: messageId,
+        conversation_id: conversationId,
+        status: 'failed',
+        reason: result.reason ?? '群消息发送失败',
+        timestamp: new Date(now).toISOString()
+      })
+    }
+    this.store.saveRequest({
+      request_id: parsed.requestId,
+      method: 'message.sendGroup',
+      args_hash: hash,
+      result: JSON.stringify(toSendResult(messageId)),
+      created_at: now
+    })
+    return toSendResult(messageId)
+  }
+
   private replay(
     existing: { method: string; args_hash: string; result: string },
-    hash: string
+    hash: string,
+    method: string
   ): SendResult {
-    if (existing.method !== 'message.sendUser' || existing.args_hash !== hash) {
+    if (existing.method !== method || existing.args_hash !== hash) {
       throw gwError('DUPLICATE_REQUEST', 'request_id 已被不同参数使用')
     }
     return JSON.parse(existing.result) as SendResult
@@ -171,7 +239,7 @@ export class MessageSender {
 
   private argsHash(method: string, parsed: ParsedSend): string {
     return createHash('sha256')
-      .update(stableJson({ method, protocol_id: parsed.target, content: parsed.content }))
+      .update(stableJson({ method, target: parsed.target, content: parsed.content }))
       .digest('hex')
   }
 
