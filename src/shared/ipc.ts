@@ -20,6 +20,8 @@ export const IPC = {
   shortcutsAvailable: 'shortcuts:available',
   firewallCheck: 'firewall:check',
   firewallRepair: 'firewall:repair',
+  gatewayStatus: 'gateway:status',
+  gatewayRotateToken: 'gateway:rotate-token',
   identityPickAvatar: 'identity:pick-avatar',
   identityClearAvatar: 'identity:clear-avatar',
   identityStatus: 'identity:status',
@@ -276,6 +278,11 @@ export type Api = {
   firewall: {
     check(): Promise<FirewallStatus>
     repair(): Promise<FirewallStatus>
+  }
+  gateway: {
+    status(): Promise<GatewayStatus>
+    // 生成新令牌：旧连接会被断开，令牌只留在主进程设置里
+    rotateToken(): Promise<void>
   }
   identity: {
     pickAvatar(): Promise<void>

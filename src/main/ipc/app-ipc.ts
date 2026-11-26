@@ -14,6 +14,10 @@ export function registerAppIpc(service: AppService): void {
   })
   ipcMain.handle(IPC.appOpenLogs, () => openLogsDirectory())
   ipcMain.handle(IPC.appExportLogs, () => exportLogs())
+  ipcMain.handle(IPC.gatewayStatus, () => service.gatewayStatus())
+  ipcMain.handle(IPC.gatewayRotateToken, () => {
+    service.rotateRpcToken()
+  })
   ipcMain.handle(IPC.filePickReceiveDir, () => service.pickReceiveDir())
   ipcMain.handle(IPC.filePastePaths, () => service.clipboardPaths())
   ipcMain.handle(IPC.snapshot, () => service.snapshot())
