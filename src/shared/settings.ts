@@ -18,6 +18,15 @@ const identitySchema = z.object({
   avatarId: z.number().int().min(0).default(0)
 })
 
+const rpcSchema = z.object({
+  enabled: z.boolean().default(false),
+  // 默认只监听回环地址；改成 0.0.0.0 等于把网关暴露给局域网
+  bindAddr: z.string().min(1).default('127.0.0.1'),
+  port: z.number().int().min(1).max(65535).default(8443),
+  // 43 字符 base64url；空字符串表示尚未生成，网关不会启动
+  token: z.string().default('')
+})
+
 const networkSchema = z.object({
   bindAddr: z.string().default('0.0.0.0'),
   broadcastInterval: z.number().int().min(5).max(3600).default(30),
@@ -28,7 +37,8 @@ const networkSchema = z.object({
   privateFilePort: z.number().int().min(1).max(65535).default(9013),
   // 私有文件夹通道的 TCP 监听端口；置 0 表示不接收文件夹
   privateFolderPort: z.number().int().min(0).max(65535).default(9014),
-  privateSeeds: z.array(z.string()).default([])
+  privateSeeds: z.array(z.string()).default([]),
+  rpc: rpcSchema.prefault({})
 })
 
 // 弹窗通知开关；兼容一度使用过的 system/app/none 三选一取值
@@ -99,6 +109,7 @@ export const settingsSchema = z.object({
 })
 
 export type Settings = z.infer<typeof settingsSchema>
+export type RpcSettings = z.infer<typeof rpcSchema>
 export type SettingsPatch = {
   [K in Exclude<keyof Settings, 'version'>]?: Partial<Settings[K]>
 }

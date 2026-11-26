@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { SettingsStore } from './store'
-import { defaultSettings } from '../../shared/settings'
+import { defaultSettings, settingsSchema } from '../../shared/settings'
 
 const tempDirs: string[] = []
 
@@ -158,5 +158,36 @@ describe('SettingsStore', () => {
     expect(new SettingsStore(file).get().notify.popup).toBe(true)
     writeFileSync(file, JSON.stringify({ notify: { popup: 'app' } }))
     expect(new SettingsStore(file).get().notify.popup).toBe(true)
+  })
+})
+
+describe('rpc settings', () => {
+  it('默认关闭、只监听回环地址、无令牌', () => {
+    expect(defaultSettings.network.rpc).toEqual({
+      enabled: false,
+      bindAddr: '127.0.0.1',
+      port: 8443,
+      token: ''
+    })
+  })
+
+  it('拒绝越界端口', () => {
+    expect(settingsSchema.safeParse({ network: { rpc: { port: 70000 } } }).success).toBe(false)
+  })
+
+  it('bindAddr 只要求非空，不做 IP 校验', () => {
+    const result = settingsSchema.safeParse({ network: { rpc: { bindAddr: 'not-an-ip' } } })
+    expect(result.success && result.data.network.rpc.bindAddr).toBe('not-an-ip')
+  })
+
+  it('更新 rpc 时保留 network 的其它字段', () => {
+    const store = new SettingsStore(tempFile())
+    const updated = store.update({
+      network: {
+        rpc: { enabled: true, bindAddr: '127.0.0.1', port: 9443, token: 'token-value' }
+      }
+    })
+    expect(updated.network.rpc.port).toBe(9443)
+    expect(updated.network.privatePort).toBe(defaultSettings.network.privatePort)
   })
 })
