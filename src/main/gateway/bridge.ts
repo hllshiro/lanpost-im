@@ -1,8 +1,4 @@
-/**
- * 网关与 AppService 之间的唯一接口。
- * 网关模块（包括本文件）不得 import electron；业务真相仍在 AppService/仓储。
- */
-
+/** 网关依赖的业务侧抽象：只使用普通数据，便于用假实现做单测。 */
 export interface GatewayPeer {
   protocolId: string
   username: string
@@ -10,13 +6,6 @@ export interface GatewayPeer {
   hostname: string
   online: boolean
   lastSeenAt: number
-}
-
-export interface GatewaySender {
-  protocolId: string
-  username: string
-  displayName: string
-  hostname: string
 }
 
 export interface GatewayGroup {
@@ -29,8 +18,15 @@ export interface GatewaySendResult {
   imMessageId: number
   nwtMsgId: number
   status: 'queued' | 'sending' | 'sent' | 'failed'
-  /** 仅 status='failed' 时给出，展示给 Agent。 */
+  /** 失败原因，只在 status === 'failed' 时使用。 */
   reason?: string
+}
+
+export interface GatewaySender {
+  protocolId: string
+  username: string
+  displayName: string
+  hostname: string
 }
 
 export type GatewayBridgeEvent =
@@ -67,11 +63,16 @@ export interface GatewayBridge {
   getGroup(groupId: string): GatewayGroup | null
   sendPrivateText(protocolId: string, text: string): Promise<GatewaySendResult>
   sendGroupText(groupId: string, text: string): Promise<GatewaySendResult>
+  /**
+   * 发送图片。reuseMessageId 用于离线重试：沿用第一次记录的本地消息，
+   * 避免每次重试都在界面上多出一个气泡。
+   */
   sendPrivateImage(
     protocolId: string,
     path: string,
     name: string,
-    mimeType: string
+    mimeType: string,
+    reuseMessageId?: number
   ): Promise<GatewaySendResult>
   sendGroupImage(
     groupId: string,

@@ -531,7 +531,8 @@ export class MessageSender {
         row.protocol_id,
         attachment.path,
         attachment.name,
-        attachment.mime_type
+        attachment.mime_type,
+        row.im_message_id
       )
     } catch (error) {
       result = {
