@@ -66,6 +66,19 @@ export class GatewayStore {
     return Number(result.lastInsertRowid)
   }
 
+  updateEventPayload(sequence: number, payload: string): void {
+    this.db
+      .prepare(`UPDATE gateway_events SET payload = ? WHERE sequence = ?`)
+      .run(payload, sequence)
+  }
+
+  cleanupEvents(ackedBefore: number): number {
+    const result = this.db
+      .prepare(`DELETE FROM gateway_events WHERE acked_at > 0 AND acked_at < ?`)
+      .run(ackedBefore)
+    return Number(result.changes)
+  }
+
   pendingEvents(afterSequence: number): GatewayEventRow[] {
     return this.db
       .prepare(
@@ -98,8 +111,9 @@ export class GatewayStore {
   }
 
   latestSequence(): number {
-    const row = this.db.prepare(`SELECT MAX(sequence) AS value FROM gateway_events`).get() as
-      { value: number | null } | undefined
+    const row = this.db
+      .prepare(`SELECT seq AS value FROM sqlite_sequence WHERE name = 'gateway_events'`)
+      .get() as { value: number | null } | undefined
     return row?.value ?? 0
   }
 
