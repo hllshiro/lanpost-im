@@ -1,14 +1,22 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from '../store/db'
 import { GatewayStore } from './store'
 import { EventLog } from './events'
+import { AttachmentStore } from './attachments'
 import { MessageSender } from './messages'
+import type { MessageContent } from './messages'
 import type { GatewayBridge, GatewayBridgeEvent, GatewaySendResult } from './bridge'
 
 const PEER = 'aaaa1111aaaa1111aaaa1111aaaa1111'
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])
 
 const dbs: DatabaseSync[] = []
+const dirs: string[] = []
 
 afterEach(() => {
   for (const db of dbs.splice(0)) {
@@ -18,7 +26,36 @@ afterEach(() => {
       // 已关闭
     }
   }
+  for (const dir of dirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5 })
+  }
 })
+
+function sha256Of(data: Buffer): string {
+  return createHash('sha256').update(data).digest('hex')
+}
+
+function makeImage(attachments: AttachmentStore): Extract<MessageContent, { type: 'image' }> {
+  const sha256 = sha256Of(PNG)
+  const prepared = attachments.prepare({
+    mimeType: 'image/png',
+    name: 'a.png',
+    size: PNG.length,
+    sha256
+  })
+  const { attachmentId } = attachments.acceptUpload(prepared.transferId, PNG, {
+    mimeType: 'image/png',
+    sha256
+  })
+  return {
+    type: 'image',
+    attachment_id: attachmentId,
+    mime_type: 'image/png',
+    name: 'a.png',
+    size: PNG.length,
+    sha256
+  }
+}
 
 function setup(
   status: GatewaySendResult['status'] = 'sent',
@@ -26,22 +63,33 @@ function setup(
   group: { id: string; status: GatewaySendResult['status']; reason?: string } | null = {
     id: 'g-1',
     status: 'sent'
-  }
+  },
+  imageStatus: GatewaySendResult['status'] | GatewaySendResult['status'][] = 'sent'
 ): {
   sender: MessageSender
   store: GatewayStore
   log: EventLog
+  attachments: AttachmentStore
+  dir: string
   calls: Array<{ protocolId: string; text: string }>
   groupCalls: Array<{ groupId: string; text: string }>
+  imageCalls: Array<{ protocolId: string; path: string; name: string; mimeType: string }>
   emit: (event: GatewayBridgeEvent) => void
 } {
   const db = openDatabase(':memory:')
   dbs.push(db)
+  const dir = mkdtempSync(join(tmpdir(), 'gateway-msg-'))
+  dirs.push(dir)
   const store = new GatewayStore(db)
   const log = new EventLog(store, { retentionHours: 24 })
+  const attachments = new AttachmentStore(store, dir)
   const calls: Array<{ protocolId: string; text: string }> = []
   const groupCalls: Array<{ groupId: string; text: string }> = []
+  const imageCalls: Array<{ protocolId: string; path: string; name: string; mimeType: string }> = []
   const listeners: Array<(event: GatewayBridgeEvent) => void> = []
+  const nextImageStatus: GatewaySendResult['status'][] = Array.isArray(imageStatus)
+    ? [...imageStatus]
+    : []
   const bridge: GatewayBridge = {
     listPeers: () => [],
     getPeer: (protocolId) =>
@@ -71,7 +119,15 @@ function setup(
         reason: group?.reason
       }
     },
-    sendPrivateImage: async () => ({ imMessageId: 0, nwtMsgId: 0, status: 'queued' }),
+    sendPrivateImage: async (protocolId, path, name, mimeType) => {
+      imageCalls.push({ protocolId, path, name, mimeType })
+      const queuedStatus = nextImageStatus.length > 0 ? nextImageStatus.shift() : undefined
+      return {
+        imMessageId: 44,
+        nwtMsgId: 9,
+        status: queuedStatus ?? (Array.isArray(imageStatus) ? 'queued' : imageStatus)
+      }
+    },
     sendGroupImage: async () => ({ imMessageId: 0, nwtMsgId: 0, status: 'queued' }),
     subscribe: (listener) => {
       listeners.push(listener)
@@ -82,11 +138,14 @@ function setup(
     }
   }
   return {
-    sender: new MessageSender(bridge, store, log),
+    sender: new MessageSender(bridge, store, log, attachments),
     store,
     log,
+    attachments,
+    dir,
     calls,
     groupCalls,
+    imageCalls,
     emit: (event) => {
       for (const listener of listeners) listener(event)
     }
@@ -404,5 +463,115 @@ describe('MessageSender.sendGroup', () => {
     })
     expect(store.messageById('im:43')?.status).toBe('queued')
     expect(log.pending(0)).toHaveLength(0)
+  })
+})
+
+describe('MessageSender 图片', () => {
+  it('在线图片写 delivered、消费附件并推 deliveryStatus', async () => {
+    const { sender, store, log, attachments, imageCalls, dir } = setup('sent')
+    const content = makeImage(attachments)
+    const result = await sender.sendUser({
+      request_id: requestId(),
+      protocol_id: PEER,
+      content
+    })
+    expect(result).toEqual({ message_id: 'im:44', accepted: true, delivery_status: 'queued' })
+    expect(imageCalls).toHaveLength(1)
+    expect(imageCalls[0].path.startsWith(join(dir, 'att'))).toBe(true)
+    expect(store.messageById('im:44')?.status).toBe('delivered')
+    expect(store.attachment(content.attachment_id)?.state).toBe('consumed')
+    const events = log.pending(0).filter((e) => e.method === 'message.deliveryStatus')
+    expect(events).toHaveLength(1)
+    expect(events[0].data).toMatchObject({ message_id: 'im:44', status: 'delivered' })
+  })
+
+  it('离线图片在 peer-ready 后补发成功', async () => {
+    const { sender, store, attachments, imageCalls } = setup(
+      'sent',
+      true,
+      { id: 'g-1', status: 'sent' },
+      ['queued', 'sent']
+    )
+    const content = makeImage(attachments)
+    await sender.sendUser({ request_id: requestId(), protocol_id: PEER, content })
+    expect(store.messageById('im:44')?.status).toBe('queued')
+
+    sender.onBridgeEvent({ kind: 'peer-ready', protocolId: PEER })
+    await vi.waitFor(() => expect(imageCalls).toHaveLength(2))
+    await vi.waitFor(() => expect(store.messageById('im:44')?.status).toBe('delivered'))
+  })
+
+  it('重试 3 次仍 queued 时置 failed 并推原因', async () => {
+    vi.useFakeTimers()
+    try {
+      const { sender, store, log, attachments, imageCalls } = setup(
+        'sent',
+        true,
+        { id: 'g-1', status: 'sent' },
+        'queued'
+      )
+      const content = makeImage(attachments)
+      await sender.sendUser({ request_id: requestId(), protocol_id: PEER, content })
+
+      sender.onBridgeEvent({ kind: 'peer-ready', protocolId: PEER })
+      await vi.advanceTimersByTimeAsync(0)
+      await vi.advanceTimersByTimeAsync(30_000)
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(imageCalls).toHaveLength(4)
+      expect(store.messageById('im:44')?.status).toBe('failed')
+      const events = log.pending(0).filter((e) => e.method === 'message.deliveryStatus')
+      expect(events.at(-1)?.data).toMatchObject({ status: 'failed' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('附件与 content 不一致按 -32016 处理', async () => {
+    const { sender, attachments } = setup('sent')
+    const content = makeImage(attachments)
+    try {
+      await sender.sendUser({
+        request_id: requestId(),
+        protocol_id: PEER,
+        content: { ...content, size: content.size + 1 }
+      })
+      throw new Error('应当抛错')
+    } catch (error) {
+      expect((error as { rpcCode?: number }).rpcCode).toBe(-32016)
+    }
+  })
+
+  it('image-in 导入附件并推 message.received', () => {
+    const { sender, log, dir, attachments } = setup()
+    const src = join(dir, 'in.png')
+    writeFileSync(src, PNG)
+    sender.onBridgeEvent({
+      kind: 'image-in',
+      imMessageId: 101,
+      conversationId: `direct:${PEER}`,
+      conversationType: 'private',
+      sender: {
+        protocolId: PEER,
+        username: 'alice',
+        displayName: 'Alice',
+        hostname: 'DESKTOP-A'
+      },
+      path: src,
+      name: 'in.png',
+      mimeType: 'image/png',
+      size: PNG.length,
+      sha256: sha256Of(PNG),
+      timestamp: 1
+    })
+    const event = log.pending(0).find((e) => e.method === 'message.received')
+    expect(event?.data.content).toMatchObject({
+      type: 'image',
+      mime_type: 'image/png',
+      size: PNG.length
+    })
+    const attachmentId = (event?.data.content as { attachment_id: string }).attachment_id
+    expect(attachmentId).toMatch(/^att_[0-9a-f]{16}$/)
+    expect(attachments.openDownload(attachmentId)?.size).toBe(PNG.length)
   })
 })

@@ -2,7 +2,42 @@ import { createReadStream } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { checkBearer } from './auth'
 import { gwError, toRpcError } from './errors'
+import { isAllowedImageMime } from './attachments'
 import type { AttachmentStore } from './attachments'
+
+export interface PrepareUploadResult {
+  transfer_id: string
+  max_bytes: number
+  expires_at: string
+}
+
+/** media.prepareUpload：校验图片元数据并登记一次性传输。 */
+export function prepareUpload(
+  params: Record<string, unknown>,
+  attachments: AttachmentStore,
+  maxImageBytes: number
+): PrepareUploadResult {
+  const mimeType = params.mime_type
+  if (typeof mimeType !== 'string' || !isAllowedImageMime(mimeType)) {
+    throw gwError('UNSUPPORTED_CONTENT_TYPE', '只支持 image/png、image/jpeg、image/webp、image/gif')
+  }
+  const size = params.size
+  if (typeof size !== 'number' || !Number.isInteger(size) || size <= 0) {
+    throw gwError('INVALID_ARGUMENT', 'size 必须是正整数')
+  }
+  if (size > maxImageBytes) throw gwError('MESSAGE_TOO_LARGE', '图片超过大小上限')
+  const sha256 = params.sha256
+  if (typeof sha256 !== 'string' || !/^[0-9a-fA-F]{64}$/.test(sha256)) {
+    throw gwError('INVALID_ARGUMENT', 'sha256 必须是 64 位十六进制')
+  }
+  const name = typeof params.name === 'string' ? params.name : ''
+  const prepared = attachments.prepare({ mimeType, name, size, sha256: sha256.toLowerCase() })
+  return {
+    transfer_id: prepared.transferId,
+    max_bytes: maxImageBytes,
+    expires_at: new Date(prepared.expiresAt).toISOString()
+  }
+}
 
 export interface MediaContext {
   attachments: AttachmentStore

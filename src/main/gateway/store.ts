@@ -180,6 +180,10 @@ export class GatewayStore {
       .run(expiresAt, id)
   }
 
+  setAttachmentExpiry(id: string, expiresAt: number): void {
+    this.db.prepare(`UPDATE gateway_attachments SET expires_at = ? WHERE id = ?`).run(expiresAt, id)
+  }
+
   attachmentsForCleanup(now: number): GatewayAttachmentRow[] {
     return this.db
       .prepare(

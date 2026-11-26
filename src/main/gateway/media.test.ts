@@ -9,7 +9,7 @@ import type { DatabaseSync } from 'node:sqlite'
 import { openDatabase } from '../store/db'
 import { GatewayStore } from './store'
 import { AttachmentStore } from './attachments'
-import { handleMediaRequest } from './media'
+import { handleMediaRequest, prepareUpload } from './media'
 
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -273,5 +273,78 @@ describe('handleMediaRequest 下载', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['cache-control']).toBe('no-store')
     expect(res.body()).toEqual(PNG)
+  })
+})
+
+describe('prepareUpload', () => {
+  function codeOf(fn: () => void): number {
+    try {
+      fn()
+      throw new Error('应当抛错')
+    } catch (error) {
+      return (error as { rpcCode?: number }).rpcCode ?? 0
+    }
+  }
+
+  it('合法元数据返回 transfer_id 并登记 pending', () => {
+    const { attachments, store } = setup()
+    const result = prepareUpload(
+      { mime_type: 'image/png', name: 'a.png', size: PNG.length, sha256: sha256(PNG) },
+      attachments,
+      1024
+    )
+    expect(result.transfer_id).toMatch(/^tr_[0-9a-f]{24}$/)
+    expect(result.max_bytes).toBe(1024)
+    expect(new Date(result.expires_at).getTime()).toBeGreaterThan(Date.now())
+    expect(store.attachmentByTransfer(result.transfer_id)).toMatchObject({
+      kind: 'upload',
+      state: 'pending',
+      mime_type: 'image/png',
+      sha256: sha256(PNG)
+    })
+  })
+
+  it('不支持的 mime 返回 -32014', () => {
+    const { attachments } = setup()
+    expect(
+      codeOf(() =>
+        prepareUpload(
+          { mime_type: 'image/svg+xml', size: PNG.length, sha256: sha256(PNG) },
+          attachments,
+          1024
+        )
+      )
+    ).toBe(-32014)
+  })
+
+  it('size 非正返回 -32010、超限返回 -32013', () => {
+    const { attachments } = setup()
+    expect(
+      codeOf(() =>
+        prepareUpload({ mime_type: 'image/png', size: 0, sha256: sha256(PNG) }, attachments, 1024)
+      )
+    ).toBe(-32010)
+    expect(
+      codeOf(() =>
+        prepareUpload(
+          { mime_type: 'image/png', size: 2048, sha256: sha256(PNG) },
+          attachments,
+          1024
+        )
+      )
+    ).toBe(-32013)
+  })
+
+  it('sha256 非法返回 -32010', () => {
+    const { attachments } = setup()
+    expect(
+      codeOf(() =>
+        prepareUpload(
+          { mime_type: 'image/png', size: PNG.length, sha256: 'xyz' },
+          attachments,
+          1024
+        )
+      )
+    ).toBe(-32010)
   })
 })

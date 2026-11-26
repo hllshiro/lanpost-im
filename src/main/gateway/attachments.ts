@@ -10,7 +10,7 @@ import {
   writeFileSync
 } from 'node:fs'
 import { join } from 'node:path'
-import type { GatewayStore } from './store'
+import type { GatewayAttachmentRow, GatewayStore } from './store'
 import { gwError } from './errors'
 
 const ALLOWED_MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
@@ -176,6 +176,13 @@ export class AttachmentStore {
     return { attachmentId: id }
   }
 
+  /** 取已就绪附件；不存在或仍是 pending 一律按 -32016 处理。 */
+  ready(attachmentId: string): GatewayAttachmentRow {
+    const row = this.store.attachment(attachmentId)
+    if (!row || row.state !== 'ready') throw gwError('ATTACHMENT_NOT_FOUND')
+    return row
+  }
+
   openDownload(attachmentId: string): DownloadInfo | null {
     const row = this.store.attachment(attachmentId)
     if (!row || row.state === 'pending') return null
@@ -188,8 +195,14 @@ export class AttachmentStore {
     }
   }
 
-  consume(attachmentId: string, messageId: string): void {
+  /** 消息被插件 ACK 后保留一段时间再清理。 */
+  markAcked(attachmentId: string, ttlMs = 24 * 60 * 60_000): void {
+    this.store.setAttachmentExpiry(attachmentId, this.now() + ttlMs)
+  }
+
+  consume(attachmentId: string, messageId: string, ttlMs = 24 * 60 * 60_000): void {
     this.store.markAttachmentConsumed(attachmentId, messageId)
+    this.store.setAttachmentExpiry(attachmentId, this.now() + ttlMs)
   }
 
   cleanup(now: number): { removed: number } {
