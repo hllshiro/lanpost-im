@@ -597,7 +597,7 @@ client.connect()
 
 ## 10. 冒烟与验收
 
-网关实现落地后会提供 `scripts/gateway-smoke.mjs`（Node 24），用于服务端与客户端联调；在它出现之前，先用第 9 节的示例代码验证。
+仓库自带 `scripts/gateway-smoke.mjs`（Node 24，需本机已开启网关并复制令牌），用于服务端与对方客户端联调；不依赖额外 npm 包。
 
 ```text
 node scripts/gateway-smoke.mjs --url wss://127.0.0.1:8443/ws/dsh --token <token> list
@@ -605,6 +605,8 @@ node scripts/gateway-smoke.mjs ... send <protocol_id> "hello"
 node scripts/gateway-smoke.mjs ... listen
 node scripts/gateway-smoke.mjs ... upload ./a.png <protocol_id>
 ```
+
+令牌也可用环境变量 `LANPOST_GATEWAY_TOKEN` 传入；脚本默认 10 秒超时，自签证书不校验（仅适合本机联调）。
 
 对方客户端的最小验收：
 

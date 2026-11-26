@@ -1,6 +1,6 @@
 # 开发交接与环境切换
 
-更新：2026-11-12
+更新：2026-11-26
 
 当前仓库只支持内网通 NWT 私有协议，IPMSG、飞秋、飞鸽兼容层已移除。协议细节以 `docs/nwt-private-protocol.md`、`docs/nwt-file-channel.md`、`docs/nwt-compatibility.md` 和 `docs/known-limits.md` 为准。
 
@@ -12,6 +12,7 @@
 - 文件：TCP 9013，proto=1 的 HELLO/ACK/PATH/DATA；文件夹：TCP 9014，proto=2。
 - 群聊、头像、图片、表情与富文本均已接入。
 - 桌面集成：全局快捷键、开机启动、最小化启动、空闲自动离开、在线状态快捷切换、接收目录布局、防火墙检测与修复。
+- Agent 网关（可选，默认关闭）：`src/main/gateway/` 提供 HTTPS + rpc-websockets RPC 与 `/media` 图片通道，经 `src/main/gateway-bridge.ts` 复用 AppService；设置项在「设置 - 网络 - RPC」（需在设置页两秒内连点 5 次解锁网络分类），接口契约见 `docs/gateway-api.md`，冒烟脚本 `scripts/gateway-smoke.mjs`。
 
 ## 新环境准备
 
