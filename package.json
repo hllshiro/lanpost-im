@@ -1,6 +1,6 @@
 {
   "name": "lanpost-im",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "packageManager": "pnpm@12.15.0",
   "description": "内网传书——局域网即时通信客户端",
   "desktopName": "lanpost-im.desktop",
