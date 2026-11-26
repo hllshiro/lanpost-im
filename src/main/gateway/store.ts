@@ -87,6 +87,11 @@ export class GatewayStore {
       .all(afterSequence) as unknown as GatewayEventRow[]
   }
 
+  eventById(eventId: string): GatewayEventRow | null {
+    const row = this.db.prepare(`SELECT * FROM gateway_events WHERE event_id = ?`).get(eventId)
+    return (row as unknown as GatewayEventRow | undefined) ?? null
+  }
+
   ackedEvent(eventId: string): GatewayEventRow | null {
     const row = this.db
       .prepare(`SELECT * FROM gateway_events WHERE event_id = ? AND acked_at > 0`)

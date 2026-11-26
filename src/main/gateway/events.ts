@@ -12,6 +12,8 @@ export interface GwEvent {
 export interface EventLogOptions {
   retentionHours: number
   now?: () => number
+  /** 事件落库后立即回调；GatewayServer 用它把事件推给已订阅的连接。 */
+  onEvent?: (event: GwEvent) => void
 }
 
 interface EventEnvelope {
@@ -73,7 +75,13 @@ export class EventLog {
     })
     const event: GwEvent = { eventId, sequence, method, data }
     this.store.updateEventPayload(sequence, JSON.stringify(toEnvelope(event)))
+    this.options.onEvent?.(event)
     return event
+  }
+
+  get(eventId: string): GwEvent | null {
+    const row = this.store.eventById(eventId)
+    return row ? fromRow(row) : null
   }
 
   pending(afterSequence: number): GwEvent[] {
