@@ -304,7 +304,8 @@ const gatewayStateText = computed(() => {
   if (status.lastError !== '') return `启动失败：${status.lastError}`
   if (!status.enabled) return '未启用'
   if (!status.running) return '正在启动…'
-  return `${status.url || `wss://${status.bindAddr}:${status.port}/ws/dsh`} · ${status.clients} 个连接`
+  const host = status.bindAddr === '0.0.0.0' ? '127.0.0.1' : status.bindAddr
+  return `wss://${host}:${status.port}/ws/dsh · ${status.clients} 个连接`
 })
 
 async function loadGatewayStatus(): Promise<void> {
@@ -953,6 +954,16 @@ onBeforeUnmount(() => {
             <div class="row-text">
               <span class="label">运行状态</span>
               <p class="hint">{{ gatewayStateText }}</p>
+              <p v-if="gatewayStatus?.running" class="hint">
+                使用自签名 TLS 证书，客户端需信任该证书或固定下方指纹；图片通道走同一端口下的
+                https://…/media。
+              </p>
+              <p
+                v-if="gatewayStatus?.running && gatewayStatus.fingerprint"
+                class="hint rpc-fingerprint"
+              >
+                SHA-256：{{ gatewayStatus.fingerprint }}
+              </p>
               <p v-if="gatewayNote" class="hint">{{ gatewayNote }}</p>
             </div>
             <div class="control control-auto">
@@ -1608,6 +1619,12 @@ onBeforeUnmount(() => {
   flex: 1;
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
   font-size: 12px;
+}
+
+.rpc-fingerprint {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .avatar-preview {
